@@ -508,6 +508,13 @@ func (s *Store) InsertFinding(f Finding) (int64, error) {
 	return res.LastInsertId()
 }
 
+// MaxFindingCycle returns the highest cycle number for the given run, or 0 if none.
+func (s *Store) MaxFindingCycle(runID int64) (int, error) {
+	var max int
+	err := s.DB.QueryRow(`SELECT COALESCE(MAX(cycle), 0) FROM findings WHERE run_id=?`, runID).Scan(&max)
+	return max, err
+}
+
 // ===== Tasks =====
 
 type Task struct {

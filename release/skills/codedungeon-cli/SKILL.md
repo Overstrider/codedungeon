@@ -76,6 +76,7 @@ codedungeon phase config feature
 codedungeon prompts get caveman-ultra
 # ... do work (LLM judgment) ...
 codedungeon phase done 5 \
+  --verdict APPROVED \
   --summary "..." --decisions "..." --artifacts "..." \
   --next "..." --promise "PHASE_5_COMPLETE: ..."
 

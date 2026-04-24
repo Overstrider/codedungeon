@@ -101,12 +101,18 @@ func resolveReportTemplate(s *db.Store, name string) (string, error) {
 // metadata (PR numbers live in handoff artifacts). Best-effort; missing data
 // falls back to placeholders so the template always renders.
 func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
-	var entries []struct {
+	type repoEntry struct {
 		Name  string `json:"name"`
 		Stack string `json:"stack"`
 		Lang  string `json:"lang"`
 	}
-	_ = json.Unmarshal(run.RepoMap, &entries)
+	var entries []repoEntry
+	if err := json.Unmarshal(run.RepoMap, &entries); err != nil || len(entries) == 0 {
+		var singleName string
+		if json.Unmarshal(run.RepoMap, &singleName) == nil && singleName != "" {
+			entries = []repoEntry{{Name: singleName}}
+		}
+	}
 
 	// PR numbers from phase-5 handoff artifacts.
 	prMap := map[string]string{}
@@ -114,10 +120,15 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 	if h, _ := s.GetHandoff(run.ID, "5"); h != nil {
 		for _, a := range h.Artifacts {
 			if pr := extractPRNum(a); pr != "" {
+				matched := false
 				for _, e := range entries {
 					if strings.Contains(a, e.Name) {
 						prMap[e.Name] = pr
+						matched = true
 					}
+				}
+				if !matched && len(entries) == 1 {
+					prMap[entries[0].Name] = pr
 				}
 			}
 		}
@@ -156,7 +167,7 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 	return repos
 }
 
-var prNumRE = regexp.MustCompile(`#(\d+)`)
+var prNumRE = regexp.MustCompile(`(?:#|PR\s*#?\s*)(\d+)`)
 
 func extractPRNum(s string) string {
 	if m := prNumRE.FindStringSubmatch(s); len(m) > 1 {

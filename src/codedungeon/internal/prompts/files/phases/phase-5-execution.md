@@ -137,6 +137,7 @@ When this phase is DONE, close it atomically:
 
 ```bash
 codedungeon phase done 5 \
+  --verdict APPROVED \
   --summary "<1-line caveman>" \
   --decisions "<d1>" "<d2>" \
   --artifacts "<path1>" "<path2>" \

@@ -15,6 +15,91 @@ import (
 	"github.com/loldinis/codedungeon/internal/prompts"
 )
 
+// BootstrapResult holds the outcome of a RunBootstrap call.
+type BootstrapResult struct {
+	ProjectRoot        string
+	BinPath            string
+	DBPath             string
+	OS                 string
+	PromptsSeeded      []string
+	ArtifactsInstalled int
+	CDVersion          string
+	Reasoning          string
+	Fast               string
+}
+
+// RunBootstrap performs the core project-level bootstrap.
+// Extracted so both BootstrapCmd (M2M) and SetupCmd (interactive) can call it.
+func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult, error) {
+	claudeDir := filepath.Join(target, ".claude")
+	binDir := filepath.Join(claudeDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return nil, fmt.Errorf("cannot create %s: %w", binDir, err)
+	}
+	dbPath := filepath.Join(claudeDir, "codedungeon.db")
+	binPath := filepath.Join(binDir, "codedungeon"+osadapter.Detect().ExecutableExt())
+
+	if _, err := os.Stat(dbPath); err == nil && !force {
+		return nil, fmt.Errorf("already bootstrapped: %s (use force to overwrite)", dbPath)
+	}
+
+	srcBin, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve running binary: %w", err)
+	}
+	if err := copyFile(srcBin, binPath, 0o755); err != nil {
+		return nil, fmt.Errorf("copy binary: %w", err)
+	}
+
+	s, err := OpenDBNoGuard(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	if err := s.Init(); err != nil {
+		return nil, err
+	}
+
+	seeded, err := seedEmbeddedPrompts(s)
+	if err != nil {
+		return nil, err
+	}
+
+	artifactsInstalled := 0
+	if err := installEmbeddedArtifacts(s); err == nil {
+		if all, err := prompts.Artifacts(); err == nil {
+			artifactsInstalled = len(all)
+		}
+	}
+
+	ad := osadapter.Detect()
+	meta := map[string]string{
+		"os":              ad.OS(),
+		"project_root":    target,
+		"cd_version":      versionString(),
+		"bootstrapped_at": fmt.Sprintf("%d", time.Now().Unix()),
+		"model_reasoning": reasoning,
+		"model_fast":      fast,
+	}
+	for k, v := range meta {
+		if err := s.SetMeta(k, v); err != nil {
+			return nil, err
+		}
+	}
+
+	return &BootstrapResult{
+		ProjectRoot:        target,
+		BinPath:            binPath,
+		DBPath:             dbPath,
+		OS:                 ad.OS(),
+		PromptsSeeded:      seeded,
+		ArtifactsInstalled: artifactsInstalled,
+		CDVersion:          versionString(),
+		Reasoning:          reasoning,
+		Fast:               fast,
+	}, nil
+}
+
 // BootstrapCmd self-copies codedungeon into <project>/.claude/bin/, creates
 // the DB, and records project_root + os + cd_version in meta. First-run flow.
 func BootstrapCmd() *cobra.Command {
@@ -35,17 +120,13 @@ Requires .git at the target (or --init-git to create one — not default).`,
 			}
 			target, _ = filepath.Abs(target)
 
-			// Guard: never bootstrap under home .claude.
 			if IsHomeClaude(target) {
 				return EmitPreflightErr(ErrHomeClaude)
 			}
-
-			// Require .git at target — never auto-init.
 			if !HasGit(target) {
 				return EmitPreflightErr(ErrNoGit)
 			}
 
-			// Models must be specified (M2M: agent parses error and re-invokes).
 			if reasoning == "" || fast == "" {
 				_ = EmitJSON(map[string]any{
 					"error":        "models-not-configured",
@@ -57,82 +138,24 @@ Requires .git at the target (or --init-git to create one — not default).`,
 				return fmt.Errorf("models not configured")
 			}
 
-			// Layout: <target>/.claude/bin/codedungeon + <target>/.claude/codedungeon.db
-			claudeDir := filepath.Join(target, ".claude")
-			binDir := filepath.Join(claudeDir, "bin")
-			if err := os.MkdirAll(binDir, 0o755); err != nil {
-				return EmitErr(err.Error(), "cannot create "+binDir)
-			}
-			dbPath := filepath.Join(claudeDir, "codedungeon.db")
-			binPath := filepath.Join(binDir, "codedungeon"+osadapter.Detect().ExecutableExt())
-
-			// Refuse if already bootstrapped (unless --force).
-			if _, err := os.Stat(dbPath); err == nil && !force {
-				return EmitErr("already bootstrapped: "+dbPath, "use --force to overwrite, or just call `codedungeon db migrate`")
-			}
-
-			// Self-copy the running binary.
-			srcBin, err := os.Executable()
-			if err != nil {
-				return EmitErr("cannot resolve running binary: "+err.Error(), "")
-			}
-			if err := copyFile(srcBin, binPath, 0o755); err != nil {
-				return EmitErr("copy binary: "+err.Error(), "")
-			}
-
-			// Init DB.
-			s, err := OpenDBNoGuard(dbPath)
+			result, err := RunBootstrap(target, reasoning, fast, force)
 			if err != nil {
 				return EmitErr(err.Error(), "")
-			}
-			defer s.Close()
-			if err := s.Init(); err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			// Seed embedded prompts (idempotent).
-			seeded, err := seedEmbeddedPrompts(s)
-			if err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			// Install embedded artifacts (agents/skills/commands/phases) into .claude/.
-			// Best-effort: failures here don't block bootstrap; user can re-run
-			// `codedungeon install` separately.
-			artifactsInstalled := 0
-			if err := installEmbeddedArtifacts(s); err == nil {
-				if all, err := prompts.Artifacts(); err == nil {
-					artifactsInstalled = len(all)
-				}
-			}
-			_ = artifactsInstalled
-			// Record project meta.
-			ad := osadapter.Detect()
-			meta := map[string]string{
-				"os":              ad.OS(),
-				"project_root":    target,
-				"cd_version":      versionString(),
-				"bootstrapped_at": fmt.Sprintf("%d", time.Now().Unix()),
-				"model_reasoning": reasoning,
-				"model_fast":      fast,
-			}
-			for k, v := range meta {
-				if err := s.SetMeta(k, v); err != nil {
-					return EmitErr(err.Error(), "")
-				}
 			}
 
 			return EmitJSON(map[string]any{
 				"ok":                  true,
 				"bootstrapped":        true,
-				"project_root":        target,
-				"bin":                 binPath,
-				"db":                  dbPath,
-				"os":                  ad.OS(),
-				"prompts_seeded":      seeded,
-				"artifacts_installed": artifactsInstalled,
-				"cd_version":          versionString(),
+				"project_root":        result.ProjectRoot,
+				"bin":                 result.BinPath,
+				"db":                  result.DBPath,
+				"os":                  result.OS,
+				"prompts_seeded":      result.PromptsSeeded,
+				"artifacts_installed": result.ArtifactsInstalled,
+				"cd_version":          result.CDVersion,
 				"models": map[string]string{
-					"reasoning": reasoning,
-					"fast":      fast,
+					"reasoning": result.Reasoning,
+					"fast":      result.Fast,
 				},
 			})
 		},

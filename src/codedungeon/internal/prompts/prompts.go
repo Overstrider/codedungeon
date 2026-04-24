@@ -85,6 +85,11 @@ func hasInstallPrefix(rel string) bool {
 	return false
 }
 
+// GetRaw reads a specific file from the embedded FS by relative path.
+func GetRaw(relPath string) ([]byte, error) {
+	return fsys.ReadFile("files/" + relPath)
+}
+
 // List returns logical prompt names that should live in the `prompts` table:
 // top-level files under files/ + persona-schemas/*.json. Excludes the install
 // tree (agents/, skills/, commands/, phases/) — those go via Artifacts().

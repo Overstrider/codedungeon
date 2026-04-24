@@ -15,7 +15,7 @@ import (
 // persistFindings writes each finding into the findings table of the active
 // run so FTS5 search picks them up. Best-effort: silent on error (findings are
 // also written to review.json which is the authoritative snapshot).
-func persistFindings(store *db.Store, findings []reviewpipe.Finding) {
+func persistFindings(store *db.Store, findings []reviewpipe.Finding, cycle int) {
 	if store == nil {
 		return
 	}
@@ -23,11 +23,13 @@ func persistFindings(store *db.Store, findings []reviewpipe.Finding) {
 	if err != nil || run == nil {
 		return
 	}
-	// Cycle is tracked by the caller (codedungeon-loop passes --cycle). For now we
-	// default to the current run's adversarial cycle = number of times review
-	// has run on this branch. Simplest signal: count existing findings for this
-	// run + 1.
-	cycle := 1 // TODO: pass via flag when codedungeon-loop wires it
+	if cycle <= 0 {
+		if max, err := store.MaxFindingCycle(run.ID); err == nil {
+			cycle = max + 1
+		} else {
+			cycle = 1
+		}
+	}
 	for _, f := range findings {
 		raw, _ := json.Marshal(f)
 		_, _ = store.InsertFinding(db.Finding{
@@ -69,6 +71,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			validatorModel, _ := c.Flags().GetString("validator-model")
 			classifierModel, _ := c.Flags().GetString("classifier-model")
 			stackSpec, _ := c.Flags().GetString("stack-specialist")
+			cycle, _ := c.Flags().GetInt("cycle")
 
 			if dir == "" {
 				dir = filepath.Join(".claude", "plan", "adv-review")
@@ -136,7 +139,15 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			if store != nil {
 				defer store.Close()
 			}
-			md, rj, err := reviewpipe.Render(store, merged, tally, verdict, personas, validatorModel, classifierModel, stackSpec)
+			validatorLabel := validatorModel
+			if len(validators) == 0 {
+				validatorLabel = "SKIPPED"
+			}
+			classifierLabel := classifierModel
+			if len(classifiers) == 0 {
+				classifierLabel = "SKIPPED"
+			}
+			md, rj, err := reviewpipe.Render(store, merged, tally, verdict, personas, validatorLabel, classifierLabel, stackSpec)
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
@@ -147,7 +158,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 				return EmitErr(err.Error(), "")
 			}
 			// Persist findings into DB so FTS5 search + history work across runs.
-			persistFindings(store, merged)
+			persistFindings(store, merged, cycle)
 			if only == "render" {
 				return EmitJSON(map[string]any{"ok": true, "step": "render", "path_md": filepath.Join(dir, "review.md"), "path_json": filepath.Join(dir, "review.json")})
 			}
@@ -169,6 +180,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 	c.Flags().String("validator-model", "sonnet-4.6", "label for review.json metadata")
 	c.Flags().String("classifier-model", "sonnet-4.6", "label for review.json metadata")
 	c.Flags().String("stack-specialist", "", "e.g. rust-specialist (optional)")
+	c.Flags().Int("cycle", 0, "adversarial review cycle (0 = auto-detect as MAX(cycle)+1)")
 	return c
 }
 

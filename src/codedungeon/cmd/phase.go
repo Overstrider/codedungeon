@@ -106,10 +106,10 @@ func phaseTerminal(status string) *cobra.Command {
 		RunE: func(c *cobra.Command, args []string) error {
 			phase := args[0]
 			summary, _ := c.Flags().GetString("summary")
-			decisions, _ := c.Flags().GetStringSlice("decisions")
-			artifacts, _ := c.Flags().GetStringSlice("artifacts")
-			traps, _ := c.Flags().GetStringSlice("traps")
-			questions, _ := c.Flags().GetStringSlice("questions")
+			decisions, _ := c.Flags().GetStringArray("decisions")
+			artifacts, _ := c.Flags().GetStringArray("artifacts")
+			traps, _ := c.Flags().GetStringArray("traps")
+			questions, _ := c.Flags().GetStringArray("questions")
 			nextInput, _ := c.Flags().GetString("next")
 			promise, _ := c.Flags().GetString("promise")
 			reason, _ := c.Flags().GetString("reason")
@@ -133,6 +133,53 @@ func phaseTerminal(status string) *cobra.Command {
 				notes = summary
 			}
 
+			// Verdict gate: phases 5 and 7 require --verdict for DONE.
+			var gatedPhases = map[string]bool{"5": true, "7": true}
+			if status == "DONE" && gatedPhases[phase] {
+				verdict, _ := c.Flags().GetString("verdict")
+				if phase == "5" {
+					if verdict == "" {
+						return EmitErr("--verdict is required for `phase done 5`",
+							"pass --verdict APPROVED or --verdict CHANGES_REQUESTED")
+					}
+					if verdict != "APPROVED" {
+						forceEsc, _ := c.Flags().GetString("force-escalate")
+						if forceEsc == "" {
+							return EmitErr("phase-5-not-approved",
+								"run fix loop OR --force-escalate \"human-triage: <reason>\"")
+						}
+						status = "FAIL"
+						if promise == "" {
+							promise = fmt.Sprintf("PHASE_%s_FAILED: %s", phaseLabel(phase), forceEsc)
+						}
+						notes = "ESCALATED: " + forceEsc
+					}
+				}
+				if phase == "7" {
+					forceReport, _ := c.Flags().GetBool("force-report")
+					if !forceReport {
+						gs, gErr := OpenDB(c)
+						if gErr == nil {
+							run, rErr := gs.CurrentRun()
+							if rErr == nil && run != nil {
+								phases, _ := gs.AllPhases(run.ID)
+								for _, p := range phases {
+									if p.Phase == "7" {
+										break
+									}
+									if p.Status == "FAIL" {
+										gs.Close()
+										return EmitErr("phase-7-blocked: phase "+p.Phase+" is FAIL",
+											"fix upstream phase or pass --force-report")
+									}
+								}
+							}
+							gs.Close()
+						}
+					}
+				}
+			}
+
 			if status == "DONE" && promise == "" {
 				return EmitErr("--promise is required for `codedungeon phase done`", "e.g. --promise 'PHASE_5_COMPLETE: ...'")
 			}
@@ -150,15 +197,18 @@ func phaseTerminal(status string) *cobra.Command {
 		},
 	}
 	c.Flags().String("summary", "", "1-line summary (required for DONE; optional for SKIP/FAIL if --reason given)")
-	c.Flags().StringSlice("decisions", nil, "key decisions (repeatable, or comma-separated)")
-	c.Flags().StringSlice("artifacts", nil, "artifacts produced (paths)")
-	c.Flags().StringSlice("traps", nil, "traps/warnings for next phase")
-	c.Flags().StringSlice("questions", nil, "open questions")
+	c.Flags().StringArray("decisions", nil, "key decisions (repeatable)")
+	c.Flags().StringArray("artifacts", nil, "artifacts produced (paths, repeatable)")
+	c.Flags().StringArray("traps", nil, "traps/warnings for next phase (repeatable)")
+	c.Flags().StringArray("questions", nil, "open questions (repeatable)")
 	c.Flags().String("next", "", "next phase input (paths)")
 	c.Flags().String("promise", "", "canonical promise line (last line of handoff)")
 	c.Flags().String("reason", "", "reason (for skip/fail)")
 	c.Flags().String("notes", "", "override notes column in phase_status (default: summary)")
 	c.Flags().String("write-file", "", "also write handoff markdown to this path")
+	c.Flags().String("verdict", "", "review verdict (APPROVED|CHANGES_REQUESTED), required for phases 5/7")
+	c.Flags().String("force-escalate", "", "override non-APPROVED verdict on phase 5 (escalation reason)")
+	c.Flags().Bool("force-report", false, "force phase-7 report despite upstream FAIL phases")
 	return c
 }
 

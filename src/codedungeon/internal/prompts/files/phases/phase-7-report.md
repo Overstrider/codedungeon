@@ -42,6 +42,7 @@ Emit the contents to the user.
 
 ```bash
 codedungeon phase done 7 \
+  --verdict APPROVED \
   --summary "push verified, final report emitted" \
   --artifacts ".claude/plan/pipeline-state.md" \
   --promise "PHASE_7_COMPLETE: pipeline done"

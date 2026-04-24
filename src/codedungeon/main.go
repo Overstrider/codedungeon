@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -48,6 +49,20 @@ func main() {
 	root.AddCommand(cmd.StatusCmd())
 	root.AddCommand(cmd.SpawnCmd())
 	root.AddCommand(cmd.MapCmd())
+	root.AddCommand(cmd.SetupCmd())
+
+	root.RunE = func(c *cobra.Command, args []string) error {
+		cwd, _ := os.Getwd()
+		projectRoot := cmd.ResolveProjectRoot(cwd)
+		dbPath := filepath.Join(projectRoot, ".claude", "codedungeon.db")
+		if cmd.HasGit(projectRoot) {
+			if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+				fmt.Fprint(os.Stderr, "This project is not initialized. Run:\n\n  codedungeon setup\n\n")
+				return nil
+			}
+		}
+		return c.Help()
+	}
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "[ERROR]", err)
