@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/provider"
 	"github.com/loldinis/codedungeon/internal/reviewpipe"
 )
 
@@ -74,7 +75,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			cycle, _ := c.Flags().GetInt("cycle")
 
 			if dir == "" {
-				dir = filepath.Join(".claude", "plan", "adv-review")
+				dir = filepath.Join(provider.Detect().PlanDir(), "adv-review")
 			}
 			if _, err := os.Stat(dir); err != nil {
 				return EmitErr("findings dir not found: "+dir, "create it or pass --dir")
@@ -210,17 +211,17 @@ func reviewContextPathsCmd() *cobra.Command {
 					break
 				}
 			}
+			p := provider.Detect()
 			var taskFiles []string
-			// Task files (Spec Enforcer hint).
-			matches, _ := filepath.Glob(filepath.Join(absRepo, ".claude", "tasks", "**", "task-*.md"))
+			matches, _ := filepath.Glob(filepath.Join(absRepo, p.TasksDir(), "**", "task-*.md"))
 			taskFiles = append(taskFiles, matches...)
 
 			return EmitJSON(map[string]any{
 				"ok":              true,
 				"project_root":    projectRoot,
 				"repo":            absRepo,
-				"claude_md_root":  existsOr(filepath.Join(projectRoot, "CLAUDE.md")),
-				"claude_md_repo":  existsOr(filepath.Join(absRepo, "CLAUDE.md")),
+				"agent_config_root": existsOr(filepath.Join(projectRoot, p.AgentConfigFile())),
+				"agent_config_repo": existsOr(filepath.Join(absRepo, p.AgentConfigFile())),
 				"review_md":       existsOr(filepath.Join(absRepo, "REVIEW.md")),
 				"architecture_md": firstExisting(filepath.Join(absRepo, "ARCHITECTURE.md"), filepath.Join(absRepo, "docs", "ARCHITECTURE.md")),
 				"adr_paths":       adrs,

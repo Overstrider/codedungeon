@@ -2,39 +2,45 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
-// PHASE_TIER maps phase label → model tier (reasoning|fast).
-// Deep-thinking phases use the reasoning tier; orchestration/fast phases the fast tier.
 var phaseTier = map[string]string{
 	"0": "fast", "1": "reasoning", "2'": "reasoning", "3.5": "fast",
 	"4": "reasoning", "5": "fast", "5.5": "fast", "5.6": "reasoning",
 	"6": "fast", "7": "fast",
 }
 
-// phaseThinking is the max_thinking_tokens budget per phase (§12 of spec).
 var phaseThinking = map[string]int{
 	"0": 0, "1": 32000, "2'": 8000, "3.5": 2000, "4": 32000,
 	"5": 2000, "5.5": 2000, "5.6": 32000, "6": 2000, "7": 0,
 }
 
-// phasePhaseFile maps phase label → phase instruction file path (project-local first).
-var phaseFile = map[string]string{
-	"0":   ".claude/phases/entrance-hall-validation.md",
-	"1":   ".claude/phases/war-room-architect.md",
-	"2'":  ".claude/phases/guild-quarter-domain.md",
-	"3.5": ".claude/phases/trap-workshop-qa.md",
-	"4":   ".claude/phases/armory-decomposition.md",
-	"5":   ".claude/phases/forge-execution.md",
-	"5.5": ".claude/phases/crucible-qa-refine.md",
-	"5.6": ".claude/phases/laboratory-test-decomp.md",
-	"6":   ".claude/phases/arena-tests.md",
-	"7":   ".claude/phases/throne-room-report.md",
+var phaseFileNames = map[string]string{
+	"0":   "entrance-hall-validation.md",
+	"1":   "war-room-architect.md",
+	"2'":  "guild-quarter-domain.md",
+	"3.5": "trap-workshop-qa.md",
+	"4":   "armory-decomposition.md",
+	"5":   "forge-execution.md",
+	"5.5": "crucible-qa-refine.md",
+	"5.6": "laboratory-test-decomp.md",
+	"6":   "arena-tests.md",
+	"7":   "throne-room-report.md",
+}
+
+func phaseFilePath(phase string) (string, bool) {
+	name, ok := phaseFileNames[phase]
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(provider.Detect().PhasesDir(), name), true
 }
 
 // SpawnCmd emits a ready-to-use spawn prompt for a phase agent.
@@ -52,7 +58,7 @@ not have to narrate it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			phase := args[0]
-			file, ok := phaseFile[phase]
+			file, ok := phaseFilePath(phase)
 			if !ok {
 				return EmitErr("unknown phase: "+phase, "valid: 0, 1, 2', 3.5, 4, 5, 5.5, 5.6, 6, 7")
 			}

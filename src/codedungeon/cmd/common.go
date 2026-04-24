@@ -12,13 +12,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/db"
-	"github.com/loldinis/codedungeon/internal/osadapter"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 // ---- Preflight guards ----
 
-// ErrHomeClaude is returned when the CWD is under a user's home .claude dir.
-var ErrHomeClaude = errors.New("refuse: codedungeon must not run inside ~/.claude or /root/.claude — use a project directory")
+// ErrHomeConfig is returned when the CWD is under a provider's home config dir.
+var ErrHomeConfig = errors.New("refuse: codedungeon must not run inside the provider's home config directory — use a project directory")
 
 // ErrNoGit is returned when the project root has no .git/.
 var ErrNoGit = errors.New("refuse: project root has no .git — codedungeon requires a git repository")
@@ -44,21 +44,14 @@ func ResolveProjectRoot(start string) string {
 	return abs
 }
 
-// IsHomeClaude returns true if path is under a user's home .claude dir.
-func IsHomeClaude(path string) bool {
-	ad := osadapter.Detect()
-	home := ad.HomeDir()
+// IsHomeConfig returns true if path is under the provider's home config dir.
+func IsHomeConfig(path string) bool {
 	abs, _ := filepath.Abs(path)
 	abs = filepath.Clean(abs)
-	if home != "" {
-		hc := filepath.Join(home, ".claude")
-		if abs == hc || strings.HasPrefix(abs, hc+string(filepath.Separator)) {
+	for _, guard := range provider.Detect().HomeGuardPaths() {
+		if abs == guard || strings.HasPrefix(abs, guard+string(filepath.Separator)) {
 			return true
 		}
-	}
-	// Extra guard: root user on Linux (home=/root).
-	if strings.HasPrefix(abs, "/root/.claude/") || abs == "/root/.claude" {
-		return true
 	}
 	return false
 }
@@ -69,14 +62,14 @@ func HasGit(dir string) bool {
 	return err == nil
 }
 
-// GuardHomeClaude refuses if CWD (or its project-root) is under any home .claude.
-func GuardHomeClaude() error {
+// GuardHomeConfig refuses if CWD is under the provider's home config dir.
+func GuardHomeConfig() error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	if IsHomeClaude(cwd) {
-		return ErrHomeClaude
+	if IsHomeConfig(cwd) {
+		return ErrHomeConfig
 	}
 	return nil
 }
@@ -97,7 +90,7 @@ func GuardGit() error {
 // Preflight runs both guards. Used by all DB-touching commands.
 // `bootstrap` and `version` bypass this by not calling OpenDB / Preflight.
 func Preflight() error {
-	if err := GuardHomeClaude(); err != nil {
+	if err := GuardHomeConfig(); err != nil {
 		return err
 	}
 	if err := GuardGit(); err != nil {
@@ -119,7 +112,7 @@ func OpenDB(c *cobra.Command) (*db.Store, error) {
 	if path == "" {
 		cwd, _ := os.Getwd()
 		root := ResolveProjectRoot(cwd)
-		path = filepath.Join(root, ".claude", "codedungeon.db")
+		path = filepath.Join(root, provider.Detect().DBPath())
 	}
 	s, err := db.Open(path)
 	if err != nil {
@@ -165,7 +158,7 @@ var skipAutoMigrate = map[string]bool{
 func OpenDBNoGuard(path string) (*db.Store, error) {
 	if path == "" {
 		cwd, _ := os.Getwd()
-		path = filepath.Join(cwd, ".claude", "codedungeon.db")
+		path = filepath.Join(cwd, provider.Detect().DBPath())
 	}
 	return db.Open(path)
 }
@@ -190,8 +183,8 @@ func EmitPreflightErr(err error) error {
 	var msg, hint, action string
 	msg = err.Error()
 	switch {
-	case errors.Is(err, ErrHomeClaude):
-		hint = "cd into a project directory that is NOT under ~/.claude or /root/.claude"
+	case errors.Is(err, ErrHomeConfig):
+		hint = "cd into a project directory that is NOT under the provider's home config directory"
 		action = "change-directory"
 	case errors.Is(err, ErrNoGit):
 		hint = "run `git init` in the project root, OR invoke `codedungeon bootstrap --target <path>`"

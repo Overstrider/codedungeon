@@ -12,6 +12,7 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 // InstallCmd: walk embedded tree → write to <project>/.claude/<relpath>.
@@ -91,12 +92,13 @@ func StatusCmd() *cobra.Command {
 				embSHA[a.RelPath] = sha256Hex(a.Content)
 			}
 
+			configDir := provider.Detect().ConfigDir()
 			rows := []map[string]any{}
 			cwd, _ := os.Getwd()
 			root := ResolveProjectRoot(cwd)
 			for _, a := range arts {
 				status := "synced"
-				disk := filepath.Join(root, ".claude", a.RelPath)
+				disk := filepath.Join(root, configDir, a.RelPath)
 				if data, err := os.ReadFile(disk); err == nil {
 					diskSHA := sha256Hex(data)
 					if diskSHA != a.SHA256 {
@@ -138,13 +140,14 @@ func runInstall(c *cobra.Command) error {
 func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 	cwd, _ := os.Getwd()
 	root := ResolveProjectRoot(cwd)
+	configDir := provider.Detect().ConfigDir()
 	embedded, err := prompts.Artifacts()
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
 	var wrote, skipped, forced []string
 	for _, a := range embedded {
-		disk := filepath.Join(root, ".claude", a.RelPath)
+		disk := filepath.Join(root, configDir, a.RelPath)
 		embSHA := sha256Hex(a.Content)
 
 		// Detect user modification: disk SHA != DB-recorded SHA.

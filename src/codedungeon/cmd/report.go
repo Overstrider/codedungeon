@@ -12,6 +12,7 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 func ReportCmd() *cobra.Command {
@@ -204,8 +205,9 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 	// Conventional plan paths.
 	var domainPlans, qaPlans []string
 	for _, r := range repos {
-		domainPlans = append(domainPlans, fmt.Sprintf(".claude/plan/%splan.md", r.Name))
-		qaPlans = append(qaPlans, fmt.Sprintf(".claude/plan/%sqaplan.md", r.Name))
+		planDir := provider.Detect().PlanDir()
+		domainPlans = append(domainPlans, fmt.Sprintf("%s/%splan.md", planDir, r.Name))
+		qaPlans = append(qaPlans, fmt.Sprintf("%s/%sqaplan.md", planDir, r.Name))
 	}
 	testBugs := 0
 	for _, p := range phases {

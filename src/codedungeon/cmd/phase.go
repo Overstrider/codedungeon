@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 var _ = json.RawMessage{}
@@ -280,7 +281,7 @@ func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []str
 			return runResult{err: EmitErr(err.Error(), "")}
 		}
 		// Also write to .claude/state/phase-{N}-output.md next to cwd.
-		outPath := filepath.Join(".claude", "state", "phase-"+phaseLabel(phase)+"-output.md")
+		outPath := filepath.Join(provider.Detect().StateDir(), "phase-"+phaseLabel(phase)+"-output.md")
 		_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
 		_ = os.WriteFile(outPath, []byte(rendered), 0o644)
 	}
@@ -495,7 +496,7 @@ func phaseRenderStateCmd() *cobra.Command {
 			body := renderPipelineStateMD(run, phases)
 			out, _ := c.Flags().GetString("out")
 			if out == "" {
-				out = filepath.Join(".claude", "plan", "pipeline-state.md")
+				out = filepath.Join(provider.Detect().PlanDir(), "pipeline-state.md")
 			}
 			_ = os.MkdirAll(filepath.Dir(out), 0o755)
 			if err := os.WriteFile(out, []byte(body), 0o644); err != nil {

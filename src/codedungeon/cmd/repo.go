@@ -11,11 +11,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/manifest"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 // excludedDirs are skipped when scanning for sub-repos.
 var excludedDirs = map[string]bool{
-	".claude": true, ".git": true, "node_modules": true, ".next": true,
+	provider.Detect().ConfigDir(): true, ".git": true, "node_modules": true, ".next": true,
 	"target": true, "build": true, ".gradle": true, ".venv": true, "venv": true,
 	"dist": true, "docs": true, "scripts": true, "vendor": true, ".cache": true,
 	".idea": true, ".vscode": true, "__pycache__": true, ".pytest_cache": true,
@@ -62,7 +63,7 @@ func repoDiscoverCmd() *cobra.Command {
 
 			// Optionally upsert CLAUDE.md.
 			if writeCM && len(result.RepoMap) > 0 {
-				if err := upsertRepositoriesTable(filepath.Join(root, "CLAUDE.md"), result.RepoMap); err != nil {
+				if err := upsertRepositoriesTable(filepath.Join(root, provider.Detect().AgentConfigFile()), result.RepoMap); err != nil {
 					// Non-fatal: log + continue.
 					fmt.Fprintln(os.Stderr, "[WARN] CLAUDE.md upsert failed:", err)
 				}
@@ -237,7 +238,7 @@ func repoCheckTestAuthCmd() *cobra.Command {
 				if e.Lang == "kotlin" || e.Lang == "swift" {
 					continue
 				}
-				cm := filepath.Join(e.Path, "CLAUDE.md")
+				cm := filepath.Join(e.Path, provider.Detect().AgentConfigFile())
 				b, err := os.ReadFile(cm)
 				if err != nil {
 					missing = append(missing, e.Name)
@@ -348,7 +349,8 @@ func renderCodedungeonSection() string {
 	b.WriteString("| `/minidungeon` | Simple tasks, single-repo. Plan in plan mode first, then `/minidungeon` splits, executes, reviews, creates PR. |\n")
 	b.WriteString("| `/codedungeon-dev-cycle` | Complex features, multi-repo. Full 10-phase pipeline with architect, QA, tests, formal report. |\n")
 	b.WriteString("| `/code-review` | Standalone adversarial review on current branch (Opus 4.7 persona fanout + Sonnet validators). |\n")
-	b.WriteString("\nSubagents, skills, and phases installed in `.claude/`. CLI binary at `.claude/bin/codedungeon`.\n")
+	p := provider.Detect()
+	b.WriteString(fmt.Sprintf("\nSubagents, skills, and phases installed in `%s/`. CLI binary at `%s/codedungeon`.\n", p.ConfigDir(), p.BinDir()))
 	return b.String()
 }
 

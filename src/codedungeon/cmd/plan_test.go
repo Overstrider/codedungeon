@@ -63,7 +63,7 @@ func TestSlugify(t *testing.T) {
 	}
 }
 
-func TestIsHomeClaude(t *testing.T) {
+func TestIsHomeConfig(t *testing.T) {
 	cases := []struct {
 		in   string
 		want bool
@@ -74,9 +74,9 @@ func TestIsHomeClaude(t *testing.T) {
 		{"/home/x/.claudeproject", false},
 	}
 	for _, c := range cases {
-		got := IsHomeClaude(c.in)
+		got := IsHomeConfig(c.in)
 		if got != c.want {
-			t.Errorf("IsHomeClaude(%q) = %v, want %v", c.in, got, c.want)
+			t.Errorf("IsHomeConfig(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }

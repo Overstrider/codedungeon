@@ -31,11 +31,15 @@ type Store struct {
 	Path string
 }
 
-// DefaultPath resolves the project-local db path: <cwd>/.claude/codedungeon.db.
-// Caller must guarantee <cwd> is a valid project root — cmd/common.go has guards.
-func DefaultPath() string {
+// DefaultPath resolves the project-local db path: <cwd>/<configDir>/codedungeon.db.
+// configDir defaults to ".claude" when empty. Caller should pass provider.Detect().ConfigDir().
+func DefaultPath(configDir ...string) string {
+	dir := ".claude"
+	if len(configDir) > 0 && configDir[0] != "" {
+		dir = configDir[0]
+	}
 	cwd, _ := os.Getwd()
-	return filepath.Join(cwd, ".claude", "codedungeon.db")
+	return filepath.Join(cwd, dir, "codedungeon.db")
 }
 
 // Meta helpers

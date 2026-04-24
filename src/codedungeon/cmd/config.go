@@ -4,24 +4,15 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
-// ModelDefaults suggested in ask-user-models error. Kept consistent with
-// Anthropic's current lineup (see bootstrap.go for the JSON surface).
-var ModelDefaults = struct {
-	Reasoning string `json:"reasoning"`
-	Fast      string `json:"fast"`
-}{
-	Reasoning: "claude-opus-4-7",
-	Fast:      "claude-sonnet-4-6",
-}
+var prov = provider.Detect()
 
-// ModelAlternatives are proposed pairs the agent can offer to the user.
-var ModelAlternatives = []map[string]string{
-	{"reasoning": "claude-opus-4-7", "fast": "claude-sonnet-4-6"},
-	{"reasoning": "claude-opus-4-7", "fast": "claude-haiku-4-5"},
-	{"reasoning": "claude-sonnet-4-6", "fast": "claude-haiku-4-5"},
-}
+var ModelDefaults = prov.DefaultModels()
+
+var ModelAlternatives = prov.ModelAlternatives()
 
 func ConfigCmd() *cobra.Command {
 	c := &cobra.Command{Use: "config", Short: "Read/write pipeline config (models, etc.)"}

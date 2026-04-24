@@ -13,6 +13,7 @@ import (
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 // BootstrapResult holds the outcome of a RunBootstrap call.
@@ -31,12 +32,12 @@ type BootstrapResult struct {
 // RunBootstrap performs the core project-level bootstrap.
 // Extracted so both BootstrapCmd (M2M) and SetupCmd (interactive) can call it.
 func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult, error) {
-	claudeDir := filepath.Join(target, ".claude")
-	binDir := filepath.Join(claudeDir, "bin")
+	p := provider.Detect()
+	binDir := filepath.Join(target, p.BinDir())
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create %s: %w", binDir, err)
 	}
-	dbPath := filepath.Join(claudeDir, "codedungeon.db")
+	dbPath := filepath.Join(target, p.DBPath())
 	binPath := filepath.Join(binDir, "codedungeon"+osadapter.Detect().ExecutableExt())
 
 	if _, err := os.Stat(dbPath); err == nil && !force {
@@ -87,8 +88,8 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 		}
 	}
 
-	// Upsert codedungeon quick-reference in CLAUDE.md (best-effort).
-	claudeMD := filepath.Join(target, "CLAUDE.md")
+	// Upsert codedungeon quick-reference in agent config file (best-effort).
+	claudeMD := filepath.Join(target, p.AgentConfigFile())
 	if err := upsertCodedungeonSection(claudeMD); err != nil {
 		fmt.Fprintln(os.Stderr, "[WARN] CLAUDE.md upsert failed:", err)
 	}
@@ -126,8 +127,8 @@ Requires .git at the target (or --init-git to create one — not default).`,
 			}
 			target, _ = filepath.Abs(target)
 
-			if IsHomeClaude(target) {
-				return EmitPreflightErr(ErrHomeClaude)
+			if IsHomeConfig(target) {
+				return EmitPreflightErr(ErrHomeConfig)
 			}
 			if !HasGit(target) {
 				return EmitPreflightErr(ErrNoGit)
@@ -184,7 +185,7 @@ func installEmbeddedArtifacts(s *db.Store) error {
 		return err
 	}
 	for _, a := range embedded {
-		disk := filepath.Join(root, ".claude", a.RelPath)
+		disk := filepath.Join(root, provider.Detect().ConfigDir(), a.RelPath)
 		if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
 			return err
 		}

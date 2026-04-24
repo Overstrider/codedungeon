@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,16 +13,32 @@ import (
 	"github.com/loldinis/codedungeon/internal/manifest"
 	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
-var modelTiers = []struct {
+func buildModelTiers() []struct {
 	Label     string
 	Reasoning string
 	Fast      string
-}{
-	{"Opus 4.7 + Sonnet 4.6  [recommended]", "claude-opus-4-7", "claude-sonnet-4-6"},
-	{"Opus 4.7 + Haiku 4.5", "claude-opus-4-7", "claude-haiku-4-5"},
-	{"Sonnet 4.6 + Haiku 4.5", "claude-sonnet-4-6", "claude-haiku-4-5"},
+} {
+	alts := provider.Detect().ModelAlternatives()
+	var tiers []struct {
+		Label     string
+		Reasoning string
+		Fast      string
+	}
+	for i, a := range alts {
+		label := a.Reasoning + " + " + a.Fast
+		if i == 0 {
+			label += "  [recommended]"
+		}
+		tiers = append(tiers, struct {
+			Label     string
+			Reasoning string
+			Fast      string
+		}{label, a.Reasoning, a.Fast})
+	}
+	return tiers
 }
 
 func SetupCmd() *cobra.Command {
@@ -70,11 +85,11 @@ func runSetup(c *cobra.Command, _ []string) error {
 		printDetail(fmt.Sprintf("Project: %s", target))
 	}
 
-	if IsHomeClaude(target) {
+	if IsHomeConfig(target) {
 		if interactive {
-			printErr("Cannot run inside ~/.claude. cd to a project directory.")
+			printErr("Cannot run inside provider config directory. cd to a project directory.")
 		}
-		return EmitPreflightErr(ErrHomeClaude)
+		return EmitPreflightErr(ErrHomeConfig)
 	}
 
 	if !HasGit(target) {
@@ -115,9 +130,7 @@ func runSetup(c *cobra.Command, _ []string) error {
 		} else {
 			globalStatus = status
 			if interactive {
-				ad := osadapter.Detect()
-				plugDir := filepath.Join(ad.HomeDir(), ".claude", "plugins", "local", "codedungeon")
-				printOK("Plugin:", plugDir+" ["+status+"]")
+				printOK("Plugin:", provider.Detect().PluginDir()+" ["+status+"]")
 			}
 		}
 	} else {
@@ -135,13 +148,14 @@ func runSetup(c *cobra.Command, _ []string) error {
 
 	if reasoning == "" || fast == "" {
 		if interactive {
+			tiers := buildModelTiers()
 			var labels []string
-			for _, t := range modelTiers {
+			for _, t := range tiers {
 				labels = append(labels, t.Label)
 			}
 			choice := promptChoice("Select model tier:", labels, 0)
-			reasoning = modelTiers[choice].Reasoning
-			fast = modelTiers[choice].Fast
+			reasoning = tiers[choice].Reasoning
+			fast = tiers[choice].Fast
 		} else {
 			reasoning = ModelDefaults.Reasoning
 			fast = ModelDefaults.Fast
@@ -160,7 +174,7 @@ func runSetup(c *cobra.Command, _ []string) error {
 	}
 
 	// Check if already bootstrapped
-	dbPath := filepath.Join(target, ".claude", "codedungeon.db")
+	dbPath := filepath.Join(target, provider.Detect().DBPath())
 	if _, err := os.Stat(dbPath); err == nil && !force {
 		if interactive {
 			if !promptYesNo("Already bootstrapped. Re-bootstrap?", false) {
@@ -184,8 +198,8 @@ func runSetup(c *cobra.Command, _ []string) error {
 	}
 
 	if interactive {
-		printOK("Binary:", ".claude/bin/codedungeon [copied]")
-		printOK("Database:", ".claude/codedungeon.db [created]")
+		printOK("Binary:", provider.Detect().BinDir()+"/codedungeon [copied]")
+		printOK("Database:", provider.Detect().DBPath()+" [created]")
 		printOK("Prompts:", fmt.Sprintf("%d seeded", len(result.PromptsSeeded)))
 		printOK("Artifacts:", fmt.Sprintf("%d installed", result.ArtifactsInstalled))
 	}
@@ -219,13 +233,11 @@ func runSetup(c *cobra.Command, _ []string) error {
 }
 
 func installGlobalPlugin() (string, error) {
-	ad := osadapter.Detect()
-	home := ad.HomeDir()
-	if home == "" {
-		return "", fmt.Errorf("cannot determine home directory")
+	p := provider.Detect()
+	if !p.HasPluginSystem() {
+		return "skipped (no plugin system)", nil
 	}
-
-	plugDir := filepath.Join(home, ".claude", "plugins", "local", "codedungeon")
+	plugDir := p.PluginDir()
 	binDir := filepath.Join(plugDir, "bin")
 	skillDir := filepath.Join(plugDir, "skills", "grimoire-cli")
 	manifestDir := filepath.Join(plugDir, ".claude-plugin")
@@ -241,7 +253,7 @@ func installGlobalPlugin() (string, error) {
 		return "", fmt.Errorf("resolve binary: %w", err)
 	}
 
-	ext := ad.ExecutableExt()
+	ext := osadapter.Detect().ExecutableExt()
 	dstBin := filepath.Join(binDir, "codedungeon"+ext)
 
 	status := "installed"
@@ -267,24 +279,12 @@ func installGlobalPlugin() (string, error) {
 		return "", fmt.Errorf("write SKILL.md: %w", err)
 	}
 
-	pluginJSON := generatePluginJSON(versionString())
+	pluginJSON := p.PluginManifest(versionString())
 	if err := os.WriteFile(filepath.Join(manifestDir, "plugin.json"), pluginJSON, 0o644); err != nil {
 		return "", fmt.Errorf("write plugin.json: %w", err)
 	}
 
 	return status, nil
-}
-
-func generatePluginJSON(version string) []byte {
-	m := map[string]any{
-		"name":        "codedungeon",
-		"version":     version,
-		"description": "Deterministic Go CLI for autonomous dev pipelines. SQLite (FTS5) state, embedded prompts, project-scoped.",
-		"author":      map[string]string{"name": "loldinis"},
-	}
-	b, _ := json.MarshalIndent(m, "", "  ")
-	b = append(b, '\n')
-	return b
 }
 
 func filesMatch(a, b string) bool {

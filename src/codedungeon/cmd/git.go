@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/osadapter"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 var protectedBranches = []string{"main", "master", "develop", "dev", "staging", "production", "release"}
@@ -128,8 +129,9 @@ func gitVerifyCmd() *cobra.Command {
 			// review posted?
 			reviewCount := "0"
 			if prNum != "" {
+				marker := provider.Detect().ReviewCommentMarker()
 				reviewCount, _, _ = run(repo, "gh", "pr", "view", prNum, "--comments", "--json", "comments", "-q",
-					`[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length`)
+					fmt.Sprintf(`[.comments[] | select(.body | test("%s"))] | length`, marker))
 			}
 			pass := prNum != "" && reviewCount != "0"
 			return EmitJSON(map[string]any{

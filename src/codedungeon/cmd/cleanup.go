@@ -7,29 +7,27 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
-// Dirs subject to cleanup. NEVER touched: commands/ agents/ skills/ settings.*
-// Also NEVER: bin/ (has binary), .git/.
-var cleanupDirs = map[string]string{
-	"tasks":   ".claude/tasks",
-	"plans":   ".claude/plan",
-	"reviews": ".claude/codereview",
-	"state":   ".claude/state", // handoff md cache
+func cleanupDirsMap() map[string]string {
+	p := provider.Detect()
+	return map[string]string{
+		"tasks":   p.TasksDir(),
+		"plans":   p.PlanDir(),
+		"reviews": filepath.Join(p.ConfigDir(), "codereview"),
+		"state":   p.StateDir(),
+	}
 }
 
 func CleanupCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "cleanup",
 		Short: "Remove stale .claude/ artifacts (tasks, plans, reviews, state)",
-		Long: `Deletes CONTENTS (not the directory itself) of:
-  .claude/tasks/    — feature task dirs (PLAN.md, MASTER.md, TASK-NNN-*.md)
-  .claude/plan/     — implementation + adversarial plans (arcplan.md, pipeline-state.md, adv-review/)
-  .claude/codereview/ — legacy review output
-  .claude/state/ — phase-N-output.md cache (DB is source of truth)
-
-NEVER deletes: .claude/commands/, .claude/agents/, .claude/skills/, .claude/bin/,
-.claude/settings*.json, .claude/codedungeon.db, or .git/.`,
+		Long: `Deletes CONTENTS (not the directory itself) of ephemeral artifact dirs
+(tasks, plans, reviews, state). NEVER deletes commands, agents, skills, bin,
+settings, codedungeon.db, or .git.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			all, _ := c.Flags().GetBool("all")
 			doTasks, _ := c.Flags().GetBool("tasks")
@@ -39,7 +37,8 @@ NEVER deletes: .claude/commands/, .claude/agents/, .claude/skills/, .claude/bin/
 			feature, _ := c.Flags().GetString("feature")
 			dry, _ := c.Flags().GetBool("dry-run")
 
-			// Default inventory-only when no flags.
+			dirs := cleanupDirsMap()
+
 			if !all && !doTasks && !doPlans && !doReviews && !doState && feature == "" {
 				inv := inventory()
 				return EmitJSON(map[string]any{"ok": true, "mode": "inventory", "inventory": inv})
@@ -47,7 +46,7 @@ NEVER deletes: .claude/commands/, .claude/agents/, .claude/skills/, .claude/bin/
 
 			targets := map[string]bool{}
 			if all {
-				for k := range cleanupDirs {
+				for k := range dirs {
 					targets[k] = true
 				}
 			}
@@ -67,18 +66,17 @@ NEVER deletes: .claude/commands/, .claude/agents/, .claude/skills/, .claude/bin/
 			var deleted []string
 			var errors []string
 			if feature != "" {
-				// Selective feature delete under .claude/tasks/{feature}/
-				p := filepath.Join(cleanupDirs["tasks"], feature)
+				fp := filepath.Join(dirs["tasks"], feature)
 				if dry {
-					deleted = append(deleted, "DRY: "+p)
-				} else if err := os.RemoveAll(p); err != nil {
+					deleted = append(deleted, "DRY: "+fp)
+				} else if err := os.RemoveAll(fp); err != nil {
 					errors = append(errors, err.Error())
 				} else {
-					deleted = append(deleted, p)
+					deleted = append(deleted, fp)
 				}
 			} else {
 				for k := range targets {
-					dir := cleanupDirs[k]
+					dir := dirs[k]
 					entries, err := os.ReadDir(dir)
 					if err != nil {
 						continue
@@ -126,7 +124,7 @@ func modeLabel(dry bool) string {
 // inventory returns a map of dirs → file counts + total bytes.
 func inventory() map[string]any {
 	out := map[string]any{}
-	for k, dir := range cleanupDirs {
+	for k, dir := range cleanupDirsMap() {
 		n, size := walkStats(dir)
 		out[k] = map[string]any{"dir": dir, "files": n, "bytes": size}
 	}
