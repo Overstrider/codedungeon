@@ -17,11 +17,11 @@ Test Results:
 
 Pipeline phases:
   Phase 0: Bootstrap detection → stack selection → git init
-  Phase 1: architect-planner → project architecture from scratch
+  Phase 1: dragon-architect-planner → project architecture from scratch
   Phase 2: domain planner → creation plan
   Phase 3: {{.Lang}}-specialist → enriched with idiomatic patterns
-  Phase 3.5: qa-planner → QA test strategy
-  Phase 4: task-architect → MASTER.md + {{.DevTasks}} dev tasks + {{.TestTasks}} test tasks
+  Phase 3.5: basilisk-planner-qa → QA test strategy
+  Phase 4: spider-architect-task → MASTER.md + {{.DevTasks}} dev tasks + {{.TestTasks}} test tasks
   Phase 5: codedungeon-loop → project scaffolded + PR created
   Phase 6: codedungeon-test-loop → tests executed
   Phase 7: Final report (this)

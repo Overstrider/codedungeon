@@ -1,6 +1,6 @@
 # go-review-checklist.md
 
-Go review-mode concerns. Loldinis-go-reviewer reads this on demand when scoping a finding.
+Go review-mode concerns. Loldinis-sentinel-reviewer-go reads this on demand when scoping a finding.
 
 ## Types & Interfaces
 - Exact structs: fields + types + JSON/DB tags.

@@ -227,7 +227,7 @@ func installGlobalPlugin() (string, error) {
 
 	plugDir := filepath.Join(home, ".claude", "plugins", "local", "codedungeon")
 	binDir := filepath.Join(plugDir, "bin")
-	skillDir := filepath.Join(plugDir, "skills", "codedungeon-cli")
+	skillDir := filepath.Join(plugDir, "skills", "grimoire-cli")
 	manifestDir := filepath.Join(plugDir, ".claude-plugin")
 
 	for _, d := range []string{binDir, skillDir, manifestDir} {
@@ -259,7 +259,7 @@ func installGlobalPlugin() (string, error) {
 		}
 	}
 
-	skillContent, err := prompts.GetRaw("skills/codedungeon-cli/SKILL.md")
+	skillContent, err := prompts.GetRaw("skills/grimoire-cli/SKILL.md")
 	if err != nil {
 		return "", fmt.Errorf("read embedded SKILL.md: %w", err)
 	}

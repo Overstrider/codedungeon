@@ -56,7 +56,7 @@ If in doubt: **continue**.
 
 If `$ARGUMENTS` empty:
 > Usage: `/codedungeon-dev-cycle <feature description>`
-> Tip: `@prompt-enhancer` first to refine.
+> Tip: `@sphinx-prompt-enhancer` first to refine.
 
 STOP.
 
@@ -90,16 +90,16 @@ fi
 ```
 PHASES = [0, 1, "2'", 3.5, 4, 5, 5.5, 5.6, 6, 7]
 PHASE_FILE_MAP = {
-  0:   ".claude/phases/phase-0-validation.md",
-  1:   ".claude/phases/phase-1-architect.md",
-  "2'": ".claude/phases/phase-2prime-domain.md",
-  3.5: ".claude/phases/phase-35-qa.md",
-  4:   ".claude/phases/phase-4-decomp.md",
-  5:   ".claude/phases/phase-5-execution.md",
-  5.5: ".claude/phases/phase-55-qa-refine.md",
-  5.6: ".claude/phases/phase-56-test-decomp.md",
-  6:   ".claude/phases/phase-6-tests.md",
-  7:   ".claude/phases/phase-7-report.md"
+  0:   ".claude/phases/entrance-hall-validation.md",
+  1:   ".claude/phases/war-room-architect.md",
+  "2'": ".claude/phases/guild-quarter-domain.md",
+  3.5: ".claude/phases/trap-workshop-qa.md",
+  4:   ".claude/phases/armory-decomposition.md",
+  5:   ".claude/phases/forge-execution.md",
+  5.5: ".claude/phases/crucible-qa-refine.md",
+  5.6: ".claude/phases/laboratory-test-decomp.md",
+  6:   ".claude/phases/arena-tests.md",
+  7:   ".claude/phases/throne-room-report.md"
 }
 
 # Model tier per phase (deep thinking vs fast). Resolved at runtime via config.
@@ -174,10 +174,10 @@ ORCHESTRATOR (thin — reads only `codedungeon phase info/next`)
   ├─ Phase 1 agent → architect → arcplan.md                        [reasoning, think 32k]
   ├─ Phase 2' skills (parallel) → {repo}plan.md                    [reasoning, think 8k]
   ├─ Phase 3.5 agents → qaplan                                     [fast]
-  ├─ Phase 4 task-architect → MASTER.md + task files               [reasoning, think 32k]
+  ├─ Phase 4 spider-architect-task → MASTER.md + task files               [reasoning, think 32k]
   ├─ Phase 5 → codedungeon-loop per repo → code + PR + /code-review   [fast, escalate on stuck]
   ├─ Phase 5.5 → qa refine                                         [fast]
-  ├─ Phase 5.6 → test task-architect                               [reasoning, think 32k]
+  ├─ Phase 5.6 → test spider-architect-task                               [reasoning, think 32k]
   ├─ Phase 6 → codedungeon-test-loop per repo                         [fast]
   └─ Phase 7 → report                                              [fast, think 0]
 ```
@@ -192,7 +192,7 @@ Re-running `/codedungeon-dev-cycle` with the same prompt auto-resumes from the f
 
 ## What this command does NOT do
 
-- Refine prompt (use `@prompt-enhancer`).
+- Refine prompt (use `@sphinx-prompt-enhancer`).
 - Merge PRs / deploy (human).
 - Read plan files / git state directly (phase agents do via `codedungeon`).
 - Stop for approval (fully autonomous).

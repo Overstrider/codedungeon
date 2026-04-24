@@ -1,6 +1,6 @@
 # python-review-checklist.md
 
-Python review-mode concerns. python-reviewer reads on demand.
+Python review-mode concerns. sentinel-reviewer-python reads on demand.
 
 ## Types & Data Modeling
 - Exact classes / dataclasses / Pydantic models. Name + all fields typed.

@@ -40,7 +40,7 @@ func Get(name string) (string, error) {
 // Artifact is one file from the embedded tree, ready to be written into
 // <project>/.claude/<RelPath>.
 type Artifact struct {
-	RelPath string // e.g. "agents/review-saboteur.md"
+	RelPath string // e.g. "agents/gremlin-reviewer-saboteur.md"
 	Content []byte
 }
 

@@ -1,6 +1,6 @@
 # elixir-review-checklist.md
 
-Elixir review concerns. elixir-reviewer reads on demand.
+Elixir review concerns. sentinel-reviewer-elixir reads on demand.
 
 ## Modules & Types
 - Full namespace per module. Exported fns + `@spec`.

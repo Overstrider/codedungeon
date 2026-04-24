@@ -54,7 +54,7 @@ type PersonaFile struct {
 	Findings []Finding `json:"findings"`
 }
 
-// ValidatorResult is what review-validator writes per validator-<idx>.json.
+// ValidatorResult is what oracle-reviewer-validator writes per validator-<idx>.json.
 type ValidatorResult struct {
 	FindingID  string `json:"id,omitempty"`    // matches Finding.ID
 	Idx        int    `json:"idx,omitempty"`   // fallback when ID missing
@@ -63,7 +63,7 @@ type ValidatorResult struct {
 	Rationale  string `json:"rationale,omitempty"`
 }
 
-// ClassifierResult is what review-design-classifier writes per classifier-<idx>.json.
+// ClassifierResult is what sage-reviewer-classifier writes per classifier-<idx>.json.
 type ClassifierResult struct {
 	FindingID       string `json:"id,omitempty"`
 	Idx             int    `json:"idx,omitempty"`

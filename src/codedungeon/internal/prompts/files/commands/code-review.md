@@ -87,10 +87,10 @@ Write it to {OUTPUT_PATH}.
 ```
 
 Dispatch:
-- `subagent_type: review-saboteur`        → `.claude/plan/adv-review/findings-saboteur.json`
-- `subagent_type: review-newhire`         → `.claude/plan/adv-review/findings-newhire.json`
-- `subagent_type: review-security-auditor` → `.claude/plan/adv-review/findings-security.json`
-- `subagent_type: review-spec-enforcer`   → `.claude/plan/adv-review/findings-spec.json`
+- `subagent_type: gremlin-reviewer-saboteur`        → `.claude/plan/adv-review/findings-saboteur.json`
+- `subagent_type: kobold-reviewer-newhire`         → `.claude/plan/adv-review/findings-newhire.json`
+- `subagent_type: cerberus-reviewer-security` → `.claude/plan/adv-review/findings-security.json`
+- `subagent_type: paladin-reviewer-spec`   → `.claude/plan/adv-review/findings-spec.json`
 
 ## Step 6: Dedupe + severity promotion (CLI)
 
@@ -102,7 +102,7 @@ Writes `findings-merged.json` with `flagged_by: [...]` per finding. ≥2 persona
 
 ## Step 7: Per-finding validator (LLM — parallel, Sonnet)
 
-For each merged finding, spawn a `review-validator` subagent (Sonnet). Batch up to 10 parallel Task calls per message. Validator writes `.claude/plan/adv-review/validator-<idx>.json` per input.
+For each merged finding, spawn a `oracle-reviewer-validator` subagent (Sonnet). Batch up to 10 parallel Task calls per message. Validator writes `.claude/plan/adv-review/validator-<idx>.json` per input.
 
 Then:
 
@@ -121,7 +121,7 @@ codedungeon review context-paths --repo "$REPO_DIR" > /tmp/ctx.json
 # → claude_md_root, claude_md_repo, review_md, architecture_md, adr_paths, spec_md, task_files
 ```
 
-Spawn `review-design-classifier` per finding (batches of 10). Each reads the context paths + one finding JSON. Writes `classifier-<idx>.json`.
+Spawn `sage-reviewer-classifier` per finding (batches of 10). Each reads the context paths + one finding JSON. Writes `classifier-<idx>.json`.
 
 Then:
 
@@ -160,7 +160,7 @@ gh pr comment "$PR_NUM" --body "$(cat "$REPO_DIR/.claude/plan/adv-review/review.
 *Automated adversarial review — Claude Opus 4.7 (personas) + Sonnet 4.6 (validators)*"
 ```
 
-The title line `## Claude Adversarial Code Review` is LOAD-BEARING — `phase-5-execution.md` greps for it.
+The title line `## Claude Adversarial Code Review` is LOAD-BEARING — `forge-execution.md` greps for it.
 
 ## Step 11: Report verdict
 
@@ -169,7 +169,7 @@ jq -r '.verdict' /tmp/verdict.json
 jq -r '.tally' /tmp/verdict.json
 ```
 
-Return verdict to caller (`codedungeon-loop`, `phase-5-execution`).
+Return verdict to caller (`codedungeon-loop`, `forge-execution`).
 
 ---
 

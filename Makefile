@@ -34,8 +34,8 @@ build-darwin-arm64:
 	cd $(SRC) && GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o ../../$(BIN)/codedungeon-darwin-arm64 .
 
 release: build-linux build-windows build-darwin-amd64 build-darwin-arm64
-	@mkdir -p $(RELEASE)/skills/codedungeon-cli
-	@cp $(SRC)/internal/prompts/files/skills/codedungeon-cli/SKILL.md $(RELEASE)/skills/codedungeon-cli/SKILL.md
+	@mkdir -p $(RELEASE)/skills/grimoire-cli
+	@cp $(SRC)/internal/prompts/files/skills/grimoire-cli/SKILL.md $(RELEASE)/skills/grimoire-cli/SKILL.md
 	@echo "[release] bin + skill synced at $(RELEASE)/"
 	@ls -la $(BIN)/
 

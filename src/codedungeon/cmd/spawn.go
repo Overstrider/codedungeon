@@ -25,16 +25,16 @@ var phaseThinking = map[string]int{
 
 // phasePhaseFile maps phase label → phase instruction file path (project-local first).
 var phaseFile = map[string]string{
-	"0": ".claude/phases/phase-0-validation.md",
-	"1": ".claude/phases/phase-1-architect.md",
-	"2'": ".claude/phases/phase-2prime-domain.md",
-	"3.5": ".claude/phases/phase-35-qa.md",
-	"4": ".claude/phases/phase-4-decomp.md",
-	"5": ".claude/phases/phase-5-execution.md",
-	"5.5": ".claude/phases/phase-55-qa-refine.md",
-	"5.6": ".claude/phases/phase-56-test-decomp.md",
-	"6": ".claude/phases/phase-6-tests.md",
-	"7": ".claude/phases/phase-7-report.md",
+	"0":   ".claude/phases/entrance-hall-validation.md",
+	"1":   ".claude/phases/war-room-architect.md",
+	"2'":  ".claude/phases/guild-quarter-domain.md",
+	"3.5": ".claude/phases/trap-workshop-qa.md",
+	"4":   ".claude/phases/armory-decomposition.md",
+	"5":   ".claude/phases/forge-execution.md",
+	"5.5": ".claude/phases/crucible-qa-refine.md",
+	"5.6": ".claude/phases/laboratory-test-decomp.md",
+	"6":   ".claude/phases/arena-tests.md",
+	"7":   ".claude/phases/throne-room-report.md",
 }
 
 // SpawnCmd emits a ready-to-use spawn prompt for a phase agent.

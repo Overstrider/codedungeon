@@ -1,6 +1,6 @@
 # cpp-review-checklist.md
 
-C++ review concerns. cpp-reviewer reads on demand.
+C++ review concerns. sentinel-reviewer-cpp reads on demand.
 
 ## Types & Ownership
 - Exact classes/structs: members with types + access specifiers.
