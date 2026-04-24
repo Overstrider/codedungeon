@@ -1,0 +1,24 @@
+# Pre-existing plugin snapshot, kept for reference — not versioned.
+OLD/
+
+# Go build artifacts (binaries live in release/bin, committed)
+*.out
+*.log
+/src/codedungeon/coverage.out
+
+# Editor + OS junk
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Pre-purge tarballs (created by the refactor flow; ephemeral)
+/tmp/cd-*
+
+# Project-local codedungeon state (per consumer project; never part of THIS repo)
+.claude/codedungeon.db*
+.claude/loldinis-state/
+.claude/state/
+.claude/plan/
+.claude/tasks/
+.claude/codereview/

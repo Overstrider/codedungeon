@@ -1,0 +1,129 @@
+# REVIEW.md — Per-Repo Adversarial Review Tuning
+
+This file is read by `/code-review` at the start of every run. It overrides the defaults baked into the orchestrator and persona critics. Copy this template to your repo's root and uncomment / edit the sections you need.
+
+`@` imports do NOT resolve inside this file — everything is pasted verbatim into persona prompts.
+
+---
+
+## Severity Recalibration
+
+<!--
+In this repo, some patterns are treated differently than the default rubric. Override with explicit rules:
+
+- `unwrap()` in `#[cfg(test)]` blocks: treat as P2, not P0 (test code, panic is acceptable)
+- `console.log` in files under `scripts/` and `tools/`: treat as P2, not P1 (CLI tools, not product code)
+- `eval()` in `migrations/*.py`: treat as P1, not P0 (one-off DB admin, reviewed manually)
+-->
+
+## Nit Cap
+
+<!--
+IMPORTANT: In this pipeline, P2 findings BLOCK MERGE unless classified as design decisions.
+The cap is about recall noise, NOT about letting nits pass silently.
+
+Default: each persona caps at 3 P2 findings; total P2 across merged findings capped at 5.
+Override here if your repo wants stricter or looser caps:
+
+- Max P2 per review: 8
+- Suppress nit details entirely (only summary count): no
+
+To prevent specific P2 patterns from blocking, document them in § Repo-Specific Known Patterns
+below — that is how the design-decision classifier learns to skip them.
+-->
+
+## Skip Rules
+
+<!--
+Default skips: generated code, lockfiles, minified, fixtures.
+Add repo-specific skip patterns here:
+
+- `src/generated/**/*` — codegen output
+- `packages/vendor/**/*` — third-party code inlined for offline builds
+- `**/*.snap` — snapshot tests (regenerated, not hand-edited)
+- `prisma/migrations/**/*.sql` — auto-generated migrations
+-->
+
+## Threat Model
+
+<!--
+Default threat model: standard web-server.
+- Attacker has unauthenticated HTTP access (can send any request)
+- If auth exists, attacker also has a valid low-privilege account
+- Network position: internet
+- Not assumed: local code execution, side-channel attacks, DoS
+
+Override for your repo:
+
+- This repo is an internal-only CLI binary — threat model is "hostile input files" not "network attacker"
+- This repo handles PCI data — elevate all logging of request bodies to P0
+- This repo is a public OSS library — threat model includes a malicious caller of every public API
+-->
+
+## Verification Bar
+
+<!--
+Default: every behavior claim in a finding must include a file:line citation with verbatim quote.
+
+Stricter options:
+
+- Behavior claims must cite both the alleged bug site AND the alleged call path that reaches it
+- Security findings require a concrete exploit payload (not "could be injectable")
+- Architectural findings require a proposed fix that compiles
+-->
+
+## Repo-Specific Known Patterns
+
+<!--
+LOAD-BEARING SECTION: The design-decision classifier reads this to decide whether a finding
+is `actionable` (blocks merge) or `design_decision` (disclosed but does not block).
+
+Document patterns that look wrong but are intentional in this repo. Be specific — include file
+path, the pattern name, and the reasoning. The classifier quotes your entry verbatim as evidence
+when it marks a related finding as `design_decision`.
+
+Format tip: each bullet should contain (a) the file or glob, (b) what the pattern is, (c) why
+it is intentional. A reviewer unfamiliar with the repo must be able to read your entry and
+understand that this is deliberate, not debt.
+
+Examples:
+
+- `app/auth/dev_login.py` — password-less login endpoint is gated by `ENV === 'development'`
+  and documented in README as a test-only helper. It is NOT shipped to production. Do not flag
+  missing auth on this file.
+- `src/observer/ring_buffer.rs` — the unsafe pointer arithmetic in `push_back` has a full
+  `// SAFETY:` comment and was independently audited (see ADR-0007). Do not re-flag the unsafe
+  block unless the preconditions change.
+- `packages/legacy/*` — this directory is frozen and scheduled for removal in Q3. Do not flag
+  pre-existing issues here even if the formatter touched the file.
+- `src/**/**.generated.ts` — code generation output. Do not flag style or naming.
+- In `services/billing/`, all functions return `Result<T, BillingError>` and the single `.unwrap()`
+  in `BillingClient::new()` is acceptable because startup failure MUST panic (see CLAUDE.md §
+  Billing Guarantees).
+
+If a P2 nit is reported that you believe is "just style, it's fine" — STOP and decide: either
+fix it, or add it here with a real reason. The pipeline no longer lets P2 pass silently.
+-->
+
+## Additional Stack Checks
+
+<!--
+Language-specific rubrics come from the {lang}-specialist agent. Add repo-specific checks here that should override or augment them.
+
+Example (Rust repo):
+- All `#[derive(Deserialize)]` structs MUST have `#[serde(deny_unknown_fields)]` — this is a repo rule (not Clippy-catchable). Flag missing as P1.
+
+Example (Next.js repo):
+- All Server Actions in `app/api/actions/**` MUST check `auth()` first. Missing = P0.
+- All fetch calls to our backend MUST use the typed client from `lib/api-client.ts`. Raw fetch = P1.
+-->
+
+## External References
+
+<!--
+Links to docs/ADRs/issue threads that define this repo's review standards.
+
+- Architecture: ./docs/ARCHITECTURE.md
+- Security policy: ./docs/SECURITY.md
+- ADR index: ./docs/adrs/README.md
+-->
