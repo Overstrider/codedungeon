@@ -22,3 +22,17 @@ OLD/
 .claude/plan/
 .claude/tasks/
 .claude/codereview/
+
+# Example projects' per-run state (keep source + FEATURE.md, drop runtime state)
+examples/*/.claude/bin/
+examples/*/.claude/codedungeon.db*
+examples/*/.claude/tasks/
+examples/*/.claude/codereview/
+examples/*/.claude/agents/
+examples/*/.claude/skills/
+examples/*/.claude/commands/
+examples/*/.claude/phases/
+# Keep: examples/*/.claude/plan/ + state/  → demonstrates pipeline output
+
+# Nested example repos: keep local .git (codedungeon needs it) but never track it in outer repo
+examples/*/.git/
