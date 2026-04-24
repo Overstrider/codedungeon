@@ -24,7 +24,7 @@ release/
 ### Option A: Remote — one command from GitHub
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/USER/REPO/main/release/get-codedungeon.sh | bash -s -- https://github.com/USER/REPO
+curl -fsSL https://raw.githubusercontent.com/Overstrider/codedungeon/main/release/get-codedungeon.sh | bash -s -- https://github.com/Overstrider/codedungeon
 ```
 
 Downloads the binary + `QUICKSTART.md` into CWD. Then:
@@ -39,7 +39,7 @@ Pass this to any agent (Claude Code, Cursor, Copilot, Windsurf, etc.):
 
 ```
 Download and run:
-  bash get-codedungeon.sh https://github.com/USER/REPO
+  bash get-codedungeon.sh https://github.com/Overstrider/codedungeon
 Then read QUICKSTART.md and run: ./codedungeon setup --yes
 ```
 
