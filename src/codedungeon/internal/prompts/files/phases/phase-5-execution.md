@@ -7,7 +7,6 @@
 - `.claude/plan/MASTER.md` (execution order)
 - `.claude/tasks/{feature-name}/{repo-name}/PLAN.md` per repo
 - `.claude/tasks/{feature-name}/{repo-name}/task-*.md` (dev task files)
-- `IMPECABLE_SKILL_PATH`, `IMPECABLE_REFS_PATH`, `IMPECABLE_AUDIT_PATH`, `IMPECABLE_POLISH_PATH` from pipeline state
 
 ## Outputs
 - Feature branches with committed code per repo
@@ -61,10 +60,6 @@ For each repo in execution order:
 
    Execute with these parameters:
    TASK_DIR = {TASK_DIR}
-   IMPECABLE_SKILL_PATH = {IMPECABLE_SKILL_PATH}
-   IMPECABLE_REFS_PATH = {IMPECABLE_REFS_PATH}
-   IMPECABLE_AUDIT_PATH = {IMPECABLE_AUDIT_PATH}
-   IMPECABLE_POLISH_PATH = {IMPECABLE_POLISH_PATH}
 
    Follow the codedungeon-loop protocol exactly:
    - Validate input (Step 0)

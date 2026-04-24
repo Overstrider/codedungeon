@@ -76,7 +76,6 @@ model: {model}
 
 For the 3 consolidated skills, spawn with `model: opus`.
 
-**Impecable Frontend Injection**: If `IMPECABLE_SKILL_PATH` is set AND skill is `nextjs-frontend-agent`, append the existing impecable block to the prompt (keep same injection rules as legacy Phase 3).
 
 #### Step 2'.3: Write handoff
 

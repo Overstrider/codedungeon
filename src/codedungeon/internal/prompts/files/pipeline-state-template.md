@@ -14,7 +14,6 @@ branch: {{.Branch}}
 {{- end }}
 
 ## Env
-impecable_base: {{.ImpecableBase}}
 playwright_skill: {{.PlaywrightSkill}}
 test_auth_missing: {{.TestAuthMissing}}
 

@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS runs (
     project_mode TEXT,
     mode         TEXT,
     repo_map     TEXT,                  -- JSON: {repo_name: {path, lang, specialist, domain_planner, stack}}
-    env          TEXT,                  -- JSON: {playwright_skill, impecable_base, test_auth_missing[]}
+    env          TEXT,                  -- JSON: {playwright_skill, test_auth_missing[]}
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
 );

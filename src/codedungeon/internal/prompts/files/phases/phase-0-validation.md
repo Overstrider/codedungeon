@@ -25,7 +25,7 @@ EXEMPT (write normal): code blocks, FILE CONTENTS (arcplan, plans, tasks, CLAUDE
 - PROJECT_MODE (BOOTSTRAP / SINGLE / MULTI)
 - MODE (FRESH / APPEND)
 - `TEST_AUTH_MISSING_REPOS` (if any)
-- `PLAYWRIGHT_SKILL_PATH`, `IMPECABLE_*` vars
+- `PLAYWRIGHT_SKILL_PATH` var
 - per-repo `docs/CODEBASE_MAP.md` created/refreshed
 
 ---
@@ -63,7 +63,7 @@ If `bootstrap` returns `{"error":"refuse: ... ~/.claude ..."}` the agent is in t
 
 2. Store as `FEATURE_PROMPT`.
 
-## Step 0.1.2: Detect optional skills
+## Step 0.1.2: Detect Playwright skill
 
 ```bash
 PLAYWRIGHT_SKILL_PATH=""
@@ -73,17 +73,9 @@ for p in \
   "$HOME/.claude/commands/playwright-e2e/SKILL.md"; do
   [ -f "$p" ] && PLAYWRIGHT_SKILL_PATH="$p" && break
 done
-
-IMPECABLE_BASE="${IMPECABLE_BASE:-$HOME/impecable/skills}"
-if [ -f "$IMPECABLE_BASE/frontend-design/SKILL.md" ]; then
-  IMPECABLE_SKILL_PATH="$IMPECABLE_BASE/frontend-design/SKILL.md"
-  IMPECABLE_REFS_PATH="$IMPECABLE_BASE/frontend-design/reference/"
-  IMPECABLE_AUDIT_PATH="$IMPECABLE_BASE/audit/SKILL.md"
-  IMPECABLE_POLISH_PATH="$IMPECABLE_BASE/polish/SKILL.md"
-fi
 ```
 
-Missing skills are non-blocking. Log + continue.
+Missing skill is non-blocking. Log + continue.
 
 ## Step 0.2: Discover repos (auto-detect single/multi/bootstrap)
 
@@ -126,7 +118,7 @@ For each repo in REPO_MAP (skip in BOOTSTRAP):
 2. Check freshness (read `last_mapped` frontmatter vs `git log --oneline --since="{last_mapped}" | head -5`).
 3. If missing OR stale, run cartographer:
    ```bash
-   python "$(ls .claude/skills/cartographer/scripts/scan-codebase.py 2>/dev/null || echo $HOME/.claude/plugins/local/codedungeon/skills/cartographer/scripts/scan-codebase.py)" "{repo.path}" --format json > /tmp/scan.json
+   codedungeon map "{repo.path}" --format json > /tmp/scan.json
    ```
    Then spawn Explore (sonnet) subagents in parallel over file groups; synthesize into `{repo.path}/docs/CODEBASE_MAP.md`.
 
@@ -163,7 +155,7 @@ Salvar `TEST_AUTH_MISSING_REPOS` (será lido em Phase 4 para injetar TASK-001).
 ```bash
 codedungeon phase done 0 \
   --summary "repos=$(jq -r '.repo_map | length' /tmp/discover.json); mode=$MODE; project_mode=$PROJECT_MODE" \
-  --decisions "playwright=$PLAYWRIGHT_SKILL_PATH" "impecable=${IMPECABLE_SKILL_PATH:-missing}" \
+  --decisions "playwright=$PLAYWRIGHT_SKILL_PATH" \
   --artifacts "CLAUDE.md" ".claude/codedungeon.db" \
   --next ".claude/plan/arcplan.md (Phase 1)" \
   --promise "PHASE_0_COMPLETE: $(jq -r '.project_mode' /tmp/discover.json), $(jq -r '.repo_map | length' /tmp/discover.json) repos"
@@ -176,7 +168,7 @@ codedungeon phase done 0 \
 
 ## Tool discipline
 
-Allowed: `Bash` (for `codedungeon`, `git`, `python` cartographer), `Task` (for Explore subagents — codebase mapping ONLY), `Read` (state/handoff files).
+Allowed: `Bash` (for `codedungeon`, `git`), `Task` (for Explore subagents — codebase mapping ONLY), `Read` (state/handoff files).
 Forbidden: `Write`/`Edit` on `pipeline-state.md` or `phase-0-output.md` — `codedungeon` handles those.
 
 ## Failure

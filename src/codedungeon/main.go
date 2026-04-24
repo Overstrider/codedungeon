@@ -46,6 +46,8 @@ func main() {
 	root.AddCommand(cmd.InstallCmd())
 	root.AddCommand(cmd.MigrateCmd())
 	root.AddCommand(cmd.StatusCmd())
+	root.AddCommand(cmd.SpawnCmd())
+	root.AddCommand(cmd.MapCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "[ERROR]", err)
