@@ -49,9 +49,9 @@ chmod +x "$PLUG/bin/$(basename "$DEST_BIN")"
 echo "[OK] plugin binary → $PLUG/bin/$(basename "$DEST_BIN")"
 
 # --- 4. Skill ---
-rm -rf "$PLUG/skills/codedungeon-cli"
-cp -r "$HERE/skills/codedungeon-cli" "$PLUG/skills/"
-echo "[OK] skill → $PLUG/skills/codedungeon-cli/"
+rm -rf "$PLUG/skills/grimoire-cli"
+cp -r "$HERE/skills/grimoire-cli" "$PLUG/skills/"
+echo "[OK] skill → $PLUG/skills/grimoire-cli/"
 
 # --- 5. Plugin manifest ---
 mkdir -p "$PLUG/.claude-plugin"
@@ -81,8 +81,8 @@ echo "=== Install complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. cd into any git project"
-echo "  2. codedungeon bootstrap --reasoning claude-opus-4-7 --fast claude-sonnet-4-6"
+echo "  2. codedungeon setup"
 echo "  3. Claude Code slash commands become available:"
-echo "     /codedungeon-dev-cycle, /codedungeon-loop, /codedungeon-test-loop, /code-review, /cleanup-tasks"
+echo "     /minidungeon, /codedungeon-dev-cycle, /code-review"
 echo ""
 "$DEST_BIN" version --human

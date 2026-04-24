@@ -301,6 +301,57 @@ func upsertRepositoriesTable(path string, repos []RepoEntry) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
+// upsertCodedungeonSection writes or replaces the `## codedungeon` section
+// in the given CLAUDE.md path. If the file doesn't exist, it's created.
+func upsertCodedungeonSection(path string) error {
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	section := renderCodedungeonSection()
+
+	if len(existing) == 0 {
+		body := "# Project CLAUDE.md\n\n" + section + "\n"
+		return os.WriteFile(path, []byte(body), 0o644)
+	}
+
+	content := string(existing)
+	const header = "\n## codedungeon"
+	idx := strings.Index(content, header)
+	if idx < 0 {
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += "\n" + section + "\n"
+	} else {
+		before := content[:idx+1]
+		rest := content[idx+1:]
+		next := strings.Index(rest[len("## codedungeon"):], "\n## ")
+		var after string
+		if next < 0 {
+			after = ""
+		} else {
+			after = rest[len("## codedungeon")+next:]
+		}
+		content = before + section + after
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func renderCodedungeonSection() string {
+	var b strings.Builder
+	b.WriteString("## codedungeon\n\n")
+	b.WriteString("CLI pipeline available. Three commands:\n\n")
+	b.WriteString("| Command | Use when |\n")
+	b.WriteString("|---------|----------|\n")
+	b.WriteString("| `/minidungeon` | Simple tasks, single-repo. Plan in plan mode first, then `/minidungeon` splits, executes, reviews, creates PR. |\n")
+	b.WriteString("| `/codedungeon-dev-cycle` | Complex features, multi-repo. Full 10-phase pipeline with architect, QA, tests, formal report. |\n")
+	b.WriteString("| `/code-review` | Standalone adversarial review on current branch (Opus 4.7 persona fanout + Sonnet validators). |\n")
+	b.WriteString("\nSubagents, skills, and phases installed in `.claude/`. CLI binary at `.claude/bin/codedungeon`.\n")
+	return b.String()
+}
+
 func renderRepoTable(repos []RepoEntry) string {
 	var b strings.Builder
 	b.WriteString("## Repositories\n\n")

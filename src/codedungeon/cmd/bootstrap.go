@@ -87,6 +87,12 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 		}
 	}
 
+	// Upsert codedungeon quick-reference in CLAUDE.md (best-effort).
+	claudeMD := filepath.Join(target, "CLAUDE.md")
+	if err := upsertCodedungeonSection(claudeMD); err != nil {
+		fmt.Fprintln(os.Stderr, "[WARN] CLAUDE.md upsert failed:", err)
+	}
+
 	return &BootstrapResult{
 		ProjectRoot:        target,
 		BinPath:            binPath,

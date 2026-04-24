@@ -1,48 +1,73 @@
 # codedungeon — release
 
-Pre-compiled binaries + Claude Code skill. Drop this folder anywhere, run `./install.sh`, done.
+Pre-compiled binaries + Claude Code pipeline. Two install paths: **quick setup** (recommended) or legacy installer.
 
 ## Contents
 
 ```
 release/
-├── install.sh                   # one-shot installer (auto-detect OS)
+├── get-codedungeon.sh           # remote bootstrap (download binary + guide)
+├── install.sh                   # legacy installer (local folder)
+├── QUICKSTART.md                # agent-friendly setup + usage guide
 ├── bin/
 │   ├── codedungeon              # linux-amd64
 │   ├── codedungeon.exe          # windows-amd64
 │   ├── codedungeon-darwin-amd64 # macOS Intel
 │   └── codedungeon-darwin-arm64 # macOS Apple Silicon
 └── skills/
-    └── codedungeon-cli/
+    └── grimoire-cli/
         └── SKILL.md             # Claude Code skill definition
 ```
 
-## Install
+## Quick Setup (recommended)
+
+### Option A: Remote — one command from GitHub
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/USER/REPO/main/release/get-codedungeon.sh | bash -s -- https://github.com/USER/REPO
+```
+
+Downloads the binary + `QUICKSTART.md` into CWD. Then:
+
+```bash
+./codedungeon setup
+```
+
+### Option B: Give to any AI agent
+
+Pass this to any agent (Claude Code, Cursor, Copilot, Windsurf, etc.):
+
+```
+Download and run:
+  bash get-codedungeon.sh https://github.com/USER/REPO
+Then read QUICKSTART.md and run: ./codedungeon setup --yes
+```
+
+The agent downloads the binary, reads the guide, and knows how to use `/minidungeon`, `/codedungeon-dev-cycle`, and `/code-review`.
+
+### Option C: Local folder
 
 ```bash
 ./install.sh
 ```
 
-What it does:
-
-1. Detects your OS/arch, picks the right binary.
-2. Copies it to `~/.local/bin/codedungeon`.
-3. Creates plugin at `~/.claude/plugins/local/codedungeon/` with `.claude-plugin/plugin.json`, `bin/codedungeon`, and `skills/codedungeon-cli/SKILL.md`.
-4. Claude Code discovers the plugin automatically (skill + slash-commands become available).
+Detects OS/arch, copies binary to `~/.local/bin/`, creates Claude Code plugin.
 
 ## First use (per project)
 
 ```bash
 cd /path/to/your/git/project
-codedungeon bootstrap --reasoning claude-opus-4-7 --fast claude-sonnet-4-6
+codedungeon setup          # interactive — picks models, installs everything
+codedungeon setup --yes    # non-interactive — uses defaults (Opus + Sonnet)
 ```
 
-`bootstrap` is **project-scoped**:
-- Refuses to run inside `~/.claude` or `/root/.claude`.
-- Requires `.git/` at the target.
+`setup` does everything in one step:
+- Detects OS, project stack (Go/Rust/Next.js/Kotlin/Python/Elixir/C++).
+- Installs global Claude Code plugin (`~/.claude/plugins/local/codedungeon/`).
 - Self-copies binary to `<project>/.claude/bin/codedungeon`.
 - Creates `<project>/.claude/codedungeon.db` (SQLite + FTS5).
-- Installs embedded agents/skills/commands/phases into `<project>/.claude/`.
+- Installs 58 embedded artifacts (agents, skills, commands, phases) into `<project>/.claude/`.
+- Writes codedungeon section to `CLAUDE.md` (slash command reference).
 - Records OS, project_root, binary version, model tiers.
 
 ## Hard refusals (structured errors)
@@ -56,9 +81,10 @@ All failures return JSON with `{"error","hint","action"}`. Agents parse `action`
 | `ask-user-models` | `--reasoning` / `--fast` missing on bootstrap. |
 | `run-codedungeon-migrate` | Binary version ≠ DB `cd_version` — run `codedungeon migrate`. |
 
-## Slash commands (after install + bootstrap)
+## Slash commands (after setup)
 
-- `/codedungeon-dev-cycle "<feature>"` — full pipeline (10 phases).
+- `/minidungeon` — lightweight pipeline: plan mode → split → execute → review → PR. Single-repo, no tests.
+- `/codedungeon-dev-cycle "<feature>"` — full pipeline (10 phases, multi-repo, architect, QA, tests, report).
 - `/codedungeon-loop <task-dir>` — dev execution loop (specialist plan + exec + review).
 - `/codedungeon-test-loop <task-dir>` — QA loop (startup + integration + API + E2E).
 - `/code-review [repo]` — adversarial Opus 4.7 fanout + Sonnet validators.
