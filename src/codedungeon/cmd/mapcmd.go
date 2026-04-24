@@ -128,6 +128,10 @@ var textExts = map[string]bool{
 	".gradle": true, ".tf": true, ".tfvars": true,
 	".dockerfile": true, ".dockerignore": true, ".gitignore": true,
 	".env": true, ".editorconfig": true, "": true, // files without extension (e.g. Makefile)
+	// Module/lockfiles that ARE source (Go modules, etc.)
+	".mod": true, ".sum": true, ".work": true,
+	".cfg": true, ".ini": true, ".conf": true, ".properties": true,
+	".csv": true, ".tsv": true, ".log": true,
 }
 
 // noExtTextNames — common files without extension that are text.
