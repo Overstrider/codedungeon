@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "5"
+const SchemaVersion = "6"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {

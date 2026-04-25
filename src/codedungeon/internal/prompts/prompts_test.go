@@ -150,3 +150,34 @@ func TestCodexPromptListIsNamespaced(t *testing.T) {
 		t.Fatalf("unexpected codex caveman prompt body: %q", body)
 	}
 }
+
+func TestCodexPromptListExcludesInstallOnlyArtifacts(t *testing.T) {
+	names, err := ListFor("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		switch name {
+		case "codex:config", "codex:AGENTS":
+			t.Fatalf("install-only artifact %q should not be seeded as a prompt", name)
+		}
+	}
+}
+
+func TestCodexWorkflowPromptsUseProjectLocalBinary(t *testing.T) {
+	for _, rel := range []string{
+		"AGENTS.md",
+		"skills/codedungeon-cli/SKILL.md",
+		"skills/codedungeon-dev-cycle/SKILL.md",
+		"commands/codedungeon-dev-cycle.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		if !strings.Contains(body, "./.codex/bin/codedungeon") {
+			t.Fatalf("%s should tell Codex to use the project-local binary", rel)
+		}
+	}
+}

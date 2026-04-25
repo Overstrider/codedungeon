@@ -156,6 +156,9 @@ func ListFor(providerName string) ([]string, error) {
 		if e.IsDir() {
 			continue
 		}
+		if _, ok := pack.installPath(e.Name()); ok {
+			continue
+		}
 		name := namespace(pack.provider, strings.TrimSuffix(e.Name(), path.Ext(e.Name())))
 		out = append(out, name)
 	}

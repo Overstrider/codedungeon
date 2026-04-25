@@ -22,6 +22,19 @@ var phaseThinking = map[string]int{
 	"5": 2000, "5.5": 2000, "5.6": 32000, "6": 2000, "7": 0,
 }
 
+var phaseAgentType = map[string]string{
+	"0":   "cd_architect_planner",
+	"1":   "cd_architect_planner",
+	"2'":  "cd_backend_planner",
+	"3.5": "cd_qa_planner",
+	"4":   "cd_task_architect",
+	"5":   "cd_dev_worker",
+	"5.5": "cd_review_validator",
+	"5.6": "cd_test_reviewer",
+	"6":   "cd_api_tester",
+	"7":   "cd_review_validator",
+}
+
 var phaseFileNames = map[string]string{
 	"0":   "entrance-hall-validation.md",
 	"1":   "war-room-architect.md",
@@ -67,11 +80,15 @@ not have to narrate it.`,
 
 			// Resolve model from DB (falls back if absent).
 			s, err := OpenDB(c)
-			model := "(configure via: codedungeon config set-models)"
+			model := fmt.Sprintf("(configure via: %s config set-models)", codedungeonCommandForProvider(provider.Detect().Name()))
+			effort := defaultEffortForTier(tier)
 			if err == nil {
 				defer s.Close()
 				if v, _ := s.GetMeta("model_" + tier); v != "" {
 					model = v
+				}
+				if v, _ := s.GetMeta("model_" + tier + "_effort"); v != "" {
+					effort = v
 				}
 			}
 
@@ -81,7 +98,7 @@ not have to narrate it.`,
 			}
 
 			raw, _ := c.Flags().GetBool("raw")
-			out := buildSpawnPromptForProvider(provider.Detect().Name(), phase, file, tier, model, think, cavemanBlk)
+			out := buildSpawnPromptForProviderWithEffort(provider.Detect().Name(), phase, file, tier, model, effort, think, cavemanBlk)
 			if raw {
 				fmt.Print(out)
 				return nil
@@ -92,6 +109,7 @@ not have to narrate it.`,
 				"phase_file":          file,
 				"model_tier":          tier,
 				"model":               model,
+				"reasoning_effort":    effort,
 				"max_thinking_tokens": think,
 				"prompt":              out,
 			})
@@ -106,20 +124,60 @@ func buildSpawnPrompt(phase, file, tier, model string, think int, caveman string
 }
 
 func buildSpawnPromptForProvider(providerName, phase, file, tier, model string, think int, caveman string) string {
+	return buildSpawnPromptForProviderWithEffort(providerName, phase, file, tier, model, defaultEffortForProviderTier(providerName, tier), think, caveman)
+}
+
+func buildSpawnPromptForProviderWithEffort(providerName, phase, file, tier, model, effort string, think int, caveman string) string {
 	var b strings.Builder
+	cmdName := codedungeonCommandForProvider(providerName)
 	fmt.Fprintf(&b, "You are executing Phase %s of the codedungeon pipeline.\n\n", phase)
 	fmt.Fprintf(&b, "Read your full phase instructions from: %s\n", file)
-	fmt.Fprintf(&b, "Read prior-phase handoff (if any) via: codedungeon phase info <PREV_PHASE> --field rendered_md\n")
-	fmt.Fprintf(&b, "Read pipeline state via: codedungeon phase info %s\n\n", phase)
+	fmt.Fprintf(&b, "Read prior-phase handoff (if any) via: %s phase info <PREV_PHASE> --field rendered_md\n", cmdName)
+	fmt.Fprintf(&b, "Read pipeline state via: %s phase info %s\n\n", cmdName, phase)
 	b.WriteString("When this phase is DONE, close it atomically:\n")
-	fmt.Fprintf(&b, "  codedungeon phase done %s --summary \"<1-line caveman>\" --decisions ... --artifacts ... --next ... --promise \"PHASE_%s_COMPLETE[: ...]\"\n", phase, strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(phase, "'", "PRIME"), ".", "")))
-	b.WriteString("Or skip/fail via: codedungeon phase {skip|fail} --reason \"...\"\n\n")
+	fmt.Fprintf(&b, "  %s phase done %s --summary \"<1-line caveman>\" --decisions ... --artifacts ... --next ... --promise \"PHASE_%s_COMPLETE[: ...]\"\n", cmdName, phase, strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(phase, "'", "PRIME"), ".", "")))
+	fmt.Fprintf(&b, "Or skip/fail via: %s phase {skip|fail} --reason \"...\"\n\n", cmdName)
 	b.WriteString("--- OUTPUT MODE (baked in, non-negotiable) ---\n")
 	b.WriteString(strings.TrimSpace(caveman))
 	b.WriteString("\n--- END OUTPUT MODE ---\n\n")
 	if providerName == "claude" || providerName == "claude-code" || providerName == "claude-ce" {
 		fmt.Fprintf(&b, "max_thinking_tokens: %d\n", think)
+	} else if agentType := phaseAgentType[phase]; agentType != "" {
+		fmt.Fprintf(&b, "agent_type: %s\n", agentType)
 	}
-	fmt.Fprintf(&b, "model: %s   # tier=%s (via codedungeon config model %s)\n", model, tier, tier)
+	fmt.Fprintf(&b, "model: %s   # tier=%s (via %s config model %s)\n", model, tier, cmdName, tier)
+	if providerName == "codex" || providerName == "codex-cli" {
+		fmt.Fprintf(&b, "reasoning_effort: %s   # tier=%s (via %s config effort %s)\n", effort, tier, cmdName, tier)
+	}
 	return b.String()
+}
+
+func defaultEffortForTier(tier string) string {
+	return defaultEffortForProviderTier(provider.Detect().Name(), tier)
+}
+
+func defaultEffortForProviderTier(providerName, tier string) string {
+	defaults := provider.Detect().DefaultModels()
+	if providerName == "codex" || providerName == "codex-cli" {
+		defaults = provider.Codex{}.DefaultModels()
+	}
+	if providerName == "claude" || providerName == "claude-code" || providerName == "claude-ce" {
+		defaults = provider.Claude{}.DefaultModels()
+	}
+	if tier == "reasoning" {
+		return defaults.ReasoningEffort
+	}
+	if tier == "fast" {
+		return defaults.FastEffort
+	}
+	return ""
+}
+
+func codedungeonCommandForProvider(providerName string) string {
+	switch providerName {
+	case "codex", "codex-cli":
+		return "./.codex/bin/codedungeon"
+	default:
+		return "codedungeon"
+	}
 }

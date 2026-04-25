@@ -33,6 +33,9 @@ func dbInitCmd() *cobra.Command {
 			if err := s.Init(); err != nil {
 				return EmitErr(err.Error(), "schema apply failed")
 			}
+			if err := ensureModelConfigDefaults(s); err != nil {
+				return EmitErr(err.Error(), "model defaults failed")
+			}
 			seeded, err := seedEmbeddedPrompts(s)
 			if err != nil {
 				return EmitErr(err.Error(), "prompt seed failed")
@@ -88,6 +91,9 @@ func dbMigrateCmd() *cobra.Command {
 			defer s.Close()
 			if err := s.Init(); err != nil {
 				return EmitErr(err.Error(), "")
+			}
+			if err := ensureModelConfigDefaults(s); err != nil {
+				return EmitErr(err.Error(), "model defaults failed")
 			}
 			seeded, _ := seedEmbeddedPrompts(s)
 			return EmitJSON(map[string]any{"ok": true, "prompts_seeded": seeded})

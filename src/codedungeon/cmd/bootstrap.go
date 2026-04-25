@@ -26,12 +26,22 @@ type BootstrapResult struct {
 	ArtifactsInstalled int
 	CDVersion          string
 	Reasoning          string
+	ReasoningEffort    string
 	Fast               string
+	FastEffort         string
 }
 
 // RunBootstrap performs the core project-level bootstrap.
 // Extracted so both BootstrapCmd (M2M) and SetupCmd (interactive) can call it.
 func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult, error) {
+	cfg, err := completeModelConfig(reasoning, "", fast, "")
+	if err != nil {
+		return nil, err
+	}
+	return RunBootstrapWithConfig(target, cfg, force)
+}
+
+func RunBootstrapWithConfig(target string, cfg provider.ModelConfig, force bool) (*BootstrapResult, error) {
 	p := provider.Detect()
 	binDir := filepath.Join(target, p.BinDir())
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -67,20 +77,23 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 	}
 
 	artifactsInstalled := 0
-	if err := installEmbeddedArtifactsAt(s, target); err == nil {
-		if all, err := prompts.Artifacts(); err == nil {
-			artifactsInstalled = len(all)
-		}
+	if err := installEmbeddedArtifactsAt(s, target); err != nil {
+		return nil, err
+	}
+	if all, err := prompts.Artifacts(); err == nil {
+		artifactsInstalled = len(all)
 	}
 
 	ad := osadapter.Detect()
 	meta := map[string]string{
-		"os":              ad.OS(),
-		"project_root":    target,
-		"cd_version":      versionString(),
-		"bootstrapped_at": fmt.Sprintf("%d", time.Now().Unix()),
-		"model_reasoning": reasoning,
-		"model_fast":      fast,
+		"os":                     ad.OS(),
+		"project_root":           target,
+		"cd_version":             versionString(),
+		"bootstrapped_at":        fmt.Sprintf("%d", time.Now().Unix()),
+		"model_reasoning":        cfg.Reasoning,
+		"model_reasoning_effort": cfg.ReasoningEffort,
+		"model_fast":             cfg.Fast,
+		"model_fast_effort":      cfg.FastEffort,
 	}
 	for k, v := range meta {
 		if err := s.SetMeta(k, v); err != nil {
@@ -102,8 +115,10 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 		PromptsSeeded:      seeded,
 		ArtifactsInstalled: artifactsInstalled,
 		CDVersion:          versionString(),
-		Reasoning:          reasoning,
-		Fast:               fast,
+		Reasoning:          cfg.Reasoning,
+		ReasoningEffort:    cfg.ReasoningEffort,
+		Fast:               cfg.Fast,
+		FastEffort:         cfg.FastEffort,
 	}, nil
 }
 
@@ -122,7 +137,9 @@ Requires .git at the target (or --init-git to create one - not default).`,
 			target, _ := c.Flags().GetString("target")
 			force, _ := c.Flags().GetBool("force")
 			reasoning, _ := c.Flags().GetString("reasoning")
+			reasoningEffort, _ := c.Flags().GetString("reasoning-effort")
 			fast, _ := c.Flags().GetString("fast")
+			fastEffort, _ := c.Flags().GetString("fast-effort")
 			if target == "" {
 				cwd, _ := os.Getwd()
 				target = cwd
@@ -146,8 +163,12 @@ Requires .git at the target (or --init-git to create one - not default).`,
 				})
 				return fmt.Errorf("models not configured")
 			}
+			cfg, err := completeModelConfig(reasoning, reasoningEffort, fast, fastEffort)
+			if err != nil {
+				return EmitErr(err.Error(), "effort must be one of: low, medium, high, xhigh")
+			}
 
-			result, err := RunBootstrap(target, reasoning, fast, force)
+			result, err := RunBootstrapWithConfig(target, cfg, force)
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
@@ -163,8 +184,10 @@ Requires .git at the target (or --init-git to create one - not default).`,
 				"artifacts_installed": result.ArtifactsInstalled,
 				"cd_version":          result.CDVersion,
 				"models": map[string]string{
-					"reasoning": result.Reasoning,
-					"fast":      result.Fast,
+					"reasoning":        result.Reasoning,
+					"reasoning_effort": result.ReasoningEffort,
+					"fast":             result.Fast,
+					"fast_effort":      result.FastEffort,
 				},
 			})
 		},
@@ -172,7 +195,9 @@ Requires .git at the target (or --init-git to create one - not default).`,
 	c.Flags().String("target", "", "project root (default: CWD)")
 	c.Flags().Bool("force", false, "overwrite existing bootstrap")
 	c.Flags().String("reasoning", "", "model ID for deep phases")
+	c.Flags().String("reasoning-effort", "", "reasoning effort for deep phases")
 	c.Flags().String("fast", "", "model ID for fast phases")
+	c.Flags().String("fast-effort", "", "reasoning effort for fast phases")
 	return c
 }
 

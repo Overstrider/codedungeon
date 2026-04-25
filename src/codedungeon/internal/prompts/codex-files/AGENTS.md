@@ -8,12 +8,13 @@ Project artifacts:
 - Phase instructions: `.codex/phases/`
 - Codex subagents: `.codex/agents/`
 - Codex skills: `.agents/skills/`
-- Local binary and DB: `.codex/bin/codedungeon`, `.codex/codedungeon.db`
+- Local binary and DB: `./.codex/bin/codedungeon`, `.codex/codedungeon.db`
 
 Default workflow:
 - Invoke workflows as skills: `$codedungeon-dev-cycle`, `$minidungeon`, `$code-review`, `$codedungeon-test-loop`, `$cleanup-tasks`.
-- Use `codedungeon phase info` before changing phase state.
-- Use `codedungeon spawn-prompt <phase>` to compose runtime phase context.
-- Close completed phases with `codedungeon phase done`.
+- Use `./.codex/bin/codedungeon phase info` before changing phase state.
+- Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.
+- Preserve the `agent_type`, `model`, and `reasoning_effort` emitted by `spawn-prompt <phase>` when using Codex subagents.
+- Close completed phases with `./.codex/bin/codedungeon phase done`.
 - Treat `.codex/commands/` as reference playbooks, not Codex CLI slash commands.
 - Keep provider-specific instructions in Codex files; do not copy Claude-only syntax into Codex prompts.

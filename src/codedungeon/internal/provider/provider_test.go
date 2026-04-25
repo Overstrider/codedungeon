@@ -129,3 +129,20 @@ func TestCodexHomeGuardPaths(t *testing.T) {
 	}
 	t.Fatalf("codex guards = %#v, want %q", guards, want)
 }
+
+func TestCodexDefaultModelsIncludeReasoningEfforts(t *testing.T) {
+	cfg := Codex{}.DefaultModels()
+	if cfg.Reasoning != "gpt-5.5" || cfg.ReasoningEffort != "xhigh" {
+		t.Fatalf("codex reasoning defaults = %q/%q, want gpt-5.5/xhigh", cfg.Reasoning, cfg.ReasoningEffort)
+	}
+	if cfg.Fast != "gpt-5.5" || cfg.FastEffort != "medium" {
+		t.Fatalf("codex fast defaults = %q/%q, want gpt-5.5/medium", cfg.Fast, cfg.FastEffort)
+	}
+}
+
+func TestClaudeDefaultModelsDoNotSetReasoningEfforts(t *testing.T) {
+	cfg := Claude{}.DefaultModels()
+	if cfg.ReasoningEffort != "" || cfg.FastEffort != "" {
+		t.Fatalf("claude efforts = %q/%q, want empty", cfg.ReasoningEffort, cfg.FastEffort)
+	}
+}

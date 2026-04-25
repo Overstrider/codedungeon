@@ -1,4 +1,4 @@
--- codedungeon schema v5
+-- codedungeon schema v6
 -- SQLite with FTS5. Pure-Go driver (modernc.org/sqlite).
 -- All times are unix seconds (INTEGER).
 
@@ -179,4 +179,6 @@ CREATE TABLE IF NOT EXISTS installed_artifacts (
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '5');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '6');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('model_reasoning_effort', '');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('model_fast_effort', '');

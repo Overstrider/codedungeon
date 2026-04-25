@@ -39,8 +39,10 @@ type Provider interface {
 }
 
 type ModelConfig struct {
-	Reasoning string `json:"reasoning"`
-	Fast      string `json:"fast"`
+	Reasoning       string `json:"reasoning"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	Fast            string `json:"fast"`
+	FastEffort      string `json:"fast_effort,omitempty"`
 }
 
 var (

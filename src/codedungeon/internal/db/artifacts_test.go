@@ -43,7 +43,7 @@ func TestInstalledArtifactStoresProviderPackAndInstallPath(t *testing.T) {
 	}
 }
 
-func TestMigrateV2DatabaseWithoutArtifactsTableToV5(t *testing.T) {
+func TestMigrateV2DatabaseWithoutArtifactsTableToV6(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "codedungeon.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +64,13 @@ func TestMigrateV2DatabaseWithoutArtifactsTableToV5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ver != "5" {
-		t.Fatalf("schema version = %q, want 5", ver)
+	if ver != "6" {
+		t.Fatalf("schema version = %q, want 6", ver)
+	}
+	for _, key := range []string{"model_reasoning_effort", "model_fast_effort"} {
+		if _, err := s.GetMeta(key); err != nil {
+			t.Fatalf("missing %s: %v", key, err)
+		}
 	}
 }
 

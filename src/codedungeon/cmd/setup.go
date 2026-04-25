@@ -17,26 +17,35 @@ import (
 )
 
 func buildModelTiers() []struct {
-	Label     string
-	Reasoning string
-	Fast      string
+	Label           string
+	Reasoning       string
+	ReasoningEffort string
+	Fast            string
+	FastEffort      string
 } {
 	alts := provider.Detect().ModelAlternatives()
 	var tiers []struct {
-		Label     string
-		Reasoning string
-		Fast      string
+		Label           string
+		Reasoning       string
+		ReasoningEffort string
+		Fast            string
+		FastEffort      string
 	}
 	for i, a := range alts {
 		label := a.Reasoning + " + " + a.Fast
+		if a.ReasoningEffort != "" || a.FastEffort != "" {
+			label = a.Reasoning + " (" + a.ReasoningEffort + ") + " + a.Fast + " (" + a.FastEffort + ")"
+		}
 		if i == 0 {
 			label += "  [recommended]"
 		}
 		tiers = append(tiers, struct {
-			Label     string
-			Reasoning string
-			Fast      string
-		}{label, a.Reasoning, a.Fast})
+			Label           string
+			Reasoning       string
+			ReasoningEffort string
+			Fast            string
+			FastEffort      string
+		}{label, a.Reasoning, a.ReasoningEffort, a.Fast, a.FastEffort})
 	}
 	return tiers
 }
@@ -52,7 +61,9 @@ Providers with a global plugin system also install the plugin.`,
 	}
 	c.Flags().String("target", "", "project root (default: CWD)")
 	c.Flags().String("reasoning", "", "reasoning model ID (skip interactive selection)")
+	c.Flags().String("reasoning-effort", "", "reasoning effort (skip interactive selection)")
 	c.Flags().String("fast", "", "fast model ID (skip interactive selection)")
+	c.Flags().String("fast-effort", "", "fast effort (skip interactive selection)")
 	c.Flags().Bool("force", false, "overwrite existing setup")
 	c.Flags().Bool("skip-global", false, "skip global plugin install")
 	c.Flags().BoolP("yes", "y", false, "accept all defaults, no interactive prompts")
@@ -60,35 +71,43 @@ Providers with a global plugin system also install the plugin.`,
 }
 
 type setupOptions struct {
-	Target     string
-	Reasoning  string
-	Fast       string
-	Force      bool
-	SkipGlobal bool
-	Yes        bool
+	Target          string
+	Reasoning       string
+	ReasoningEffort string
+	Fast            string
+	FastEffort      string
+	Force           bool
+	SkipGlobal      bool
+	Yes             bool
 }
 
 func runSetup(c *cobra.Command, _ []string) error {
 	target, _ := c.Flags().GetString("target")
 	reasoning, _ := c.Flags().GetString("reasoning")
+	reasoningEffort, _ := c.Flags().GetString("reasoning-effort")
 	fast, _ := c.Flags().GetString("fast")
+	fastEffort, _ := c.Flags().GetString("fast-effort")
 	force, _ := c.Flags().GetBool("force")
 	skipGlobal, _ := c.Flags().GetBool("skip-global")
 	yes, _ := c.Flags().GetBool("yes")
 	return runSetupWithOptions(setupOptions{
-		Target:     target,
-		Reasoning:  reasoning,
-		Fast:       fast,
-		Force:      force,
-		SkipGlobal: skipGlobal,
-		Yes:        yes,
+		Target:          target,
+		Reasoning:       reasoning,
+		ReasoningEffort: reasoningEffort,
+		Fast:            fast,
+		FastEffort:      fastEffort,
+		Force:           force,
+		SkipGlobal:      skipGlobal,
+		Yes:             yes,
 	})
 }
 
 func runSetupWithOptions(opts setupOptions) error {
 	target := opts.Target
 	reasoning := opts.Reasoning
+	reasoningEffort := opts.ReasoningEffort
 	fast := opts.Fast
+	fastEffort := opts.FastEffort
 	force := opts.Force
 	skipGlobal := opts.SkipGlobal
 	yes := opts.Yes
@@ -172,7 +191,7 @@ func runSetupWithOptions(opts setupOptions) error {
 		printStep(3, totalSteps, "Model configuration")
 	}
 
-	if reasoning == "" || fast == "" {
+	if reasoning == "" || fast == "" || reasoningEffort == "" || fastEffort == "" {
 		if interactive {
 			tiers := buildModelTiers()
 			var labels []string
@@ -180,17 +199,42 @@ func runSetupWithOptions(opts setupOptions) error {
 				labels = append(labels, t.Label)
 			}
 			choice := promptChoice("Select model tier:", labels, 0)
-			reasoning = tiers[choice].Reasoning
-			fast = tiers[choice].Fast
+			if reasoning == "" {
+				reasoning = tiers[choice].Reasoning
+			}
+			if reasoningEffort == "" {
+				reasoningEffort = tiers[choice].ReasoningEffort
+			}
+			if fast == "" {
+				fast = tiers[choice].Fast
+			}
+			if fastEffort == "" {
+				fastEffort = tiers[choice].FastEffort
+			}
 		} else {
-			reasoning = ModelDefaults.Reasoning
-			fast = ModelDefaults.Fast
+			defaults := provider.Detect().DefaultModels()
+			if reasoning == "" {
+				reasoning = defaults.Reasoning
+			}
+			if reasoningEffort == "" {
+				reasoningEffort = defaults.ReasoningEffort
+			}
+			if fast == "" {
+				fast = defaults.Fast
+			}
+			if fastEffort == "" {
+				fastEffort = defaults.FastEffort
+			}
 		}
+	}
+	cfg, err := completeModelConfig(reasoning, reasoningEffort, fast, fastEffort)
+	if err != nil {
+		return EmitErr(err.Error(), "effort must be one of: low, medium, high, xhigh")
 	}
 
 	if interactive {
-		printDetail(fmt.Sprintf("Reasoning: %s", reasoning))
-		printDetail(fmt.Sprintf("Fast:      %s", fast))
+		printDetail(fmt.Sprintf("Reasoning: %s (%s)", cfg.Reasoning, cfg.ReasoningEffort))
+		printDetail(fmt.Sprintf("Fast:      %s (%s)", cfg.Fast, cfg.FastEffort))
 	}
 
 	// ---- Step 4: Project bootstrap ----
@@ -215,7 +259,7 @@ func runSetupWithOptions(opts setupOptions) error {
 		}
 	}
 
-	result, err := RunBootstrap(target, reasoning, fast, force)
+	result, err := RunBootstrapWithConfig(target, cfg, force)
 	if err != nil {
 		if interactive {
 			printErr(err.Error())
@@ -253,8 +297,10 @@ func runSetupWithOptions(opts setupOptions) error {
 			"prompts_seeded":      len(result.PromptsSeeded),
 			"artifacts_installed": result.ArtifactsInstalled,
 			"models": map[string]string{
-				"reasoning": reasoning,
-				"fast":      fast,
+				"reasoning":        result.Reasoning,
+				"reasoning_effort": result.ReasoningEffort,
+				"fast":             result.Fast,
+				"fast_effort":      result.FastEffort,
 			},
 		})
 	}

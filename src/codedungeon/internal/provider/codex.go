@@ -36,14 +36,14 @@ func (Codex) HomeGuardPaths() []string {
 }
 
 func (Codex) DefaultModels() ModelConfig {
-	return ModelConfig{Reasoning: "gpt-5.2", Fast: "gpt-5.4-mini"}
+	return ModelConfig{Reasoning: "gpt-5.5", ReasoningEffort: "xhigh", Fast: "gpt-5.5", FastEffort: "medium"}
 }
 
 func (Codex) ModelAlternatives() []ModelConfig {
 	return []ModelConfig{
-		{Reasoning: "gpt-5.2", Fast: "gpt-5.4-mini"},
-		{Reasoning: "gpt-5.4", Fast: "gpt-5.4-mini"},
-		{Reasoning: "gpt-5.2", Fast: "gpt-5.3-codex-spark"},
+		{Reasoning: "gpt-5.5", ReasoningEffort: "xhigh", Fast: "gpt-5.5", FastEffort: "medium"},
+		{Reasoning: "gpt-5.5", ReasoningEffort: "high", Fast: "gpt-5.5", FastEffort: "medium"},
+		{Reasoning: "gpt-5.4", ReasoningEffort: "high", Fast: "gpt-5.4-mini", FastEffort: "medium"},
 	}
 }
 
