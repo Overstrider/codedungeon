@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"path/filepath"
 	"testing"
+
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 func TestParsePlanMD(t *testing.T) {
@@ -69,9 +72,17 @@ func TestIsHomeConfig(t *testing.T) {
 		want bool
 	}{
 		{"/tmp/foo", false},
-		{"/root/.claude", true},
-		{"/root/.claude/plugins", true},
 		{"/home/x/.claudeproject", false},
+	}
+	for _, guard := range provider.Detect().HomeGuardPaths() {
+		cases = append(cases, struct {
+			in   string
+			want bool
+		}{guard, true})
+		cases = append(cases, struct {
+			in   string
+			want bool
+		}{filepath.Join(guard, "plugins"), true})
 	}
 	for _, c := range cases {
 		got := IsHomeConfig(c.in)

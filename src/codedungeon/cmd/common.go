@@ -18,13 +18,13 @@ import (
 // ---- Preflight guards ----
 
 // ErrHomeConfig is returned when the CWD is under a provider's home config dir.
-var ErrHomeConfig = errors.New("refuse: codedungeon must not run inside the provider's home config directory — use a project directory")
+var ErrHomeConfig = errors.New("refuse: codedungeon must not run inside the provider's home config directory - use a project directory")
 
 // ErrNoGit is returned when the project root has no .git/.
-var ErrNoGit = errors.New("refuse: project root has no .git — codedungeon requires a git repository")
+var ErrNoGit = errors.New("refuse: project root has no .git - codedungeon requires a git repository")
 
 // ErrNoProject is returned when no project root could be resolved.
-var ErrNoProject = errors.New("no project root found — invoke `codedungeon bootstrap` with --target")
+var ErrNoProject = errors.New("no project root found - invoke `codedungeon bootstrap` with --target")
 
 // ResolveProjectRoot walks up from start looking for a `.git/` dir (project root).
 // Falls back to abs(start) if none found — callers verify via GuardGit.
@@ -49,7 +49,9 @@ func IsHomeConfig(path string) bool {
 	abs, _ := filepath.Abs(path)
 	abs = filepath.Clean(abs)
 	for _, guard := range provider.Detect().HomeGuardPaths() {
-		if abs == guard || strings.HasPrefix(abs, guard+string(filepath.Separator)) {
+		guardAbs, _ := filepath.Abs(filepath.FromSlash(guard))
+		guardAbs = filepath.Clean(guardAbs)
+		if abs == guardAbs || strings.HasPrefix(abs, guardAbs+string(filepath.Separator)) {
 			return true
 		}
 	}
@@ -101,7 +103,7 @@ func Preflight() error {
 
 // ---- DB helpers ----
 
-// OpenDB opens the store using --db flag or <project-root>/.claude/codedungeon.db.
+// OpenDB opens the store using --db flag or the provider project DB path.
 // Runs preflight first (enforces project-only + git-gate).
 // Also checks cd_version vs binary.Version: mismatch → structured error.
 func OpenDB(c *cobra.Command) (*db.Store, error) {

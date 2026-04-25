@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "3"
+const SchemaVersion = "5"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -118,6 +118,11 @@ func (s *Store) Migrate() error {
 		if num == 0 || num <= curN {
 			continue
 		}
+		if num == 4 {
+			if err := s.ensureArtifactPackColumns(); err != nil {
+				return fmt.Errorf("prepare %s: %w", e.Name(), err)
+			}
+		}
 		body, err := migrationsFS.ReadFile("migrations/" + e.Name())
 		if err != nil {
 			return fmt.Errorf("read %s: %w", e.Name(), err)
@@ -129,6 +134,54 @@ func (s *Store) Migrate() error {
 	// Ensure schema_version reflects the intended target.
 	_, err = s.DB.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, SchemaVersion)
 	return err
+}
+
+func (s *Store) ensureArtifactPackColumns() error {
+	cols, err := tableColumns(s.DB, "installed_artifacts")
+	if err != nil {
+		return err
+	}
+	add := []struct {
+		name string
+		sql  string
+	}{
+		{"install_path", `ALTER TABLE installed_artifacts ADD COLUMN install_path TEXT NOT NULL DEFAULT ''`},
+		{"provider", `ALTER TABLE installed_artifacts ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'`},
+		{"pack_id", `ALTER TABLE installed_artifacts ADD COLUMN pack_id TEXT NOT NULL DEFAULT 'codedungeon-claude'`},
+		{"pack_version", `ALTER TABLE installed_artifacts ADD COLUMN pack_version TEXT NOT NULL DEFAULT '1'`},
+		{"kind", `ALTER TABLE installed_artifacts ADD COLUMN kind TEXT NOT NULL DEFAULT ''`},
+		{"logical_name", `ALTER TABLE installed_artifacts ADD COLUMN logical_name TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, col := range add {
+		if cols[col.name] {
+			continue
+		}
+		if _, err := s.DB.Exec(col.sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		cols[name] = true
+	}
+	return cols, rows.Err()
 }
 
 // Close closes the underlying connection.
@@ -261,13 +314,13 @@ func (s *Store) SetRunJSON(id int64, field string, raw json.RawMessage) error {
 // ===== Phases =====
 
 type Phase struct {
-	RunID       int64    `json:"run_id"`
-	Phase       string   `json:"phase"`
-	Status      string   `json:"status"`
-	Notes       string   `json:"notes,omitempty"`
-	Artifacts   []string `json:"artifacts,omitempty"`
-	StartedAt   int64    `json:"started_at,omitempty"`
-	FinishedAt  int64    `json:"finished_at,omitempty"`
+	RunID      int64    `json:"run_id"`
+	Phase      string   `json:"phase"`
+	Status     string   `json:"status"`
+	Notes      string   `json:"notes,omitempty"`
+	Artifacts  []string `json:"artifacts,omitempty"`
+	StartedAt  int64    `json:"started_at,omitempty"`
+	FinishedAt int64    `json:"finished_at,omitempty"`
 }
 
 func (s *Store) GetPhase(runID int64, phase string) (*Phase, error) {
@@ -554,30 +607,55 @@ func (s *Store) UpsertTask(t Task) error {
 
 type InstalledArtifact struct {
 	RelPath       string
+	InstallPath   string
 	SHA256        string
 	BinaryVersion string
+	Provider      string
+	PackID        string
+	PackVersion   string
+	Kind          string
+	LogicalName   string
 	UserModified  bool
 	InstalledAt   int64
 }
 
 func (s *Store) UpsertArtifact(a InstalledArtifact) error {
+	if a.InstallPath == "" {
+		a.InstallPath = a.RelPath
+	}
+	if a.Provider == "" {
+		a.Provider = "claude"
+	}
+	if a.PackID == "" {
+		a.PackID = "codedungeon-claude"
+	}
+	if a.PackVersion == "" {
+		a.PackVersion = "1"
+	}
 	_, err := s.DB.Exec(`
-        INSERT INTO installed_artifacts(rel_path, sha256, binary_version, user_modified, installed_at)
-        VALUES (?,?,?,?,?)
+        INSERT INTO installed_artifacts(rel_path, install_path, sha256, binary_version, provider, pack_id, pack_version, kind, logical_name, user_modified, installed_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(rel_path) DO UPDATE SET
+          install_path=excluded.install_path,
           sha256=excluded.sha256,
           binary_version=excluded.binary_version,
+          provider=excluded.provider,
+          pack_id=excluded.pack_id,
+          pack_version=excluded.pack_version,
+          kind=excluded.kind,
+          logical_name=excluded.logical_name,
           user_modified=excluded.user_modified,
           installed_at=excluded.installed_at`,
-		a.RelPath, a.SHA256, a.BinaryVersion, boolInt(a.UserModified), a.InstalledAt)
+		a.RelPath, a.InstallPath, a.SHA256, a.BinaryVersion, a.Provider, a.PackID, a.PackVersion,
+		a.Kind, a.LogicalName, boolInt(a.UserModified), a.InstalledAt)
 	return err
 }
 
 func (s *Store) GetArtifact(relPath string) (*InstalledArtifact, error) {
-	row := s.DB.QueryRow(`SELECT rel_path, sha256, binary_version, user_modified, installed_at FROM installed_artifacts WHERE rel_path=?`, relPath)
+	row := s.DB.QueryRow(`SELECT rel_path, install_path, sha256, binary_version, provider, pack_id, pack_version, kind, logical_name, user_modified, installed_at FROM installed_artifacts WHERE rel_path=?`, relPath)
 	var a InstalledArtifact
 	var um int
-	if err := row.Scan(&a.RelPath, &a.SHA256, &a.BinaryVersion, &um, &a.InstalledAt); err != nil {
+	if err := row.Scan(&a.RelPath, &a.InstallPath, &a.SHA256, &a.BinaryVersion, &a.Provider, &a.PackID, &a.PackVersion, &a.Kind, &a.LogicalName, &um, &a.InstalledAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -588,7 +666,7 @@ func (s *Store) GetArtifact(relPath string) (*InstalledArtifact, error) {
 }
 
 func (s *Store) ListArtifacts() ([]InstalledArtifact, error) {
-	rows, err := s.DB.Query(`SELECT rel_path, sha256, binary_version, user_modified, installed_at FROM installed_artifacts ORDER BY rel_path`)
+	rows, err := s.DB.Query(`SELECT rel_path, install_path, sha256, binary_version, provider, pack_id, pack_version, kind, logical_name, user_modified, installed_at FROM installed_artifacts ORDER BY install_path`)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +675,7 @@ func (s *Store) ListArtifacts() ([]InstalledArtifact, error) {
 	for rows.Next() {
 		var a InstalledArtifact
 		var um int
-		if err := rows.Scan(&a.RelPath, &a.SHA256, &a.BinaryVersion, &um, &a.InstalledAt); err != nil {
+		if err := rows.Scan(&a.RelPath, &a.InstallPath, &a.SHA256, &a.BinaryVersion, &a.Provider, &a.PackID, &a.PackVersion, &a.Kind, &a.LogicalName, &um, &a.InstalledAt); err != nil {
 			return nil, err
 		}
 		a.UserModified = um == 1

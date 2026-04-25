@@ -19,9 +19,10 @@ import (
 // Flags: --force (overwrite user-modified files), --dry-run (list only).
 // Records each write in `installed_artifacts`. Sprint 7 Stage 4.
 func InstallCmd() *cobra.Command {
+	p := provider.Detect()
 	c := &cobra.Command{
 		Use:   "install",
-		Short: "Install embedded agents/skills/commands/phases into <project>/.claude/",
+		Short: fmt.Sprintf("Install embedded agents/skills/commands/phases into provider paths (%s)", p.Name()),
 		RunE: func(c *cobra.Command, _ []string) error {
 			return runInstall(c)
 		},
@@ -92,13 +93,16 @@ func StatusCmd() *cobra.Command {
 				embSHA[a.RelPath] = sha256Hex(a.Content)
 			}
 
-			configDir := provider.Detect().ConfigDir()
 			rows := []map[string]any{}
 			cwd, _ := os.Getwd()
 			root := ResolveProjectRoot(cwd)
 			for _, a := range arts {
 				status := "synced"
-				disk := filepath.Join(root, configDir, a.RelPath)
+				installPath := a.InstallPath
+				if installPath == "" {
+					installPath = filepath.ToSlash(filepath.Join(provider.Detect().ConfigDir(), a.RelPath))
+				}
+				disk := filepath.Join(root, filepath.FromSlash(installPath))
 				if data, err := os.ReadFile(disk); err == nil {
 					diskSHA := sha256Hex(data)
 					if diskSHA != a.SHA256 {
@@ -110,14 +114,19 @@ func StatusCmd() *cobra.Command {
 					status = "missing"
 				}
 				rows = append(rows, map[string]any{
-					"path":           a.RelPath,
+					"path":           installPath,
+					"rel_path":       a.RelPath,
 					"status":         status,
 					"binary_version": a.BinaryVersion,
+					"provider":       a.Provider,
+					"pack":           a.PackID,
+					"pack_version":   a.PackVersion,
+					"kind":           a.Kind,
 				})
 			}
 			return EmitJSON(map[string]any{
-				"ok":       true,
-				"count":    len(rows),
+				"ok":        true,
+				"count":     len(rows),
 				"artifacts": rows,
 			})
 		},
@@ -140,14 +149,13 @@ func runInstall(c *cobra.Command) error {
 func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 	cwd, _ := os.Getwd()
 	root := ResolveProjectRoot(cwd)
-	configDir := provider.Detect().ConfigDir()
 	embedded, err := prompts.Artifacts()
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
 	var wrote, skipped, forced []string
 	for _, a := range embedded {
-		disk := filepath.Join(root, configDir, a.RelPath)
+		disk := filepath.Join(root, filepath.FromSlash(a.InstallPath))
 		embSHA := sha256Hex(a.Content)
 
 		// Detect user modification: disk SHA != DB-recorded SHA.
@@ -160,14 +168,14 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 			}
 		}
 		if userModified && !force {
-			skipped = append(skipped, a.RelPath)
+			skipped = append(skipped, a.InstallPath)
 			continue
 		}
 		if userModified && force {
-			forced = append(forced, a.RelPath)
+			forced = append(forced, a.InstallPath)
 		}
 		if dry {
-			wrote = append(wrote, "DRY:"+a.RelPath)
+			wrote = append(wrote, "DRY:"+a.InstallPath)
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
@@ -178,19 +186,25 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 		}
 		_ = s.UpsertArtifact(db.InstalledArtifact{
 			RelPath:       a.RelPath,
+			InstallPath:   a.InstallPath,
 			SHA256:        embSHA,
 			BinaryVersion: versionString(),
+			Provider:      a.Provider,
+			PackID:        a.PackID,
+			PackVersion:   a.PackVersion,
+			Kind:          a.Kind,
+			LogicalName:   a.LogicalName,
 			UserModified:  false,
 			InstalledAt:   time.Now().Unix(),
 		})
-		wrote = append(wrote, a.RelPath)
+		wrote = append(wrote, a.InstallPath)
 	}
 	return EmitJSON(map[string]any{
-		"ok":      true,
-		"mode":    modeLbl(dry),
-		"wrote":   len(wrote),
-		"skipped": len(skipped),
-		"forced":  len(forced),
+		"ok":            true,
+		"mode":          modeLbl(dry),
+		"wrote":         len(wrote),
+		"skipped":       len(skipped),
+		"forced":        len(forced),
 		"skipped_paths": skipped,
 	})
 }

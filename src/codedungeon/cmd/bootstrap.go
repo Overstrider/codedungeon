@@ -67,7 +67,7 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 	}
 
 	artifactsInstalled := 0
-	if err := installEmbeddedArtifacts(s); err == nil {
+	if err := installEmbeddedArtifactsAt(s, target); err == nil {
 		if all, err := prompts.Artifacts(); err == nil {
 			artifactsInstalled = len(all)
 		}
@@ -88,10 +88,10 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 		}
 	}
 
-	// Upsert codedungeon quick-reference in agent config file (best-effort).
-	claudeMD := filepath.Join(target, p.AgentConfigFile())
-	if err := upsertCodedungeonSection(claudeMD); err != nil {
-		fmt.Fprintln(os.Stderr, "[WARN] CLAUDE.md upsert failed:", err)
+	// Upsert codedungeon quick-reference in provider instruction file (best-effort).
+	agentConfig := filepath.Join(target, p.AgentConfigFile())
+	if err := upsertCodedungeonSection(agentConfig); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] %s upsert failed: %v\n", p.AgentConfigFile(), err)
 	}
 
 	return &BootstrapResult{
@@ -107,15 +107,17 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 	}, nil
 }
 
-// BootstrapCmd self-copies codedungeon into <project>/.claude/bin/, creates
+// BootstrapCmd self-copies codedungeon into the provider bin dir, creates
 // the DB, and records project_root + os + cd_version in meta. First-run flow.
 func BootstrapCmd() *cobra.Command {
+	p := provider.Detect()
 	c := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "First-run: copy binary into <project>/.claude/bin + init DB (requires .git)",
-		Long: `Run once per project. codedungeon refuses to run inside ~/.claude or /root/.claude.
+		Short: fmt.Sprintf("First-run: copy binary into <project>/%s + init DB (requires .git)", p.BinDir()),
+		Long: fmt.Sprintf(`Run once per project. codedungeon refuses to run inside provider home config paths (%s).
 If --target is omitted, the current CWD is used as the project root.
-Requires .git at the target (or --init-git to create one — not default).`,
+Requires .git at the target (or --init-git to create one - not default).`,
+			p.ConfigDir()),
 		RunE: func(c *cobra.Command, _ []string) error {
 			target, _ := c.Flags().GetString("target")
 			force, _ := c.Flags().GetBool("force")
@@ -169,23 +171,27 @@ Requires .git at the target (or --init-git to create one — not default).`,
 	}
 	c.Flags().String("target", "", "project root (default: CWD)")
 	c.Flags().Bool("force", false, "overwrite existing bootstrap")
-	c.Flags().String("reasoning", "", "model ID for deep phases (e.g. claude-opus-4-7)")
-	c.Flags().String("fast", "", "model ID for fast phases (e.g. claude-sonnet-4-6)")
+	c.Flags().String("reasoning", "", "model ID for deep phases")
+	c.Flags().String("fast", "", "model ID for fast phases")
 	return c
 }
 
-// installEmbeddedArtifacts writes embedded agents/skills/commands/phases
-// into <project-root>/.claude/ and records each in installed_artifacts.
+// installEmbeddedArtifacts writes provider-native embedded artifacts and
+// records each in installed_artifacts.
 // Called by bootstrap. Standalone path (without bootstrap) = `codedungeon install`.
 func installEmbeddedArtifacts(s *db.Store) error {
 	cwd, _ := os.Getwd()
 	root := ResolveProjectRoot(cwd)
+	return installEmbeddedArtifactsAt(s, root)
+}
+
+func installEmbeddedArtifactsAt(s *db.Store, root string) error {
 	embedded, err := prompts.Artifacts()
 	if err != nil {
 		return err
 	}
 	for _, a := range embedded {
-		disk := filepath.Join(root, provider.Detect().ConfigDir(), a.RelPath)
+		disk := filepath.Join(root, filepath.FromSlash(a.InstallPath))
 		if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
 			return err
 		}
@@ -194,8 +200,14 @@ func installEmbeddedArtifacts(s *db.Store) error {
 		}
 		_ = s.UpsertArtifact(db.InstalledArtifact{
 			RelPath:       a.RelPath,
+			InstallPath:   a.InstallPath,
 			SHA256:        sha256Hex(a.Content),
 			BinaryVersion: versionString(),
+			Provider:      a.Provider,
+			PackID:        a.PackID,
+			PackVersion:   a.PackVersion,
+			Kind:          a.Kind,
+			LogicalName:   a.LogicalName,
 			InstalledAt:   time.Now().Unix(),
 		})
 	}

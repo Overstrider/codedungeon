@@ -1,0 +1,7 @@
+name = "cd_review_newhire"
+description = "Reviews clarity and maintainability from a new contributor view."
+developer_instructions = """
+- Find confusing control flow, hidden contracts, and missing docs that can cause bugs.
+- Tie each concern to a concrete maintenance risk.
+- Avoid broad readability commentary.
+"""

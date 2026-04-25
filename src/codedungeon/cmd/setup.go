@@ -46,8 +46,8 @@ func SetupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "One-step project + global setup (interactive)",
 		Long: `Download the binary, run 'codedungeon setup' in your git project — done.
-Installs the global Claude Code plugin, initializes the project DB,
-installs all embedded artifacts, and lets you pick model tiers interactively.`,
+Initializes the project DB, installs provider-native artifacts, and lets you pick model tiers interactively.
+Providers with a global plugin system also install the plugin.`,
 		RunE: runSetup,
 	}
 	c.Flags().String("target", "", "project root (default: CWD)")
@@ -59,6 +59,15 @@ installs all embedded artifacts, and lets you pick model tiers interactively.`,
 	return c
 }
 
+type setupOptions struct {
+	Target     string
+	Reasoning  string
+	Fast       string
+	Force      bool
+	SkipGlobal bool
+	Yes        bool
+}
+
 func runSetup(c *cobra.Command, _ []string) error {
 	target, _ := c.Flags().GetString("target")
 	reasoning, _ := c.Flags().GetString("reasoning")
@@ -66,6 +75,23 @@ func runSetup(c *cobra.Command, _ []string) error {
 	force, _ := c.Flags().GetBool("force")
 	skipGlobal, _ := c.Flags().GetBool("skip-global")
 	yes, _ := c.Flags().GetBool("yes")
+	return runSetupWithOptions(setupOptions{
+		Target:     target,
+		Reasoning:  reasoning,
+		Fast:       fast,
+		Force:      force,
+		SkipGlobal: skipGlobal,
+		Yes:        yes,
+	})
+}
+
+func runSetupWithOptions(opts setupOptions) error {
+	target := opts.Target
+	reasoning := opts.Reasoning
+	fast := opts.Fast
+	force := opts.Force
+	skipGlobal := opts.SkipGlobal
+	yes := opts.Yes
 
 	interactive := isTTY() && !yes
 
@@ -125,7 +151,7 @@ func runSetup(c *cobra.Command, _ []string) error {
 			globalStatus = "failed: " + err.Error()
 			if interactive {
 				printWarn("Plugin install failed: " + err.Error())
-				printWarn("CLI works, but slash commands won't be available.")
+				printWarn("CLI works, but provider-native command shortcuts may not be available.")
 			}
 		} else {
 			globalStatus = status
@@ -211,7 +237,11 @@ func runSetup(c *cobra.Command, _ []string) error {
 		fmt.Fprintln(tuiOut)
 		printDetail(fmt.Sprintf("codedungeon is ready in %s", target))
 		printDetail("Run 'codedungeon version' to verify.")
-		printDetail("Claude Code slash commands are now available.")
+		if provider.Detect().Name() == "claude" {
+			printDetail("Claude Code slash commands are now available.")
+		} else {
+			printDetail("Codex workflow skills are installed under .agents/skills.")
+		}
 		fmt.Fprintln(tuiOut)
 	} else {
 		_ = EmitJSON(map[string]any{
@@ -219,7 +249,7 @@ func runSetup(c *cobra.Command, _ []string) error {
 			"project_root":        result.ProjectRoot,
 			"bin":                 result.BinPath,
 			"db":                  result.DBPath,
-			"global_plugin":      globalStatus,
+			"global_plugin":       globalStatus,
 			"prompts_seeded":      len(result.PromptsSeeded),
 			"artifacts_installed": result.ArtifactsInstalled,
 			"models": map[string]string{

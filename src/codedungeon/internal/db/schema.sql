@@ -1,4 +1,4 @@
--- codedungeon schema v3
+-- codedungeon schema v5
 -- SQLite with FTS5. Pure-Go driver (modernc.org/sqlite).
 -- All times are unix seconds (INTEGER).
 
@@ -166,11 +166,17 @@ END;
 -- (schema_version=3 adds this; migration 003 creates it on existing DBs).
 CREATE TABLE IF NOT EXISTS installed_artifacts (
     rel_path       TEXT PRIMARY KEY,
+    install_path   TEXT NOT NULL DEFAULT '',
     sha256         TEXT NOT NULL,
     binary_version TEXT NOT NULL,
+    provider       TEXT NOT NULL DEFAULT 'claude',
+    pack_id        TEXT NOT NULL DEFAULT 'codedungeon-claude',
+    pack_version   TEXT NOT NULL DEFAULT '1',
+    kind           TEXT NOT NULL DEFAULT '',
+    logical_name   TEXT NOT NULL DEFAULT '',
     user_modified  INTEGER NOT NULL DEFAULT 0,
     installed_at   INTEGER NOT NULL
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '5');

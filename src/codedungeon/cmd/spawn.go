@@ -81,7 +81,7 @@ not have to narrate it.`,
 			}
 
 			raw, _ := c.Flags().GetBool("raw")
-			out := buildSpawnPrompt(phase, file, tier, model, think, cavemanBlk)
+			out := buildSpawnPromptForProvider(provider.Detect().Name(), phase, file, tier, model, think, cavemanBlk)
 			if raw {
 				fmt.Print(out)
 				return nil
@@ -102,6 +102,10 @@ not have to narrate it.`,
 }
 
 func buildSpawnPrompt(phase, file, tier, model string, think int, caveman string) string {
+	return buildSpawnPromptForProvider(provider.Detect().Name(), phase, file, tier, model, think, caveman)
+}
+
+func buildSpawnPromptForProvider(providerName, phase, file, tier, model string, think int, caveman string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are executing Phase %s of the codedungeon pipeline.\n\n", phase)
 	fmt.Fprintf(&b, "Read your full phase instructions from: %s\n", file)
@@ -113,7 +117,9 @@ func buildSpawnPrompt(phase, file, tier, model string, think int, caveman string
 	b.WriteString("--- OUTPUT MODE (baked in, non-negotiable) ---\n")
 	b.WriteString(strings.TrimSpace(caveman))
 	b.WriteString("\n--- END OUTPUT MODE ---\n\n")
-	fmt.Fprintf(&b, "max_thinking_tokens: %d\n", think)
+	if providerName == "claude" || providerName == "claude-code" || providerName == "claude-ce" {
+		fmt.Fprintf(&b, "max_thinking_tokens: %d\n", think)
+	}
 	fmt.Fprintf(&b, "model: %s   # tier=%s (via codedungeon config model %s)\n", model, tier, tier)
 	return b.String()
 }

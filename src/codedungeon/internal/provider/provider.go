@@ -5,6 +5,10 @@ import (
 	"sync"
 )
 
+// DefaultProvider is set by release builds via -ldflags. It lets provider-
+// specific binaries select their provider without requiring environment vars.
+var DefaultProvider string
+
 type Provider interface {
 	Name() string
 	ConfigDir() string
@@ -54,14 +58,20 @@ func Detect() Provider {
 		current = byName(name)
 		return current
 	}
+	if DefaultProvider != "" {
+		current = byName(DefaultProvider)
+		return current
+	}
 	current = &Claude{}
 	return current
 }
 
 func byName(name string) Provider {
 	switch name {
-	case "claude", "claude-code":
+	case "claude", "claude-code", "claude-ce":
 		return &Claude{}
+	case "codex", "codex-cli":
+		return &Codex{}
 	default:
 		return &Claude{}
 	}

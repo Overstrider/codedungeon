@@ -1,0 +1,8 @@
+name = "cd_review_classifier"
+description = "Classifies and deduplicates review output."
+developer_instructions = """
+- Group findings by root cause.
+- Assign severity by user impact and likelihood.
+- Distinguish design decisions from defects.
+- Return concise normalized findings.
+"""

@@ -22,9 +22,10 @@ func cleanupDirsMap() map[string]string {
 }
 
 func CleanupCmd() *cobra.Command {
+	p := provider.Detect()
 	c := &cobra.Command{
 		Use:   "cleanup",
-		Short: "Remove stale .claude/ artifacts (tasks, plans, reviews, state)",
+		Short: fmt.Sprintf("Remove stale %s artifacts (tasks, plans, reviews, state)", p.ConfigDir()),
 		Long: `Deletes CONTENTS (not the directory itself) of ephemeral artifact dirs
 (tasks, plans, reviews, state). NEVER deletes commands, agents, skills, bin,
 settings, codedungeon.db, or .git.`,
@@ -96,20 +97,20 @@ settings, codedungeon.db, or .git.`,
 				}
 			}
 			return EmitJSON(map[string]any{
-				"ok":       len(errors) == 0,
-				"mode":     modeLabel(dry),
-				"deleted":  deleted,
-				"errors":   errors,
-				"summary":  fmt.Sprintf("%d paths processed", len(deleted)),
+				"ok":      len(errors) == 0,
+				"mode":    modeLabel(dry),
+				"deleted": deleted,
+				"errors":  errors,
+				"summary": fmt.Sprintf("%d paths processed", len(deleted)),
 			})
 		},
 	}
 	c.Flags().Bool("all", false, "delete contents of tasks/ + plans/ + reviews/ + state/")
-	c.Flags().Bool("tasks", false, "delete .claude/tasks/*")
-	c.Flags().Bool("plans", false, "delete .claude/plan/*")
-	c.Flags().Bool("reviews", false, "delete .claude/codereview/*")
-	c.Flags().Bool("state", false, "delete .claude/state/*")
-	c.Flags().String("feature", "", "delete only .claude/tasks/<NAME>/")
+	c.Flags().Bool("tasks", false, fmt.Sprintf("delete %s/*", p.TasksDir()))
+	c.Flags().Bool("plans", false, fmt.Sprintf("delete %s/*", p.PlanDir()))
+	c.Flags().Bool("reviews", false, fmt.Sprintf("delete %s/*", filepath.Join(p.ConfigDir(), "codereview")))
+	c.Flags().Bool("state", false, fmt.Sprintf("delete %s/*", p.StateDir()))
+	c.Flags().String("feature", "", fmt.Sprintf("delete only %s/<NAME>/", p.TasksDir()))
 	c.Flags().Bool("dry-run", false, "don't delete; just list what would be deleted")
 	return c
 }

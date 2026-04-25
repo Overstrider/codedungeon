@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -12,6 +11,7 @@ import (
 	"github.com/loldinis/codedungeon/cmd"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/osadapter"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 // Version is set via -ldflags "-X main.Version=v0.3.0" at build time.
@@ -19,17 +19,18 @@ var Version = "dev"
 
 func main() {
 	cmd.SetVersion(Version)
+	p := provider.Detect()
 
 	root := &cobra.Command{
 		Use:           "codedungeon",
-		Short:         "codedungeon — deterministic CLI for codedungeon pipeline",
-		Long:          "Single Go binary. SQLite (FTS5) state. Embedded+versionable prompts. Project-scoped (never runs in $HOME/.claude).",
+		Short:         "codedungeon - deterministic CLI for codedungeon pipeline",
+		Long:          fmt.Sprintf("Single Go binary. SQLite (FTS5) state. Embedded+versionable prompts. Project-scoped for provider %s.", p.Name()),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
 	root.PersistentFlags().Bool("human", false, "human-readable output (default: JSON)")
-	root.PersistentFlags().String("db", "", "path to codedungeon.db (default: <project>/.claude/codedungeon.db)")
+	root.PersistentFlags().String("db", "", fmt.Sprintf("path to codedungeon.db (default: <project>/%s)", p.DBPath()))
 
 	root.AddCommand(versionCmd())
 	root.AddCommand(cmd.DBCmd())
@@ -54,12 +55,12 @@ func main() {
 	root.RunE = func(c *cobra.Command, args []string) error {
 		cwd, _ := os.Getwd()
 		projectRoot := cmd.ResolveProjectRoot(cwd)
-		dbPath := filepath.Join(projectRoot, ".claude", "codedungeon.db")
-		if cmd.HasGit(projectRoot) {
-			if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-				fmt.Fprint(os.Stderr, "This project is not initialized. Run:\n\n  codedungeon setup\n\n")
-				return nil
-			}
+		handled, err := cmd.HandleFirstRun(projectRoot)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
 		}
 		return c.Help()
 	}

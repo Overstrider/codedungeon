@@ -53,7 +53,8 @@ func repoDiscoverCmd() *cobra.Command {
 			if root == "" {
 				root, _ = os.Getwd()
 			}
-			writeCM, _ := c.Flags().GetBool("write-claude-md")
+			writeAgentConfig, _ := c.Flags().GetBool("write-agent-config")
+			writeClaudeMD, _ := c.Flags().GetBool("write-claude-md")
 			persist, _ := c.Flags().GetBool("persist")
 
 			result, err := discover(root)
@@ -61,11 +62,11 @@ func repoDiscoverCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 
-			// Optionally upsert CLAUDE.md.
-			if writeCM && len(result.RepoMap) > 0 {
+			// Optionally upsert the provider instruction file.
+			if (writeAgentConfig || writeClaudeMD) && len(result.RepoMap) > 0 {
 				if err := upsertRepositoriesTable(filepath.Join(root, provider.Detect().AgentConfigFile()), result.RepoMap); err != nil {
 					// Non-fatal: log + continue.
-					fmt.Fprintln(os.Stderr, "[WARN] CLAUDE.md upsert failed:", err)
+					fmt.Fprintf(os.Stderr, "[WARN] %s upsert failed: %v\n", provider.Detect().AgentConfigFile(), err)
 				}
 			}
 
@@ -86,7 +87,8 @@ func repoDiscoverCmd() *cobra.Command {
 		},
 	}
 	c.Flags().String("root", "", "project root (default: cwd)")
-	c.Flags().Bool("write-claude-md", false, "upsert '## Repositories' in CLAUDE.md at root")
+	c.Flags().Bool("write-agent-config", false, "upsert '## Repositories' in the provider instruction file at root")
+	c.Flags().Bool("write-claude-md", false, "deprecated alias for --write-agent-config")
 	c.Flags().Bool("persist", true, "persist REPO_MAP into the active run (if any)")
 	return c
 }
@@ -273,7 +275,7 @@ func upsertRepositoriesTable(path string, repos []RepoEntry) error {
 
 	// If file absent → seed.
 	if len(existing) == 0 {
-		body := "# Project CLAUDE.md\n\n" + table + "\n"
+		body := "# Project " + provider.Detect().AgentConfigFile() + "\n\n" + table + "\n"
 		return os.WriteFile(path, []byte(body), 0o644)
 	}
 
@@ -313,7 +315,7 @@ func upsertCodedungeonSection(path string) error {
 	section := renderCodedungeonSection()
 
 	if len(existing) == 0 {
-		body := "# Project CLAUDE.md\n\n" + section + "\n"
+		body := "# Project " + provider.Detect().AgentConfigFile() + "\n\n" + section + "\n"
 		return os.WriteFile(path, []byte(body), 0o644)
 	}
 
@@ -343,13 +345,23 @@ func upsertCodedungeonSection(path string) error {
 func renderCodedungeonSection() string {
 	var b strings.Builder
 	b.WriteString("## codedungeon\n\n")
+	p := provider.Detect()
+	if p.Name() == "codex" {
+		b.WriteString("Codex CLI pipeline available. Command playbooks live in `.codex/commands/`.\n\n")
+		b.WriteString("| Playbook | Use when |\n")
+		b.WriteString("|----------|----------|\n")
+		b.WriteString("| `minidungeon` | Simple tasks, single-repo. |\n")
+		b.WriteString("| `codedungeon-dev-cycle` | Complex features, multi-repo, full phase pipeline. |\n")
+		b.WriteString("| `code-review` | Standalone adversarial review on current branch. |\n")
+		b.WriteString(fmt.Sprintf("\nAgents in `%s/`, skills in `%s/`, phases in `%s/`. CLI binary at `%s/codedungeon`.\n", p.AgentsDir(), p.SkillsDir(), p.PhasesDir(), p.BinDir()))
+		return b.String()
+	}
 	b.WriteString("CLI pipeline available. Three commands:\n\n")
 	b.WriteString("| Command | Use when |\n")
 	b.WriteString("|---------|----------|\n")
 	b.WriteString("| `/minidungeon` | Simple tasks, single-repo. Plan in plan mode first, then `/minidungeon` splits, executes, reviews, creates PR. |\n")
 	b.WriteString("| `/codedungeon-dev-cycle` | Complex features, multi-repo. Full 10-phase pipeline with architect, QA, tests, formal report. |\n")
-	b.WriteString("| `/code-review` | Standalone adversarial review on current branch (Opus 4.7 persona fanout + Sonnet validators). |\n")
-	p := provider.Detect()
+	b.WriteString("| `/code-review` | Standalone adversarial review on current branch. |\n")
 	b.WriteString(fmt.Sprintf("\nSubagents, skills, and phases installed in `%s/`. CLI binary at `%s/codedungeon`.\n", p.ConfigDir(), p.BinDir()))
 	return b.String()
 }
