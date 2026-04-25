@@ -1,5 +1,7 @@
 # Loldinis Test Loop
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 Test execution loop for one repo: integration → API → E2E. Failures create fix tasks that re-enter the dev loop via `/codedungeon-loop`.
 
 Deterministic mechanics (branch guard, plan parsing, curl validation, fix-task generation, framework detect) delegated to `codedungeon`. LLM-driven: integration test specialist, playwright wraith-tester-frontend, owl-tester-quality.

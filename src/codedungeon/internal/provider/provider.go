@@ -34,6 +34,7 @@ type Provider interface {
 	DefaultModels() ModelConfig
 	ModelAlternatives() []ModelConfig
 
+	RequiredCLIArgs() []string
 	ReviewCommentMarker() string
 	SupportsThinking() bool
 }

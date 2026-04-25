@@ -1,5 +1,7 @@
 # Loldinis Loop
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 Automated task execution loop. Reads a PLAN.md, executes each task via language-specialized specialists (plan + exec + review), runs `/code-review` (adversarial fanout) and loops on CHANGES_REQUESTED.
 
 **Deterministic mechanics (branch guard, plan parsing, PR creation, fix-task generation) delegated to `codedungeon`. Only LLM work (specialist plan/exec/review + persona fanout) is inline.**

@@ -142,6 +142,7 @@ func buildSpawnPromptForProviderWithEffort(providerName, phase, file, tier, mode
 	b.WriteString("\n--- END OUTPUT MODE ---\n\n")
 	if providerName == "claude" || providerName == "claude-code" || providerName == "claude-ce" {
 		fmt.Fprintf(&b, "max_thinking_tokens: %d\n", think)
+		fmt.Fprintf(&b, "claude_cli_args: %s\n", strings.Join(provider.Claude{}.RequiredCLIArgs(), " "))
 	} else if agentType := phaseAgentType[phase]; agentType != "" {
 		fmt.Fprintf(&b, "agent_type: %s\n", agentType)
 	}

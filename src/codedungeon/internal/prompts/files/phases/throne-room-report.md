@@ -1,5 +1,7 @@
 # Phase 7: Push Verification + Final Report
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 **You are a phase agent.** This phase is almost fully deterministic — use `codedungeon` for everything. No plan/architect work here.
 
 ## Output mode

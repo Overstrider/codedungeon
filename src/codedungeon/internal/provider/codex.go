@@ -47,5 +47,6 @@ func (Codex) ModelAlternatives() []ModelConfig {
 	}
 }
 
+func (Codex) RequiredCLIArgs() []string   { return nil }
 func (Codex) ReviewCommentMarker() string { return "Codex Adversarial Code Review" }
 func (Codex) SupportsThinking() bool      { return false }

@@ -1,5 +1,7 @@
 # Loldinis Dev Cycle
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 Thin state-machine orchestrator. Dispatches isolated phase agents; reads only `pipeline-state.md` + handoffs. All deterministic mechanics (state, handoffs, repo discover, review pipeline, plan parsing, QA, report) live in `codedungeon`.
 
 **FULLY AUTONOMOUS** once invoked. No approval gates.

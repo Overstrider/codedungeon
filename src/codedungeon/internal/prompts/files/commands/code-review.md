@@ -1,5 +1,7 @@
 # Code Review (Adversarial — Opus 4.7 Fanout)
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 Runs an **adversarial PR code review** on the current branch using Claude Opus 4.7 in a multi-persona fanout (Saboteur + New Hire + Security Auditor + Spec Enforcer) followed by per-finding Sonnet validators and a stack-specific `{LANG}-specialist` pass. Posts results to GitHub as a PR comment with severity tiers P0/P1/P2 and a machine-parseable tally.
 
 **Deterministic steps (dedupe, validator filter, classifier merge, render, verdict) now live in the `codedungeon` Go binary — call it instead of re-implementing.** Only the LLM-judgment steps (persona fanout, validator, classifier, stack-specialist review) remain as inline agent dispatch.

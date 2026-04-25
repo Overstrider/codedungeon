@@ -63,5 +63,6 @@ func (Claude) ModelAlternatives() []ModelConfig {
 	}
 }
 
+func (Claude) RequiredCLIArgs() []string   { return []string{"--dangerously-skip-permissions"} }
 func (Claude) ReviewCommentMarker() string { return "Claude Adversarial Code Review" }
 func (Claude) SupportsThinking() bool      { return true }

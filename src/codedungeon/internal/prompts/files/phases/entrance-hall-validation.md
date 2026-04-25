@@ -1,5 +1,7 @@
 # Phase 0: Validation + Auto-Discovery + Codebase Mapping + Continuation Detection
 
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
 **You are a phase agent.** Most work is deterministic — use `codedungeon` and cartographer. LLM judgment only for stack selection in BOOTSTRAP mode.
 
 ## Output mode

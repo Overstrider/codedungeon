@@ -146,3 +146,16 @@ func TestClaudeDefaultModelsDoNotSetReasoningEfforts(t *testing.T) {
 		t.Fatalf("claude efforts = %q/%q, want empty", cfg.ReasoningEffort, cfg.FastEffort)
 	}
 }
+
+func TestClaudeRequiresDangerouslySkipPermissions(t *testing.T) {
+	args := (Claude{}).RequiredCLIArgs()
+	if len(args) != 1 || args[0] != "--dangerously-skip-permissions" {
+		t.Fatalf("claude required cli args = %#v, want --dangerously-skip-permissions", args)
+	}
+}
+
+func TestCodexDoesNotUseClaudePermissionBypass(t *testing.T) {
+	if args := (Codex{}).RequiredCLIArgs(); len(args) != 0 {
+		t.Fatalf("codex required cli args = %#v, want empty", args)
+	}
+}

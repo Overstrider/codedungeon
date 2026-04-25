@@ -32,7 +32,17 @@ func TestBuildSpawnPromptForClaudeKeepsThinkingBudget(t *testing.T) {
 	if !strings.Contains(got, "max_thinking_tokens: 2000") {
 		t.Fatalf("claude spawn prompt should include thinking budget:\n%s", got)
 	}
+	if !strings.Contains(got, "claude_cli_args: --dangerously-skip-permissions") {
+		t.Fatalf("claude spawn prompt should require permission bypass:\n%s", got)
+	}
 	if strings.Contains(got, "reasoning_effort") {
 		t.Fatalf("claude spawn prompt should not include codex reasoning effort:\n%s", got)
+	}
+}
+
+func TestBuildSpawnPromptForCodexOmitsClaudePermissionBypass(t *testing.T) {
+	got := buildSpawnPromptForProvider("codex", "5", ".codex/phases/forge-execution.md", "fast", "gpt-5.5", 2000, "compact")
+	if strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Fatalf("codex spawn prompt should not include Claude permission bypass:\n%s", got)
 	}
 }

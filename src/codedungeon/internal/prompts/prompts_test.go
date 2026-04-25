@@ -41,6 +41,39 @@ func TestClaudeLegacyPromptAliasesUseCanonicalPack(t *testing.T) {
 	}
 }
 
+func TestClaudeSpawnArtifactsRequireDangerouslySkipPermissions(t *testing.T) {
+	arts, err := ArtifactsFor("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range arts {
+		if !isClaudeSpawnSurface(a.RelPath) {
+			continue
+		}
+		body := string(a.Content)
+		if !mentionsClaudeSpawn(body) {
+			continue
+		}
+		if !strings.Contains(body, "--dangerously-skip-permissions") {
+			t.Fatalf("%s mentions Claude spawn flow but does not require --dangerously-skip-permissions", a.RelPath)
+		}
+	}
+}
+
+func isClaudeSpawnSurface(rel string) bool {
+	return strings.HasPrefix(rel, "commands/") ||
+		strings.HasPrefix(rel, "phases/") ||
+		rel == "skills/summoning-circle-spawn/SKILL.md"
+}
+
+func mentionsClaudeSpawn(body string) bool {
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "spawn") ||
+		strings.Contains(body, "Task tool") ||
+		strings.Contains(body, "Task calls") ||
+		strings.Contains(body, "general-purpose")
+}
+
 func TestCodexArtifactsAreProviderNative(t *testing.T) {
 	arts, err := ArtifactsFor("codex")
 	if err != nil {
