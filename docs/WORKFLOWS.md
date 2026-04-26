@@ -1,13 +1,29 @@
 # CodeDungeon Workflows
 
-CodeDungeon installs agent-facing workflows for both providers. Claude Code invokes them as slash commands. Codex invokes them as skills.
+CodeDungeon installs agent-facing workflows for both providers. Claude Code invokes them as slash commands. Codex invokes them as skills. The promoted surface is a single router:
 
-| Workflow | Claude | Codex | Use when |
-|----------|--------|-------|----------|
-| One Shot | `/one-shot` | `$one-shot` | Small scoped change that needs plan, code, branch, PR, and review without task splitting. |
-| Side Quest | `/side-quest` | `$side-quest` | Simple single-repo work that should be split into a few explicit tasks before execution. |
-| Main Quest | `/main-quest` | `$main-quest` | Complex features, multi-repo work, full phase lifecycle, QA, tests, and final report. |
-| Code Review | `/code-review` | `$code-review` | Standalone adversarial review for the current branch or PR. |
+- Claude Code: `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>`
+- Codex: `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>`
+
+Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before following a workflow.
+
+| Mode | Claude | Codex | Workflow | Use when |
+|------|--------|-------|----------|----------|
+| `--oneshot` | `/codedungeon --oneshot` | `$codedungeon --oneshot` | One Shot | Small scoped change that needs plan, code, branch, PR, and review without task splitting. |
+| `--one-shot` | `/codedungeon --one-shot` | `$codedungeon --one-shot` | One Shot | Compatibility spelling for `--oneshot`. |
+| `--lite` | `/codedungeon --lite` | `$codedungeon --lite` | Side Quest | Simple single-repo work with a prior plan under `.codedungeon/plans/*.md`. |
+| `--full` | `/codedungeon --full` | `$codedungeon --full` | Main Quest | Complex features, multi-repo work, full phase lifecycle, QA, tests, and final report. |
+| `--auto` | `/codedungeon --auto` | `$codedungeon --auto` | Router-selected | Explicit automatic selection. |
+| Review | `/code-review` | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
+
+Compatibility aliases remain installed and supported: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex.
+
+Router validation:
+
+- Multiple mode flags stop with usage guidance.
+- Empty prompts stop with examples.
+- `--lite` requires a prior plan in `.codedungeon/plans/*.md` or an explicit plan path in the prompt.
+- Auto mode chooses `full` for complex, architectural, multi-repo, QA/test, or final-report work; `lite` when a plan exists and the prompt asks to execute, split, or continue simple planned work; and `oneshot` for small direct changes.
 
 ## Success Gate
 
@@ -79,7 +95,7 @@ The branch-before-guard order is intentional. `codedungeon git guard` rejects pr
 
 ## Side Quest
 
-`side-quest` is for compact work that still benefits from explicit task files.
+`side-quest` is for compact work that still benefits from explicit task files. Through the unified router this is `/codedungeon --lite` or `$codedungeon --lite`, and it requires a prior plan.
 
 Expected behavior:
 

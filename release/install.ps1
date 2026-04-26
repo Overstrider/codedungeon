@@ -77,10 +77,13 @@ Write-Host "Next steps:"
 Write-Host "  1. cd into any git project"
 Write-Host "  2. codedungeon-$Provider setup"
 if ($Provider -eq 'codex') {
-    Write-Host "  3. Codex workflow skills become available under .agents/skills"
+    Write-Host "  3. Codex workflow router becomes available:"
+    Write-Host "     `$codedungeon --full|--lite|--oneshot <prompt>"
+    Write-Host "     Compatibility aliases: `$main-quest, `$side-quest, `$one-shot"
 } else {
     Write-Host "  3. Claude Code slash commands become available:"
-    Write-Host "     /one-shot, /side-quest, /main-quest, /code-review"
+    Write-Host "     /codedungeon --full|--lite|--oneshot <prompt>"
+    Write-Host "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 }
 
 & $DestBin version --human

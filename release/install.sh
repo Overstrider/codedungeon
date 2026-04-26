@@ -107,10 +107,13 @@ echo "Next steps:"
 echo "  1. cd into any git project"
 echo "  2. $BIN_CMD setup"
 if [[ "$PROVIDER" == "codex" ]]; then
-    echo "  3. Codex workflow skills become available under .agents/skills"
+    echo "  3. Codex workflow router becomes available:"
+    echo "     \$codedungeon --full|--lite|--oneshot <prompt>"
+    echo "     Compatibility aliases: \$main-quest, \$side-quest, \$one-shot"
 else
     echo "  3. Claude Code slash commands become available:"
-    echo "     /one-shot, /side-quest, /main-quest, /code-review"
+    echo "     /codedungeon --full|--lite|--oneshot <prompt>"
+    echo "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 fi
 echo ""
 "$DEST_BIN" version --human

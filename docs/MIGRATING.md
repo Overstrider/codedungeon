@@ -108,6 +108,7 @@ New versions reinstall current CodeDungeon-owned agents and skills. They do not 
 
 Current workflow names are:
 
+- `codedungeon`: promoted router for `--full`, `--lite`, `--oneshot`, and `--auto`
 - `main-quest`: full phase pipeline, previously `codedungeon-dev-cycle`
 - `side-quest`: compact task-splitting workflow, previously `minidungeon`
 - `one-shot`: minimal plan, code, PR, and review workflow
@@ -118,7 +119,7 @@ During setup or migration, known obsolete workflow artifacts are moved to:
 .codedungeon/archive/renamed-artifacts/<timestamp>/
 ```
 
-This removes stale commands and skills from the active provider surfaces while preserving their old contents for inspection. New installs expose `/main-quest`, `/side-quest`, and `/one-shot` for Claude Code, or `$main-quest`, `$side-quest`, and `$one-shot` for Codex.
+This removes stale commands and skills from the active provider surfaces while preserving their old contents for inspection. New installs promote `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Claude Code and `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Codex. The older names remain installed as compatibility aliases: `/main-quest`, `/side-quest`, `/one-shot`, and `$main-quest`, `$side-quest`, `$one-shot`.
 
 If an old agent or skill remains and `status` shows it as stale or user-modified:
 

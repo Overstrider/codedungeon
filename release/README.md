@@ -63,14 +63,15 @@ The provider is built into the binary. Normal use should not depend on `CODEDUNG
 
 Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, and PR memory. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
-Codex workflows are skills such as `$one-shot`, `$side-quest`, `$main-quest`, and `$code-review`.
-Claude workflows are plugin slash commands such as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
+The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+
+Compatibility aliases remain installed: `$one-shot`, `$side-quest`, `$main-quest` for Codex and `/one-shot`, `/side-quest`, `/main-quest` for Claude Code. Standalone review remains `$code-review` or `/code-review`.
 
 Workflow guide:
 
-- `one-shot`: smallest PR-producing workflow; creates or switches to `feat/<slug>`, then runs guard, commits, pushes, creates or reuses a PR, and runs review.
-- `side-quest`: compact task-splitting workflow for simple single-repo work.
-- `main-quest`: full phase lifecycle for complex or multi-repo work.
+- `--oneshot`: smallest PR-producing workflow; creates or switches to `feat/<slug>`, then runs guard, commits, pushes, creates or reuses a PR, and runs review.
+- `--lite`: compact task-splitting workflow for simple single-repo work with a prior plan in `.codedungeon/plans/*.md`.
+- `--full`: full phase lifecycle for complex or multi-repo work.
 
 `one-shot` runs `codedungeon git guard` only after switching to a feature branch because guard rejects protected branches such as `main`.
 

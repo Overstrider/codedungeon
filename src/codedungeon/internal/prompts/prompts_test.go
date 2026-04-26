@@ -98,8 +98,10 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		".codedungeon/commands/main-quest.md":           false,
 		".codedungeon/commands/side-quest.md":           false,
 		".codedungeon/commands/one-shot.md":             false,
+		".codedungeon/commands/codedungeon.md":          false,
 		".codedungeon/phases/forge-execution.md":        false,
 		".agents/skills/codedungeon-flow/SKILL.md":      false,
+		".agents/skills/codedungeon/SKILL.md":           false,
 		".agents/skills/backend-specialist/SKILL.md":    false,
 		".agents/skills/main-quest/SKILL.md":            false,
 		".agents/skills/side-quest/SKILL.md":            false,
@@ -206,6 +208,7 @@ func TestCodexConfigEnablesCustomAgentSpawning(t *testing.T) {
 
 func TestCodexCommandSkillsArePrimaryWorkflowSurface(t *testing.T) {
 	for _, name := range []string{
+		"codedungeon",
 		"main-quest",
 		"side-quest",
 		"one-shot",
@@ -223,6 +226,41 @@ func TestCodexCommandSkillsArePrimaryWorkflowSurface(t *testing.T) {
 		}
 		if strings.Contains(body, "slash command") {
 			t.Fatalf("skill %s should not describe itself as a slash command", name)
+		}
+	}
+}
+
+func TestUnifiedRouterPromptsDeclareModesAndAliases(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+		surface  string
+	}{
+		{"claude", "commands/codedungeon.md", "/codedungeon"},
+		{"codex", "commands/codedungeon.md", "$codedungeon"},
+		{"codex", "skills/codedungeon/SKILL.md", "$codedungeon"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"--full",
+			"--lite",
+			"--oneshot",
+			"--one-shot",
+			"--auto",
+			"CODEDUNGEON_MODE_SELECTED:",
+			"multiple mode flags",
+			"main-quest",
+			"side-quest",
+			"one-shot",
+			tc.surface,
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing router contract %q:\n%s", tc.provider, tc.rel, required, body)
+			}
 		}
 	}
 }
@@ -266,6 +304,8 @@ func TestCodexWorkflowPromptsUseProjectLocalBinary(t *testing.T) {
 	for _, rel := range []string{
 		"AGENTS.md",
 		"skills/codedungeon-cli/SKILL.md",
+		"skills/codedungeon/SKILL.md",
+		"commands/codedungeon.md",
 		"skills/main-quest/SKILL.md",
 		"commands/main-quest.md",
 		"skills/one-shot/SKILL.md",

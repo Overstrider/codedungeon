@@ -281,9 +281,11 @@ func TestSetupArchivesRenamedWorkflowArtifacts(t *testing.T) {
 	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "main-quest.md"))
 	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "side-quest.md"))
 	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "one-shot.md"))
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "codedungeon.md"))
 	assertFileExists(t, filepath.Join(root, ".claude", "commands", "main-quest.md"))
 	assertFileExists(t, filepath.Join(root, ".claude", "commands", "side-quest.md"))
 	assertFileExists(t, filepath.Join(root, ".claude", "commands", "one-shot.md"))
+	assertFileExists(t, filepath.Join(root, ".claude", "commands", "codedungeon.md"))
 
 	var archived int
 	err := filepath.Walk(filepath.Join(root, ".codedungeon", "archive", "renamed-artifacts"), func(path string, info os.FileInfo, err error) error {
@@ -339,9 +341,11 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		filepath.Join(".codedungeon", "commands", "main-quest.md"),
 		filepath.Join(".codedungeon", "commands", "side-quest.md"),
 		filepath.Join(".codedungeon", "commands", "one-shot.md"),
+		filepath.Join(".codedungeon", "commands", "codedungeon.md"),
 		filepath.Join(".codedungeon", "phases", "forge-execution.md"),
 		filepath.Join(".codex", "config.toml"),
 		filepath.Join(".codex", "agents", "cd_dev_worker.toml"),
+		filepath.Join(".agents", "skills", "codedungeon", "SKILL.md"),
 		filepath.Join(".agents", "skills", "main-quest", "SKILL.md"),
 		filepath.Join(".agents", "skills", "side-quest", "SKILL.md"),
 		filepath.Join(".agents", "skills", "one-shot", "SKILL.md"),

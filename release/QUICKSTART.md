@@ -58,18 +58,19 @@ Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global
 
 ## Codex Workflows
 
-After Codex setup, invoke workflows as skills:
+After Codex setup, invoke the promoted workflow router as a skill:
 
-- `$one-shot`: small scoped change; creates or switches to `feat/<slug>`, then guards, commits, pushes, creates or reuses a PR, and runs review.
-- `$side-quest`: compact single-repo task-splitting workflow.
-- `$main-quest`: full phase workflow for complex or multi-repo work.
+- `$codedungeon --oneshot <prompt>`: small scoped change; creates or switches to `feat/<slug>`, then guards, commits, pushes, creates or reuses a PR, and runs review.
+- `$codedungeon --lite <prompt>`: compact single-repo task-splitting workflow. Requires a prior plan in `.codedungeon/plans/*.md`.
+- `$codedungeon --full <prompt>`: full phase workflow for complex or multi-repo work.
+- `$codedungeon <prompt>` or `$codedungeon --auto <prompt>`: automatically selects a mode and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
 - `$code-review`
 - `$codedungeon-test-loop`
 - `$cleanup-tasks`
 
-Editable command playbooks live in `.codedungeon/commands/`; Codex workflows are invoked through skills.
+Editable command playbooks live in `.codedungeon/commands/`; Codex workflows are invoked through skills. Compatibility aliases remain available as `$one-shot`, `$side-quest`, and `$main-quest`.
 
-Claude Code uses the matching slash commands: `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
+Claude Code uses the matching slash command router: `/codedungeon --oneshot|--lite|--full <prompt>`. Compatibility aliases remain available as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
 
 `one-shot` intentionally creates or switches to a feature branch before running `codedungeon git guard`, because guard rejects protected branches such as `main`.
 

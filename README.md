@@ -121,7 +121,7 @@ codedungeon-codex migrate
 
 The same command surface exists for Claude via `codedungeon-claude`.
 
-After setup, agent-facing workflows are `/one-shot`, `/side-quest`, and `/main-quest` in Claude Code, or `$one-shot`, `$side-quest`, and `$main-quest` in Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for when to use each workflow and how branch/PR handling works.
+After setup, the promoted agent-facing workflow is `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` in Claude Code, or `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` in Codex. Without a mode flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before dispatch. Compatibility aliases remain installed: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for mode selection and branch/PR handling.
 
 CodeDungeon completion is PR-centered: code-writing workflows are only `COMPLETE` after the branch is pushed, a PR exists, adversarial review is posted to the PR, and the final verdict is `APPROVED`. Terminal output uses the standard CodeDungeon PR Report.
 
