@@ -55,6 +55,8 @@ codedungeon-claude setup
 
 Codex setup installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`. Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the Claude plugin when available.
 
+Existing projects should use `codedungeon-<provider> migrate` after upgrading the binary. See [`docs/MIGRATING.md`](docs/MIGRATING.md) for the safe upgrade flow and what migration preserves.
+
 ## Build
 
 ```bash
@@ -117,6 +119,7 @@ The same command surface exists for Claude via `codedungeon-claude`.
 
 - `src/codedungeon/docs/ARCHITECTURE.md`: current architecture.
 - `src/codedungeon/docs/PROVIDERS.md`: provider model and how to add another provider.
+- `docs/MIGRATING.md`: safe upgrade and migration guide for existing projects.
 - `release/README.md`: release/install guide.
 - `release/QUICKSTART.md`: end-user quickstart.
 

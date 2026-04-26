@@ -69,3 +69,5 @@ Claude workflows are plugin slash commands such as `/minidungeon`, `/codedungeon
 ## Upgrade
 
 Replace the `release/` directory, rerun the provider installer, then run `codedungeon-<provider> migrate` inside existing projects when prompted.
+
+For the full safe upgrade flow, including what is preserved and when to use `install --dry-run` or `install --force`, see [`../docs/MIGRATING.md`](../docs/MIGRATING.md).

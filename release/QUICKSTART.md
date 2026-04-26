@@ -80,3 +80,5 @@ codedungeon-codex migrate
 ```
 
 The same command surface exists through `codedungeon-claude`.
+
+Existing projects should run `codedungeon-<provider> migrate` after upgrading the binary. See `docs/MIGRATING.md` for the safe migration flow.
