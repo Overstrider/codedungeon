@@ -13,6 +13,39 @@ Dev Results:
   {{.Name}} — {{.Verdict}} — PR #{{.PRNumber}}
 {{- end }}
 
+PR Reports:
+{{- range .Repos }}
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        {{.Verdict}}
+| Workflow      main-quest
+| PR            #{{.PRNumber}} {{.PRURL}}
+| Branch        {{.Branch}}
+| Review        {{.Verdict}}
+| Cycles        {{.ReviewCycles}}/9 | last mode: {{.ReviewMode}}
++------------------------------------------------+
+
+Summary
+{{.Name}}: {{.Summary}}
+
+Review
+- Adversarial comments: {{.AdvReviewCount}}
+- Last review marker: Claude Adversarial Code Review
+- Remaining findings: {{.RemainingFindings}}
+
+Work Done
+- Tasks: {{.TasksCompleted}}
+- Changed files: {{.ChangedFiles}}
+- Verification: {{.Verification}}
+
+PR
+{{.PRURL}}
+
+Next
+{{.NextAction}}
+{{- end }}
+
 Test Results:
 {{- range .Repos }}
   {{.Name}}:
@@ -30,7 +63,7 @@ Pipeline phases:
   Phase 3: lang-specialists (parallel) → plans enriched
   Phase 3.5: basilisk-planner-qa (parallel) → QA plans + Definition of Done
   Phase 4: spider-architect-task → MASTER.md + dev tasks + test tasks
-  Phase 5: codedungeon-loop per repo → code + PRs + /code-review (adversarial Opus 4.7 fanout + Sonnet validators)
+  Phase 5: codedungeon-loop per repo → code + PRs + /code-review (full cycles 1-3, reduced cycles 4-9)
   Phase 6: codedungeon-test-loop per repo → integration + API + E2E tests
   Phase 7: Final report (this)
 

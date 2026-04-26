@@ -12,6 +12,37 @@ Plans:
 Dev Results:
   . — {{.Status}} — PR #{{.PRNumber}}
 
+PR Report:
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        {{.Status}}
+| Workflow      main-quest
+| PR            #{{.PRNumber}} {{.PRURL}}
+| Branch        {{.Branch}}
+| Review        {{.Status}}
+| Cycles        {{.ReviewCycles}}/9 | last mode: {{.ReviewMode}}
++------------------------------------------------+
+
+Summary
+{{.Feature}}
+
+Review
+- Adversarial comments: {{.AdvReviewCount}}
+- Last review marker: Claude Adversarial Code Review
+- Remaining findings: {{.RemainingFindings}}
+
+Work Done
+- Tasks: {{.DevTasks}} dev, {{.TestTasks}} test
+- Changed files: {{.ChangedFiles}}
+- Verification: {{.TestResult}}
+
+PR
+{{.PRURL}}
+
+Next
+{{.NextAction}}
+
 Test Results:
   .: {{.TestResult}}
 

@@ -7,6 +7,10 @@ description: Run a standalone codedungeon-style adversarial review in Codex CLI.
 
 Use for reviewing the current branch or an implementation diff.
 
+Review power:
+- Cycles 1-3: full adversarial mode.
+- Cycles 4-9: reduced mode. Keep personas, use fast model/effort, and focus on fixes/new diff.
+
 Review order:
 - Correctness regressions.
 - Security and data handling.

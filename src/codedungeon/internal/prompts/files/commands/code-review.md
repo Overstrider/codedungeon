@@ -1,20 +1,28 @@
-# Code Review (Adversarial — Opus 4.7 Fanout)
+# Code Review (Adversarial PR Review)
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
-Runs an **adversarial PR code review** on the current branch using Claude Opus 4.7 in a multi-persona fanout (Saboteur + New Hire + Security Auditor + Spec Enforcer) followed by per-finding Sonnet validators and a stack-specific `{LANG}-specialist` pass. Posts results to GitHub as a PR comment with severity tiers P0/P1/P2 and a machine-parseable tally.
+Runs an **adversarial PR code review** on the current branch using a multi-persona fanout (Saboteur + New Hire + Security Auditor + Spec Enforcer) followed by per-finding validators and a stack-specific `{LANG}-specialist` pass. Posts results to GitHub as a PR comment with severity tiers P0/P1/P2 and a machine-parseable tally.
 
 **Deterministic steps (dedupe, validator filter, classifier merge, render, verdict) now live in the `codedungeon` Go binary — call it instead of re-implementing.** Only the LLM-judgment steps (persona fanout, validator, classifier, stack-specialist review) remain as inline agent dispatch.
 
 ## Parameters
 
 - `$ARGUMENTS` — Repository path (absolute) OR repo name.
+- `REVIEW_CYCLE` — review cycle number. Cycles 1-3 are full mode; cycles 4-9 are reduced mode.
+- `REVIEW_MODE` — `full` or `reduced`. If omitted, derive from `REVIEW_CYCLE`.
+
+## Review power
+
+- Cycles 1-3: `full` mode. Use the configured reasoning model for persona recall and full PR diff review.
+- Cycles 4-9: `reduced` mode. Keep all personas, but use the configured fast model/effort and focus on fixes or new diff since the previous review cycle.
+- Never skip personas, validators, classifier, stack specialist, PR posting, or verdict generation in reduced mode.
 
 ## Why adversarial fanout?
 
 Research (Anthropic code-review plugin, Greptile benchmarks 82%, Meta MetaMateCR arXiv 2507.13499, SpecterOps, arXiv 2509.16533 on sycophancy) shows single-agent self-review misses real bugs. Fix: **session separation + multi-persona fanout + per-finding validator + confidence tiers + quote-as-evidence anti-hallucination contract**.
 
-Personas run in parallel (recall). Validators run per-finding on Sonnet (precision, cross-model reduces sycophancy on Opus findings). Severity promotes when ≥2 personas flag the same issue (handled by `codedungeon review run --only dedupe`). Design-decision classifier inspects each validated finding against CLAUDE.md/REVIEW.md/ADRs to separate `actionable` from `design_decision` — APPROVED requires every remaining finding to be a documented design decision.
+Personas run in parallel (recall). Validators run per-finding on the validation model (precision, cross-model reduces sycophancy on persona findings). Severity promotes when ≥2 personas flag the same issue (handled by `codedungeon review run --only dedupe`). Design-decision classifier inspects each validated finding against CLAUDE.md/REVIEW.md/ADRs to separate `actionable` from `design_decision` — APPROVED requires every remaining finding to be a documented design decision.
 
 ---
 
@@ -49,6 +57,10 @@ LANG=$(codedungeon repo resolve "$(basename "$REPO_DIR")" 2>/dev/null | jq -r .l
 FULL_DIFF=$(codedungeon git diff --repo "$REPO_DIR" --base main --mode full | jq -r .content)
 CHANGED_FILES=$(codedungeon git diff --repo "$REPO_DIR" --base main --mode changed-files | jq -r .content)
 PR_CTX=$(codedungeon git pr --repo "$REPO_DIR" --with-context)
+REVIEW_CYCLE=${REVIEW_CYCLE:-1}
+if [ "${REVIEW_MODE:-}" = "" ]; then
+  if [ "$REVIEW_CYCLE" -le 3 ]; then REVIEW_MODE=full; else REVIEW_MODE=reduced; fi
+fi
 ```
 
 ## Step 4: Load per-repo tuning
@@ -81,6 +93,11 @@ Helpfulness is measured in bugs caught. Every finding MUST include a verbatim
 
 ## REVIEW.MD (per-repo tuning, may be empty)
 {REVIEW_MD}
+
+## REVIEW MODE
+cycle: {REVIEW_CYCLE}
+mode: {REVIEW_MODE}
+If mode=reduced, review only fixes or new diff since the previous review cycle. Keep the same persona responsibilities, but use fast model/effort.
 
 ## YOUR ROLE
 Read your full instructions from your agent definition ({persona-name}).
@@ -159,7 +176,7 @@ This runs classify (including stack findings) + render + verdict in one shot. Ou
 gh pr comment "$PR_NUM" --body "$(cat "$REPO_DIR/.codedungeon/reviews/adv-review/review.md")
 
 ---
-*Automated adversarial review — Claude Opus 4.7 (personas) + Sonnet 4.6 (validators)*"
+*Automated adversarial review — mode: ${REVIEW_MODE}, cycle: ${REVIEW_CYCLE}*"
 ```
 
 The title line `## Claude Adversarial Code Review` is LOAD-BEARING — `forge-execution.md` greps for it.
@@ -178,7 +195,7 @@ Return verdict to caller (`codedungeon-loop`, `forge-execution`).
 ## Notes
 
 - **Anti-hallucination**: three layers (persona quote requirement, Validator re-read, the title regex in phase-5 verification).
-- **Cross-model split**: Opus 4.7 for personas (recall); Sonnet 4.6 for Validator and Design-Decision Classifier (precision, cost, anti-sycophancy).
+- **Power schedule**: cycles 1-3 use full mode; cycles 4-9 use reduced mode with fast model/effort and fix-diff scope.
 - **Output paths**: all intermediates under `<REPO>/.codedungeon/reviews/adv-review/` — safe to gitignore at repo level.
 - **Severity tiers**: P0 Important, P1 Should-fix, P2 Nit. **All three block** unless classified as design decision.
 - **Design-decision escape hatch**: documented in REVIEW.md / CLAUDE.md / ADRs / spec / `// INTENTIONAL:` comments. `TODO`/`FIXME`/`HACK` do NOT count.

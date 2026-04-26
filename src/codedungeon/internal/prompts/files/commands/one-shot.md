@@ -17,9 +17,10 @@ End with:
 - non-protected feature branch
 - implementation committed
 - branch pushed
-- GitHub PR created
-- `/code-review` run against the PR
-- review verdict reported
+- GitHub PR created or reused
+- `/code-review` posted to the PR
+- review verdict `APPROVED`
+- final response in the standard CodeDungeon PR Report format
 
 ## Step 0: Validate
 
@@ -37,17 +38,11 @@ Run:
 CD=.claude/bin/codedungeon
 [ -x "$CD" ] || CD=codedungeon
 git rev-parse --is-inside-work-tree >/dev/null
-```
-
-If git repo validation fails, stop. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
-
-Check `gh`:
-
-```bash
+git remote get-url origin >/dev/null
 gh auth status
 ```
 
-If missing or unauthenticated, stop with the exact blocker.
+If git repo, `origin`, or `gh` auth validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
 
 ## Step 1: Plan
 
@@ -121,31 +116,69 @@ PR_URL=$(gh pr view --json url -q .url 2>/dev/null || true)
 if [ -z "$PR_URL" ]; then
   PR_URL=$(gh pr create --fill)
 fi
+PR_NUMBER=$(gh pr view --json number -q .number)
 echo "$PR_URL"
 ```
 
 If the PR already exists, reuse it. If no PR exists, create one.
+If `PR_URL` or `PR_NUMBER` is empty after this step, stop and return a `BLOCKED` CodeDungeon PR Report.
 
 ## Step 6: Review
 
-Run:
+Run `/code-review` until the PR review verdict is `APPROVED` or 9 cycles are exhausted.
+
+Cycles:
+- 1-3: full adversarial mode.
+- 4-9: reduced adversarial mode. Keep all personas, but use fast model/effort and review only the fixes or new diff since the previous review cycle.
+
+For each cycle:
 
 ```text
+REVIEW_CYCLE=<1-9>
+REVIEW_MODE=<full|reduced>
 /code-review .
 ```
 
-If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `/code-review`. Maximum 3 review cycles. After 3 cycles, stop with `MAX_REVIEW_CYCLES`.
+After each review, verify that a review comment was posted to the PR:
+
+```bash
+ADV_REVIEW_COUNT=$(gh pr view "$PR_NUMBER" --comments --json comments -q '[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length')
+```
+
+If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `/code-review`. After 9 cycles, stop with `MAX_CYCLES_REACHED`.
 
 ## Step 7: Report
 
-Return:
+Always return this exact format. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, and the final verdict is `APPROVED`.
 
 ```text
-ONE_SHOT_COMPLETE
-BRANCH: <branch>
-PR_URL: <url>
-REVIEW_VERDICT: APPROVED|CHANGES_REQUESTED|MAX_REVIEW_CYCLES
-VERIFY: <commands and results>
-CHANGED_FILES: <summary>
-RISKS: <none or list>
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Workflow      one-shot
+| PR            #<number> <url>
+| Branch        <branch>
+| Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN
+| Cycles        <n>/9 | last mode: full|reduced|not_run
++------------------------------------------------+
+
+Summary
+<1-line task/result summary>
+
+Review
+- Adversarial comments: <n>
+- Last review marker: Claude Adversarial Code Review|none
+- Remaining findings: <none or short list/count>
+
+Work Done
+- Tasks: n/a
+- Changed files: <short summary or none>
+- Verification: <commands/results or blocker>
+
+PR
+<url or "not created">
+
+Next
+<none or exact next human/agent action>
 ```

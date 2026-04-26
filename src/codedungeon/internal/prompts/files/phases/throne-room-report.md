@@ -28,6 +28,10 @@ Expected `ok: true`. If any `ok: false`, record the failure and do **not**
 render the report until fixed (absolute guarantee: all commits pushed, PR
 exists, adversarial review posted).
 
+For every repo, final output must include a CodeDungeon PR Report block. `Status
+COMPLETE` is valid only when `codedungeon git verify` returns `ok: true` and
+the final review verdict is APPROVED.
+
 ## Step 2: Render final report
 
 ```bash
@@ -39,6 +43,40 @@ codedungeon report render > /tmp/throne-room-report.txt
 ```
 
 Emit the contents to the user.
+
+The emitted final report must include, per repo:
+
+```text
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Workflow      main-quest
+| PR            #<number> <url>
+| Branch        <branch>
+| Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN
+| Cycles        <n>/9 | last mode: full|reduced|not_run
++------------------------------------------------+
+
+Summary
+<1-line task/result summary>
+
+Review
+- Adversarial comments: <n>
+- Last review marker: Claude Adversarial Code Review|none
+- Remaining findings: <none or short list/count>
+
+Work Done
+- Tasks: <n>/<total or n/a>
+- Changed files: <short summary or none>
+- Verification: <commands/results or blocker>
+
+PR
+<url or "not created">
+
+Next
+<none or exact next human/agent action>
+```
 
 ## Step 3: Mark phase complete
 

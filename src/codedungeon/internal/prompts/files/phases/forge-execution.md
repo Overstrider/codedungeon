@@ -81,6 +81,10 @@ For each repo in execution order:
    {LANG}-specialist pass. It always produces a verdict (APPROVED or CHANGES_REQUESTED) — there
    is NO "skip" case.
 
+   Review cycles are capped at 9. Cycles 1-3 use full adversarial mode. Cycles 4-9 use reduced
+   mode: keep all personas, use fast model/effort, and focus on fixes or new diff since the
+   previous cycle.
+
    CRITICAL: This is the ONLY review path. Codex, OpenRouter, Qwen, and any external reviewers
    have been removed from the pipeline. Do NOT invent a fallback chain; /code-review is always
    available because it is pure Claude Code.
@@ -92,13 +96,39 @@ For each repo in execution order:
    - NEVER report completion without providing ALL of these fields in your final report
 
    ## Required Report Format
-   Your FINAL message must include these fields (the orchestrator parses them):
-   TASKS_COMPLETED: {N}/{total}
-   PR_NUMBER: {number}
-   PR_URL: {url}
-   REVIEW_VERDICT: {APPROVED | CHANGES_REQUESTED | MAX_CYCLES_REACHED}
-   REVIEW_CYCLES: {N}
-   BLOCKED_TASKS: {list or "none"}
+   Your FINAL message must include the standard CodeDungeon PR Report. `Status COMPLETE` is valid
+   only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR,
+   and the final verdict is APPROVED.
+
+   +------------------------------------------------+
+   | CodeDungeon PR Report                          |
+   +------------------------------------------------+
+   | Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+   | Workflow      codedungeon-loop
+   | PR            #{number} {url}
+   | Branch        {branch}
+   | Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN
+   | Cycles        {N}/9 | last mode: full|reduced|not_run
+   +------------------------------------------------+
+
+   Summary
+   {1-line task/result summary}
+
+   Review
+   - Adversarial comments: {N}
+   - Last review marker: Claude Adversarial Code Review|none
+   - Remaining findings: {none or short list/count}
+
+   Work Done
+   - Tasks: {N}/{total}
+   - Changed files: {short summary or none}
+   - Verification: {commands/results or blocker}
+
+   PR
+   {url or "not created"}
+
+   Next
+   {none or exact next human/agent action}
    ```
 
 5. **Verify Phase 5 output** before accepting:

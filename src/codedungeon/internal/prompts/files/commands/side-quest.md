@@ -27,6 +27,7 @@ Exits 1 if protected → HARD STOP.
 - Claude Code plan file exists (from plan mode)
 - `codedungeon` bootstrapped in project (`.claude/bin/codedungeon` + `.codedungeon/codedungeon.db`)
 - `gh` CLI authenticated
+- Git remote `origin` configured
 - Project is a git repo
 
 ---
@@ -93,6 +94,16 @@ Fallback if `codedungeon repo discover` fails — check manifest files:
 `REPO_DIR` = project root (cwd or nearest `.git` ancestor).
 
 If `REPO_NAME` empty → use basename of `REPO_DIR`.
+
+Before task decomposition or implementation, verify PR readiness:
+
+```bash
+git rev-parse --is-inside-work-tree >/dev/null
+git remote get-url origin >/dev/null
+gh auth status
+```
+
+If any command fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report.
 
 ### Step 2: Decompose plan into tasks
 
@@ -193,27 +204,45 @@ fanout, and fix loop on CHANGES_REQUESTED.
 Feature branch: feat/{FEATURE_SLUG}
 
 Report these fields when done:
-  TASKS_COMPLETED: N/M
-  PR_NUMBER: #X
-  PR_URL: https://...
-  REVIEW_VERDICT: APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED
-  REVIEW_CYCLES: N
-  BLOCKED_TASKS: list or "none"
+  CodeDungeon PR Report block
 ```
 
 Wait for the agent to complete. Parse its output for the required fields.
 
 ### Step 4: Report
 
-Emit final summary:
+Emit the standard final summary. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, and the final verdict is `APPROVED`:
 
 ```
-SIDE_QUEST_COMPLETE
-TASKS_COMPLETED: N/M
-PR_NUMBER: #X
-PR_URL: https://...
-REVIEW_VERDICT: APPROVED
-REVIEW_CYCLES: N
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Workflow      side-quest
+| PR            #<number> <url>
+| Branch        <branch>
+| Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN
+| Cycles        <n>/9 | last mode: full|reduced|not_run
++------------------------------------------------+
+
+Summary
+<1-line task/result summary>
+
+Review
+- Adversarial comments: <n>
+- Last review marker: Claude Adversarial Code Review|none
+- Remaining findings: <none or short list/count>
+
+Work Done
+- Tasks: <n>/<total>
+- Changed files: <short summary or none>
+- Verification: <commands/results or blocker>
+
+PR
+<url or "not created">
+
+Next
+<none or exact next human/agent action>
 ```
 
 ---

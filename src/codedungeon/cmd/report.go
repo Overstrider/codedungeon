@@ -31,6 +31,17 @@ type reportRepo struct {
 	Name              string
 	Verdict           string
 	PRNumber          string
+	PRURL             string
+	Branch            string
+	ReviewCycles      string
+	ReviewMode        string
+	Summary           string
+	AdvReviewCount    string
+	RemainingFindings string
+	TasksCompleted    string
+	ChangedFiles      string
+	Verification      string
+	NextAction        string
 	IntegrationResult string
 	APIResult         string
 	E2EResult         string
@@ -154,6 +165,7 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 
 	// PR numbers from phase-5 handoff artifacts.
 	prMap := map[string]string{}
+	prURLMap := map[string]string{}
 	verdictMap := map[string]string{}
 	if h, _ := s.GetHandoff(run.ID, "5"); h != nil {
 		for _, a := range h.Artifacts {
@@ -162,11 +174,17 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 				for _, e := range entries {
 					if strings.Contains(a, e.Name) {
 						prMap[e.Name] = pr
+						if prURL := extractPRURL(a); prURL != "" {
+							prURLMap[e.Name] = prURL
+						}
 						matched = true
 					}
 				}
 				if !matched && len(entries) == 1 {
 					prMap[entries[0].Name] = pr
+					if prURL := extractPRURL(a); prURL != "" {
+						prURLMap[entries[0].Name] = prURL
+					}
 				}
 			}
 		}
@@ -197,6 +215,17 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 			Lang:              e.Lang,
 			Verdict:           fallback(verdictMap[e.Name], "PENDING"),
 			PRNumber:          prMap[e.Name],
+			PRURL:             fallback(prURLMap[e.Name], "url unavailable"),
+			Branch:            fallback(run.Branch, "unknown"),
+			ReviewCycles:      "unknown",
+			ReviewMode:        "not_run",
+			Summary:           fallback(run.Feature, "n/a"),
+			AdvReviewCount:    "unknown",
+			RemainingFindings: "unknown",
+			TasksCompleted:    "unknown",
+			ChangedFiles:      "unknown",
+			Verification:      "unknown",
+			NextAction:        "inspect PR review state",
 			IntegrationResult: fallback(matchPrefix(testResult, e.Name+":integration"), "n/a"),
 			APIResult:         fallback(matchPrefix(testResult, e.Name+":api"), "n/a"),
 			E2EResult:         fallback(matchPrefix(testResult, e.Name+":e2e"), "n/a"),
@@ -206,12 +235,17 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 }
 
 var prNumRE = regexp.MustCompile(`(?:#|PR\s*#?\s*)(\d+)`)
+var prURLRE = regexp.MustCompile(`https?://[^\s)]+/pull/\d+`)
 
 func extractPRNum(s string) string {
 	if m := prNumRE.FindStringSubmatch(s); len(m) > 1 {
 		return m[1]
 	}
 	return ""
+}
+
+func extractPRURL(s string) string {
+	return strings.TrimRight(prURLRE.FindString(s), ".,;:")
 }
 
 func matchPrefix(m map[string]string, prefix string) string {
@@ -269,12 +303,19 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 		"Repos":           repos,
 		"TestBugsFound":   testBugs,
 		// Bootstrap-specific fields.
-		"Stack":      bs.Stack,
-		"Lang":       bs.Lang,
-		"PRNumber":   bs.PRNumber,
-		"Status":     bs.Verdict,
-		"TestResult": bs.IntegrationResult,
-		"DevTasks":   0,
-		"TestTasks":  0,
+		"Stack":             bs.Stack,
+		"Lang":              bs.Lang,
+		"PRNumber":          bs.PRNumber,
+		"PRURL":             bs.PRURL,
+		"ReviewCycles":      bs.ReviewCycles,
+		"ReviewMode":        bs.ReviewMode,
+		"AdvReviewCount":    bs.AdvReviewCount,
+		"RemainingFindings": bs.RemainingFindings,
+		"ChangedFiles":      bs.ChangedFiles,
+		"NextAction":        bs.NextAction,
+		"Status":            bs.Verdict,
+		"TestResult":        bs.IntegrationResult,
+		"DevTasks":          0,
+		"TestTasks":         0,
 	}
 }

@@ -331,3 +331,95 @@ func TestOneShotCreatesBranchBeforeGuardAndReusesPR(t *testing.T) {
 		}
 	}
 }
+
+func TestPRProducingWorkflowsRequireReviewedPRReport(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"claude", "commands/one-shot.md"},
+		{"claude", "commands/side-quest.md"},
+		{"claude", "commands/codedungeon-loop.md"},
+		{"claude", "phases/forge-execution.md"},
+		{"claude", "phases/throne-room-report.md"},
+		{"codex", "commands/one-shot.md"},
+		{"codex", "commands/side-quest.md"},
+		{"codex", "skills/one-shot/SKILL.md"},
+		{"codex", "skills/side-quest/SKILL.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"CodeDungeon PR Report",
+			"Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED",
+			"PR            #",
+			"Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN",
+			"Cycles        ",
+			"Summary",
+			"Work Done",
+			"Next",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing required PR report field %q", tc.provider, tc.rel, required)
+			}
+		}
+		if !strings.Contains(body, "COMPLETE") || !strings.Contains(body, "APPROVED") {
+			t.Fatalf("%s:%s should tie completion to approved review", tc.provider, tc.rel)
+		}
+	}
+}
+
+func TestReviewCyclesUseReducedModeAfterThirdCycle(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"claude", "commands/one-shot.md"},
+		{"claude", "commands/codedungeon-loop.md"},
+		{"claude", "commands/code-review.md"},
+		{"claude", "phases/forge-execution.md"},
+		{"codex", "commands/one-shot.md"},
+		{"codex", "commands/side-quest.md"},
+		{"codex", "commands/code-review.md"},
+		{"codex", "skills/one-shot/SKILL.md"},
+		{"codex", "skills/side-quest/SKILL.md"},
+		{"codex", "skills/code-review/SKILL.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{"1-3", "4-9", "reduced", "fast"} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing review cycle contract %q", tc.provider, tc.rel, required)
+			}
+		}
+	}
+}
+
+func TestReportTemplatesRenderPRReportFields(t *testing.T) {
+	for _, name := range []string{"report-template-multi", "report-template-bootstrap"} {
+		body, err := GetFor("claude", name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		for _, required := range []string{
+			"CodeDungeon PR Report",
+			"Status",
+			"Workflow",
+			"PR",
+			"Review",
+			"Cycles",
+			"Work Done",
+			"Next",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing %q", name, required)
+			}
+		}
+	}
+}

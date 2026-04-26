@@ -73,6 +73,10 @@ Claude Code uses the matching slash commands: `/one-shot`, `/side-quest`, `/main
 
 `one-shot` intentionally creates or switches to a feature branch before running `codedungeon git guard`, because guard rejects protected branches such as `main`.
 
+CodeDungeon completion is PR-centered: a workflow is not complete unless the branch is pushed, a PR exists, adversarial review is posted to the PR, and the verdict is `APPROVED`. Final output always uses the CodeDungeon PR Report block with PR URL, review verdict, cycles, verification, and next action.
+
+Review cycles run up to 9 times. Cycles 1-3 use full adversarial mode; cycles 4-9 use reduced mode with fast model/effort and focus on fixes/new diff.
+
 ## Useful Commands
 
 ```bash

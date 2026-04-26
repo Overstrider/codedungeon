@@ -117,6 +117,8 @@ The same command surface exists for Claude via `codedungeon-claude`.
 
 After setup, agent-facing workflows are `/one-shot`, `/side-quest`, and `/main-quest` in Claude Code, or `$one-shot`, `$side-quest`, and `$main-quest` in Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for when to use each workflow and how branch/PR handling works.
 
+CodeDungeon completion is PR-centered: code-writing workflows are only `COMPLETE` after the branch is pushed, a PR exists, adversarial review is posted to the PR, and the final verdict is `APPROVED`. Terminal output uses the standard CodeDungeon PR Report.
+
 ## Docs
 
 - `src/codedungeon/docs/ARCHITECTURE.md`: current architecture.
