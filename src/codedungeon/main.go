@@ -50,6 +50,8 @@ func main() {
 	root.AddCommand(cmd.StatusCmd())
 	root.AddCommand(cmd.SpawnCmd())
 	root.AddCommand(cmd.MapCmd())
+	root.AddCommand(cmd.RulesCmd())
+	root.AddCommand(cmd.HooksCmd())
 	root.AddCommand(cmd.SetupCmd())
 
 	root.RunE = func(c *cobra.Command, args []string) error {

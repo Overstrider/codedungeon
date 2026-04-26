@@ -61,9 +61,9 @@ The provider is built into the binary. Normal use should not depend on `CODEDUNG
 - `codedungeon-codex` installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
 - `codedungeon-claude` installs `.claude/*`, `.codedungeon/*`, the Claude plugin, and `CLAUDE.md`.
 
-Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, and PR memory. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
+Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, PR memory, and Project Rules files. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
-The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
 
 Compatibility aliases remain installed: `$one-shot`, `$side-quest`, `$main-quest` for Codex and `/one-shot`, `/side-quest`, `/main-quest` for Claude Code. Standalone review remains `$code-review` or `/code-review`.
 
@@ -72,6 +72,18 @@ Workflow guide:
 - `--oneshot`: smallest PR-producing workflow; creates or switches to `feat/<slug>`, then runs guard, commits, pushes, creates or reuses a PR, and runs review.
 - `--lite`: compact task-splitting workflow for simple single-repo work with a prior plan in `.codedungeon/plans/*.md`.
 - `--full`: full phase lifecycle for complex or multi-repo work.
+- `--rules`: deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact `.codedungeon/project-rules.compact.md`.
+
+Rules commands:
+
+```bash
+codedungeon-<provider> rules status
+codedungeon-<provider> rules lint
+codedungeon-<provider> hooks install --provider codex --mode warn
+codedungeon-<provider> hooks install --provider claude --mode warn
+```
+
+Workflows read approved compact rules and carry `PROJECT_RULES_STATUS`, `PROJECT_RULES_DIGEST`, and `PROJECT_RULES_READ` in handoffs and reports.
 
 `one-shot` runs `codedungeon git guard` only after switching to a feature branch because guard rejects protected branches such as `main`.
 

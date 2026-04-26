@@ -251,8 +251,11 @@ func TestUnifiedRouterPromptsDeclareModesAndAliases(t *testing.T) {
 			"--oneshot",
 			"--one-shot",
 			"--auto",
+			"--rules",
 			"CODEDUNGEON_MODE_SELECTED:",
 			"multiple mode flags",
+			"Project Rules Discovery",
+			"may run without a user prompt",
 			"main-quest",
 			"side-quest",
 			"one-shot",
@@ -260,6 +263,46 @@ func TestUnifiedRouterPromptsDeclareModesAndAliases(t *testing.T) {
 		} {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s:%s missing router contract %q:\n%s", tc.provider, tc.rel, required, body)
+			}
+		}
+	}
+}
+
+func TestWorkflowsReadProjectRulesCompactAndEmitEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"claude", "commands/main-quest.md"},
+		{"claude", "commands/side-quest.md"},
+		{"claude", "commands/one-shot.md"},
+		{"claude", "commands/codedungeon-loop.md"},
+		{"claude", "commands/code-review.md"},
+		{"codex", "commands/main-quest.md"},
+		{"codex", "commands/side-quest.md"},
+		{"codex", "commands/one-shot.md"},
+		{"codex", "commands/codedungeon-loop.md"},
+		{"codex", "commands/code-review.md"},
+		{"codex", "skills/codedungeon/SKILL.md"},
+		{"codex", "skills/main-quest/SKILL.md"},
+		{"codex", "skills/side-quest/SKILL.md"},
+		{"codex", "skills/one-shot/SKILL.md"},
+		{"codex", "skills/code-review/SKILL.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			".codedungeon/project-rules.compact.md",
+			"PROJECT_RULES_STATUS",
+			"PROJECT_RULES_DIGEST",
+			"PROJECT_RULES_READ",
+			"codedungeon rules status",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing project rules contract %q:\n%s", tc.provider, tc.rel, required, body)
 			}
 		}
 	}

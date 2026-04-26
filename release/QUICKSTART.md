@@ -51,6 +51,16 @@ codedungeon-claude setup
 
 Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global Claude plugin.
 
+Recommended next step after setup:
+
+```text
+$codedungeon --rules
+# or
+/codedungeon --rules
+```
+
+Project Rules discovery deep-reads the repo, drafts `.codedungeon/project-rules.md`, asks for user confirmation, then generates `.codedungeon/project-rules.compact.md`. Workflows read approved compact rules before planning, executing, reviewing, or reporting completion.
+
 ## Requirements
 
 - A git repository.
@@ -63,6 +73,7 @@ After Codex setup, invoke the promoted workflow router as a skill:
 - `$codedungeon --oneshot <prompt>`: small scoped change; creates or switches to `feat/<slug>`, then guards, commits, pushes, creates or reuses a PR, and runs review.
 - `$codedungeon --lite <prompt>`: compact single-repo task-splitting workflow. Requires a prior plan in `.codedungeon/plans/*.md`.
 - `$codedungeon --full <prompt>`: full phase workflow for complex or multi-repo work.
+- `$codedungeon --rules`: discover, approve, and compact project rules.
 - `$codedungeon <prompt>` or `$codedungeon --auto <prompt>`: automatically selects a mode and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
 - `$code-review`
 - `$codedungeon-test-loop`
@@ -87,6 +98,9 @@ codedungeon-codex phase info
 codedungeon-codex spawn-prompt 5
 codedungeon-codex prompts list
 codedungeon-codex migrate
+codedungeon-codex rules status
+codedungeon-codex rules lint
+codedungeon-codex hooks install --provider codex --mode warn
 ```
 
 The same command surface exists through `codedungeon-claude`.

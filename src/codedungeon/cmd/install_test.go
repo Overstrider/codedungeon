@@ -358,6 +358,21 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".codex", "commands")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected codex command dir at .codex/commands: %v", err)
 	}
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"$codedungeon --rules",
+		".codedungeon/project-rules.compact.md",
+		"PROJECT_RULES_STATUS",
+		"PROJECT_RULES_DIGEST",
+		"PROJECT_RULES_READ",
+	} {
+		if !strings.Contains(string(agents), required) {
+			t.Fatalf("AGENTS.md missing %q:\n%s", required, agents)
+		}
+	}
 }
 
 func assertFileExists(t *testing.T, path string) {

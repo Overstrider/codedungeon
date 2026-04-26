@@ -1,5 +1,17 @@
 # Code Review (Adversarial PR Review)
 
+## Project Rules Gate
+
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+
+Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
+
+```text
+PROJECT_RULES_STATUS: approved|missing|draft|stale
+PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
+PROJECT_RULES_READ: yes|no
+```
+
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
 Runs an **adversarial PR code review** on the current branch using a multi-persona fanout (Saboteur + New Hire + Security Auditor + Spec Enforcer) followed by per-finding validators and a stack-specific `{LANG}-specialist` pass. Posts results to GitHub as a PR comment with severity tiers P0/P1/P2 and a machine-parseable tally.

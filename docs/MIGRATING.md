@@ -58,6 +58,9 @@ It preserves:
 - `.codedungeon/state/*`
 - `.codedungeon/reviews/*`
 - `.codedungeon/memory/*`
+- `.codedungeon/project-rules.md`
+- `.codedungeon/project-rules.compact.md`
+- `.codedungeon/project-rules.json`
 - installed artifacts that were modified by the user, unless `install --force` is used
 
 Mutable runtime state is intentionally stored in `.codedungeon/` so interrupted work can be resumed and previous PR work can be inspected.
@@ -108,7 +111,7 @@ New versions reinstall current CodeDungeon-owned agents and skills. They do not 
 
 Current workflow names are:
 
-- `codedungeon`: promoted router for `--full`, `--lite`, `--oneshot`, and `--auto`
+- `codedungeon`: promoted router for `--full`, `--lite`, `--oneshot`, `--auto`, and `--rules`
 - `main-quest`: full phase pipeline, previously `codedungeon-dev-cycle`
 - `side-quest`: compact task-splitting workflow, previously `minidungeon`
 - `one-shot`: minimal plan, code, PR, and review workflow
@@ -119,7 +122,17 @@ During setup or migration, known obsolete workflow artifacts are moved to:
 .codedungeon/archive/renamed-artifacts/<timestamp>/
 ```
 
-This removes stale commands and skills from the active provider surfaces while preserving their old contents for inspection. New installs promote `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Claude Code and `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` for Codex. The older names remain installed as compatibility aliases: `/main-quest`, `/side-quest`, `/one-shot`, and `$main-quest`, `$side-quest`, `$one-shot`.
+This removes stale commands and skills from the active provider surfaces while preserving their old contents for inspection. New installs promote `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Claude Code and `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Codex. The older names remain installed as compatibility aliases: `/main-quest`, `/side-quest`, `/one-shot`, and `$main-quest`, `$side-quest`, `$one-shot`.
+
+After migrating, run Project Rules discovery once per project:
+
+```text
+/codedungeon --rules
+# or
+$codedungeon --rules
+```
+
+Existing project rules are preserved. If `codedungeon rules status` reports `stale`, review the source changes, update `.codedungeon/project-rules.md`, then run `codedungeon rules approve` and `codedungeon rules compact`.
 
 If an old agent or skill remains and `status` shows it as stale or user-modified:
 

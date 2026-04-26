@@ -11,8 +11,11 @@ Project artifacts:
 - Local binary and DB: `./.codex/bin/codedungeon`, `.codedungeon/codedungeon.db`
 
 Default workflow:
-- Invoke the promoted workflow router as `$codedungeon --full|--lite|--oneshot|--auto <prompt>`.
+- Invoke the promoted workflow router as `$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>`.
 - `$codedungeon` without a mode flag selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before dispatch.
+- Run `$codedungeon --rules` before the first real task to deep-read the repo, draft `.codedungeon/project-rules.md`, get user confirmation, and generate `.codedungeon/project-rules.compact.md`.
+- Read `.codedungeon/project-rules.compact.md` when present before planning, executing, reviewing, or reporting completion.
+- Include `PROJECT_RULES_STATUS`, `PROJECT_RULES_DIGEST`, and `PROJECT_RULES_READ` in every plan, task, review, phase handoff, and final report.
 - Keep compatibility aliases available: `$main-quest`, `$side-quest`, `$one-shot`.
 - Use `$code-review`, `$codedungeon-test-loop`, and `$cleanup-tasks` for standalone review/test/cleanup flows.
 - If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.

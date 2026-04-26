@@ -2,8 +2,8 @@
 
 CodeDungeon installs agent-facing workflows for both providers. Claude Code invokes them as slash commands. Codex invokes them as skills. The promoted surface is a single router:
 
-- Claude Code: `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>`
-- Codex: `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>`
+- Claude Code: `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
+- Codex: `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
 
 Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before following a workflow.
 
@@ -14,6 +14,7 @@ Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE
 | `--lite` | `/codedungeon --lite` | `$codedungeon --lite` | Side Quest | Simple single-repo work with a prior plan under `.codedungeon/plans/*.md`. |
 | `--full` | `/codedungeon --full` | `$codedungeon --full` | Main Quest | Complex features, multi-repo work, full phase lifecycle, QA, tests, and final report. |
 | `--auto` | `/codedungeon --auto` | `$codedungeon --auto` | Router-selected | Explicit automatic selection. |
+| `--rules` | `/codedungeon --rules` | `$codedungeon --rules` | Project Rules Discovery | Deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact rules. |
 | Review | `/code-review` | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
 
 Compatibility aliases remain installed and supported: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex.
@@ -22,8 +23,49 @@ Router validation:
 
 - Multiple mode flags stop with usage guidance.
 - Empty prompts stop with examples.
+- `--rules` may run without a user prompt and must not be combined with another mode flag.
 - `--lite` requires a prior plan in `.codedungeon/plans/*.md` or an explicit plan path in the prompt.
 - Auto mode chooses `full` for complex, architectural, multi-repo, QA/test, or final-report work; `lite` when a plan exists and the prompt asks to execute, split, or continue simple planned work; and `oneshot` for small direct changes.
+
+## Project Rules
+
+Project Rules are the shared context layer that keeps planner, implementer, tester, and reviewer agents aligned.
+
+Lifecycle:
+
+1. Run `/codedungeon --rules` or `$codedungeon --rules`.
+2. The agent reads repo docs/config/manifests/CI/test files and writes `.codedungeon/project-rules.md` with `Status: DRAFT`.
+3. The user reviews or edits the draft.
+4. After explicit confirmation, the agent runs `codedungeon rules approve` and `codedungeon rules compact`.
+5. Workflows read `.codedungeon/project-rules.compact.md` and include the envelope below in plans, tasks, reviews, handoffs, and reports.
+
+```text
+PROJECT_RULES_STATUS: approved|missing|draft|stale
+PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
+PROJECT_RULES_READ: yes|no
+```
+
+Deterministic commands:
+
+```bash
+codedungeon rules status
+codedungeon rules lint
+codedungeon rules digest
+codedungeon rules approve --by <name>
+codedungeon rules compact
+codedungeon rules gate --event Stop --mode warn
+```
+
+`--full` and `--lite` should block when approved rules are stale or still draft unless the user explicitly says to proceed with stale rules. `--oneshot` may continue with a warning for small direct fixes.
+
+Optional hook enforcement:
+
+```bash
+codedungeon hooks install --provider codex --mode warn
+codedungeon hooks install --provider claude --mode warn
+```
+
+Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe task/subagent events such as `TaskCreated`, `TaskCompleted`, and `SubagentStop`. `warn` mode reports problems; `enforce` mode blocks completion claims that omit Project Rules status/digest or verification.
 
 ## Success Gate
 

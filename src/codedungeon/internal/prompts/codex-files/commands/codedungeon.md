@@ -5,7 +5,7 @@ Official Codex router playbook for CodeDungeon workflows.
 Usage:
 
 ```text
-$codedungeon [--full|--lite|--oneshot|--one-shot|--auto] <prompt>
+$codedungeon [--full|--lite|--oneshot|--one-shot|--auto|--rules] <prompt>
 ```
 
 Compatibility aliases remain available:
@@ -27,6 +27,7 @@ Mode flags:
 - `--oneshot`: select `one-shot`.
 - `--one-shot`: compatibility spelling for `--oneshot`.
 - `--auto`: explicit automatic selection.
+- `--rules`: run Project Rules Discovery. This mode may run without a user prompt.
 
 Validation:
 
@@ -34,10 +35,10 @@ Validation:
 
    ```text
    multiple mode flags supplied
-   Usage: $codedungeon [--full|--lite|--oneshot|--auto] <prompt>
+   Usage: $codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>
    ```
 
-2. If the prompt is empty after removing the mode flag, stop with:
+2. If the prompt is empty after removing the mode flag and mode is not `--rules`, stop with:
 
    ```text
    prompt required
@@ -49,7 +50,15 @@ Validation:
 
 3. In `--lite` mode, require a prior plan in `.codedungeon/plans/*.md` or an explicit plan path in the prompt. If no plan exists, stop and ask for a plan first.
 
-4. Before following the selected workflow, print:
+4. In `--rules` mode, run Project Rules Discovery:
+
+   - Deep-read README, `AGENTS.md`, `CLAUDE.md`, docs, manifests, test configs, CI configs, env examples, Dockerfile/Containerfile files, and existing `.codedungeon/project-rules.md` if present.
+   - Write `.codedungeon/project-rules.md` with status `DRAFT`.
+   - Present the draft to the user for review. Do not mark rules approved without explicit user confirmation.
+   - After confirmation, run `./.codex/bin/codedungeon rules approve` and `./.codex/bin/codedungeon rules compact`.
+   - Ensure `.codedungeon/project-rules.compact.md` contains `PROJECT_RULES_STATUS: APPROVED`.
+
+5. Before following the selected workflow, print:
 
    ```text
    CODEDUNGEON_MODE_SELECTED: <mode> - <reason>
@@ -72,6 +81,7 @@ After selecting the mode, follow the target workflow exactly:
 - `full`: run the `main-quest` workflow with the prompt.
 - `lite`: run the `side-quest` workflow with the prompt or selected plan.
 - `oneshot`: run the `one-shot` workflow with the prompt.
+- `rules`: run Project Rules Discovery inline from this router contract.
 
 Editable reference playbooks live in `.codedungeon/commands/`:
 
@@ -80,3 +90,15 @@ Editable reference playbooks live in `.codedungeon/commands/`:
 - `.codedungeon/commands/one-shot.md`
 
 Do not remove or rewrite the compatibility aliases. `$codedungeon` is the promoted surface, while `$main-quest`, `$side-quest`, and `$one-shot` stay supported.
+
+## Project Rules Gate
+
+Before dispatching `full`, `lite`, or `oneshot`, run `./.codex/bin/codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `$codedungeon --rules`; do not silently invent project rules.
+
+Every dispatched workflow must preserve this Project Rules envelope in plans, task files, review reports, phase handoffs, and final reports:
+
+```text
+PROJECT_RULES_STATUS: approved|missing|draft|stale
+PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
+PROJECT_RULES_READ: yes|no
+```

@@ -316,8 +316,10 @@ func runSetupWithOptions(opts setupOptions) error {
 		printDetail("Run 'codedungeon version' to verify.")
 		if provider.Detect().Name() == "claude" {
 			printDetail("Claude Code slash commands are now available.")
+			printDetail("Recommended next step: /codedungeon --rules")
 		} else {
 			printDetail("Codex workflow skills are installed under .agents/skills.")
+			printDetail("Recommended next step: $codedungeon --rules")
 		}
 		fmt.Fprintln(tuiOut)
 	} else {

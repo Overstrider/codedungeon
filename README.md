@@ -10,7 +10,7 @@ Provider support is first-class:
 
 The binary is project-scoped, requires a git repo, and stores mutable state in `.codedungeon/`:
 
-- Shared runtime: `.codedungeon/codedungeon.db`, `.codedungeon/commands`, `.codedungeon/phases`, `.codedungeon/tasks`, `.codedungeon/plan`, `.codedungeon/state`, `.codedungeon/reviews`, `.codedungeon/memory`.
+- Shared runtime: `.codedungeon/codedungeon.db`, `.codedungeon/commands`, `.codedungeon/phases`, `.codedungeon/tasks`, `.codedungeon/plan`, `.codedungeon/state`, `.codedungeon/reviews`, `.codedungeon/memory`, `.codedungeon/project-rules.md`, `.codedungeon/project-rules.compact.md`, `.codedungeon/project-rules.json`.
 - Codex-native bootstrap: `.codex/agents`, `.codex/config.toml` with `multi_agent_v2`, global Codex `multi_agent_v2` enablement when setup is not run with `--skip-global`, `AGENTS.md`, `.agents/skills/*`.
 - Claude-native bootstrap: `.claude/agents`, `.claude/commands` wrappers, `.claude/skills`, `.claude/bin`, `CLAUDE.md`, optional global Claude plugin.
 
@@ -55,6 +55,16 @@ codedungeon-claude setup
 
 Codex setup installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`. Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the Claude plugin when available.
 
+Recommended next step after setup is Project Rules discovery:
+
+```text
+$codedungeon --rules
+# or
+/codedungeon --rules
+```
+
+The agent deep-reads the repo, drafts `.codedungeon/project-rules.md`, waits for user confirmation, then uses `codedungeon rules approve` and `codedungeon rules compact` to generate `.codedungeon/project-rules.compact.md`. Workflows read the compact rules and include `PROJECT_RULES_STATUS`, `PROJECT_RULES_DIGEST`, and `PROJECT_RULES_READ` in handoffs.
+
 Existing projects should use `codedungeon-<provider> migrate` after upgrading the binary. See [`docs/MIGRATING.md`](docs/MIGRATING.md) for the safe upgrade flow and what migration preserves.
 
 ## Build
@@ -85,7 +95,7 @@ See [`docs/MAINTAINER_POLICY.md`](docs/MAINTAINER_POLICY.md) for the full comple
 
 Source of truth lives in `src/codedungeon/`:
 
-- `cmd/`: Cobra commands for setup, bootstrap, phase state, repo discovery, review, plans, QA, reports, install/migrate/status.
+- `cmd/`: Cobra commands for setup, bootstrap, phase state, repo discovery, review, plans, QA, reports, install/migrate/status, project rules, and hook adapters.
 - `internal/provider/`: provider abstraction. Current providers are `claude` and `codex`.
 - `internal/prompts/`: embedded provider prompt packs. Claude uses `files/`; Codex uses `codex-files/`.
 - `internal/db/`: SQLite schema, migrations, FTS5, and installed artifact tracking.
@@ -117,11 +127,14 @@ codedungeon-codex phase info
 codedungeon-codex spawn-prompt 5
 codedungeon-codex prompts list
 codedungeon-codex migrate
+codedungeon-codex rules status
+codedungeon-codex rules lint
+codedungeon-codex hooks install --provider codex --mode warn
 ```
 
 The same command surface exists for Claude via `codedungeon-claude`.
 
-After setup, the promoted agent-facing workflow is `/codedungeon [--full|--lite|--oneshot|--auto] <prompt>` in Claude Code, or `$codedungeon [--full|--lite|--oneshot|--auto] <prompt>` in Codex. Without a mode flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before dispatch. Compatibility aliases remain installed: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for mode selection and branch/PR handling.
+After setup, the promoted agent-facing workflow is `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` in Claude Code, or `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` in Codex. Without a mode flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before dispatch. Compatibility aliases remain installed: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for mode selection, Project Rules, hooks, and branch/PR handling.
 
 CodeDungeon completion is PR-centered and verification-gated: code-writing workflows are only `COMPLETE` after build/check/test verification passes, the branch is pushed, a PR exists, adversarial review is posted to the PR, and the final verdict is `APPROVED`. Review approval does not replace verification. Terminal output uses the standard CodeDungeon PR Report.
 
