@@ -36,10 +36,10 @@ Run:
 ```bash
 CD=.claude/bin/codedungeon
 [ -x "$CD" ] || CD=codedungeon
-$CD git guard --repo .
+git rev-parse --is-inside-work-tree >/dev/null
 ```
 
-If guard fails, stop. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
+If git repo validation fails, stop. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
 
 Check `gh`:
 
@@ -88,6 +88,8 @@ git switch -c "$BRANCH" 2>/dev/null || git switch "$BRANCH"
 $CD git guard --repo .
 ```
 
+If guard fails here, stop before editing.
+
 ## Step 3: Implement
 
 Implement directly from the plan. Keep edits scoped. Add or run the smallest meaningful tests before claiming done.
@@ -115,10 +117,14 @@ git status --short
 git add -A
 git commit -m "feat: one-shot update"
 git push -u origin "$(git branch --show-current)"
-gh pr create --fill
+PR_URL=$(gh pr view --json url -q .url 2>/dev/null || true)
+if [ -z "$PR_URL" ]; then
+  PR_URL=$(gh pr create --fill)
+fi
+echo "$PR_URL"
 ```
 
-If the PR already exists, reuse it.
+If the PR already exists, reuse it. If no PR exists, create one.
 
 ## Step 6: Review
 

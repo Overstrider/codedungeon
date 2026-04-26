@@ -281,3 +281,53 @@ func TestCodexWorkflowPromptsUseProjectLocalBinary(t *testing.T) {
 		}
 	}
 }
+
+func TestOneShotCreatesBranchBeforeGuardAndReusesPR(t *testing.T) {
+	raw, err := GetRawFor("claude", "commands/one-shot.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	switchIdx := strings.Index(body, "git switch -c")
+	guardIdx := strings.Index(body, "$CD git guard --repo .")
+	if switchIdx == -1 {
+		t.Fatal("claude one-shot should create or switch to a feature branch")
+	}
+	if guardIdx == -1 {
+		t.Fatal("claude one-shot should run git guard after branch setup")
+	}
+	if guardIdx < switchIdx {
+		t.Fatalf("claude one-shot runs git guard before branch setup:\n%s", body)
+	}
+	for _, required := range []string{
+		"PR_URL=$(gh pr view --json url -q .url 2>/dev/null || true)",
+		`if [ -z "$PR_URL" ]; then`,
+		"PR_URL=$(gh pr create --fill)",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("claude one-shot missing PR reuse/create block %q", required)
+		}
+	}
+
+	for _, rel := range []string{
+		"commands/one-shot.md",
+		"skills/one-shot/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		branchIdx := strings.Index(body, "Create or")
+		guardIdx := strings.Index(body, "git guard")
+		if branchIdx == -1 || guardIdx == -1 {
+			t.Fatalf("%s should mention branch setup and git guard:\n%s", rel, body)
+		}
+		if guardIdx < branchIdx {
+			t.Fatalf("%s should mention git guard only after branch setup:\n%s", rel, body)
+		}
+		if !strings.Contains(body, "reuse") || !strings.Contains(body, "otherwise create one") {
+			t.Fatalf("%s should tell Codex to reuse an existing PR before creating one:\n%s", rel, body)
+		}
+	}
+}
