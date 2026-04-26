@@ -29,13 +29,16 @@ Router validation:
 
 CodeDungeon is PR-centered. Any workflow that writes code succeeds only when:
 
-1. The branch is pushed.
-2. A GitHub PR exists or is reused.
-3. Code review is posted to the PR.
-4. The final review verdict is `APPROVED`.
-5. The workflow returns the standard CodeDungeon PR Report.
+1. Build/check/test verification runs and passes.
+2. The branch is pushed.
+3. A GitHub PR exists or is reused.
+4. Code review is posted to the PR.
+5. The final review verdict is `APPROVED`.
+6. The workflow returns the standard CodeDungeon PR Report with `Verification: PASS`.
 
 If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, never `COMPLETE`.
+
+`APPROVED` does not replace verification. For Rust work, the verification gate includes `cargo check` and `cargo test`. If `Dockerfile` or `Containerfile` changes, the workflow must run `podman build` or return `BLOCKED` with the environment blocker.
 
 Standard final output:
 
@@ -62,7 +65,7 @@ Review
 Work Done
 - Tasks: <n>/<total or n/a>
 - Changed files: <short summary or none>
-- Verification: <commands/results or blocker>
+- Verification: PASS - <commands/results> OR BLOCKED - <blocker>
 
 PR
 <url or "not created">

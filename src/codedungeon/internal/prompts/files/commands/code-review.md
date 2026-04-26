@@ -18,6 +18,19 @@ Runs an **adversarial PR code review** on the current branch using a multi-perso
 - Cycles 4-9: `reduced` mode. Keep all personas, but use the configured fast model/effort and focus on fixes or new diff since the previous review cycle.
 - Never skip personas, validators, classifier, stack specialist, PR posting, or verdict generation in reduced mode.
 
+## Verification Evidence
+
+Treat missing verification as BLOCKING. If a workflow claims completion but the PR report, task notes, or recent comments do not show concrete build/check/test evidence, emit an actionable finding for `missing verification`.
+
+Required standard:
+
+- Build/check/test evidence must name the command and result.
+- For Rust changes, expect `cargo check` and `cargo test`.
+- For changed `Dockerfile` or `Containerfile`, expect `podman build` or a documented environment blocker.
+- `APPROVED does not replace verification`: review approval is not evidence that build/check/test passed.
+
+If verification is missing, weak, or only asserted in prose, classify it as a BLOCKING finding until commands are run or a real blocker is documented.
+
 ## Why adversarial fanout?
 
 Research (Anthropic code-review plugin, Greptile benchmarks 82%, Meta MetaMateCR arXiv 2507.13499, SpecterOps, arXiv 2509.16533 on sycophancy) shows single-agent self-review misses real bugs. Fix: **session separation + multi-persona fanout + per-finding validator + confidence tiers + quote-as-evidence anti-hallucination contract**.

@@ -441,6 +441,66 @@ func TestReviewCyclesUseReducedModeAfterThirdCycle(t *testing.T) {
 	}
 }
 
+func TestImplementationWorkflowsRequireVerificationGateBeforeComplete(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"claude", "commands/codedungeon-loop.md"},
+		{"codex", "commands/codedungeon-loop.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"Verification Gate",
+			"codedungeon qa detect-framework",
+			"cargo check",
+			"cargo test",
+			"Dockerfile",
+			"Containerfile",
+			"podman build",
+			"APPROVED does not replace verification",
+			"Status COMPLETE",
+			"Verification: PASS",
+			"Status BLOCKED",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing verification gate contract %q", tc.provider, tc.rel, required)
+			}
+		}
+	}
+}
+
+func TestCodeReviewPromptsTreatMissingVerificationAsBlocking(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"claude", "commands/code-review.md"},
+		{"codex", "commands/code-review.md"},
+		{"codex", "skills/code-review/SKILL.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"missing verification",
+			"BLOCKING",
+			"build/check/test",
+			"APPROVED does not replace verification",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s:%s missing missing-verification review contract %q", tc.provider, tc.rel, required)
+			}
+		}
+	}
+}
+
 func TestReportTemplatesRenderPRReportFields(t *testing.T) {
 	for _, name := range []string{"report-template-multi", "report-template-bootstrap"} {
 		body, err := GetFor("claude", name)

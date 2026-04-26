@@ -27,6 +27,31 @@ Exits 1 if protected → loop STOPs.
 
 Skipping any makes the run invalid.
 
+Verification Gate is also non-negotiable. `APPROVED does not replace verification`: specialist review and adversarial review are judgment gates; they do not prove the code compiles, tests pass, or container images build. Before marking a task `[x]`, before commit/push, and before emitting `Status COMPLETE`, run concrete build/check/test commands and keep the commands plus results for the final report.
+
+```bash
+codedungeon qa detect-framework --path "$REPO_DIR" > /tmp/codedungeon-fw.json
+VERIFY_CMD=$(jq -r '.run_cmd // empty' /tmp/codedungeon-fw.json)
+```
+
+Minimum Verification Gate commands:
+
+- Rust: run `cargo check` and `cargo test`. `cargo check` is mandatory even if `cargo test` is also run.
+- Go: run `go test ./...`.
+- Python: run `pytest` or `python -m pytest`.
+- Node/TypeScript/Next.js: run the detected test command, or the closest package script for test/build/typecheck.
+- Unknown framework: inspect the repo manifest and run the nearest compile/check/test command. If none is identifiable, return `Status BLOCKED`.
+
+Image build gate:
+
+```bash
+if git diff --name-only main...HEAD | grep -E '(^|/)(Dockerfile|Containerfile)$|\.containerfile$' >/dev/null; then
+  podman build -t codedungeon-verify "$REPO_DIR"
+fi
+```
+
+If `Dockerfile` or `Containerfile` changed and `podman build` cannot run because the tool or daemon is unavailable, return `Status BLOCKED` with the blocker in `Verification`. Do not silently downgrade to review-only completion. For `Status COMPLETE`, the final report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` and include `Verification: <blocker>`.
+
 ## Parameters
 
 - `$ARGUMENTS` — path to task dir (e.g. `.codedungeon/tasks/my-feature/backend/`).
@@ -161,7 +186,7 @@ For each pending `[ ]` task in PLAN.md (tracked via `codedungeon plan meta`), sp
 - Phase B: **executor** — `general-purpose` agent implements the task; commits intermediate.
 - Phase C: **specialist review** — `{lang}-specialist` MODE=review writes `{task_id}-review.md` with APPROVED/CHANGES_REQUESTED. If CHANGES_REQUESTED, re-enter Phase B (max 9 iterations per task; warn at 5, hard stop at 9).
 
-Mark task `[x]` when Phase C approves. Mark `[!]` if blocked.
+Mark task `[x]` only when Phase C approves and the Verification Gate passes. Mark `[!]` if blocked.
 
 ### Main Loop Step 3: Commit + push
 
@@ -251,7 +276,7 @@ Agents respond to `actionable==true` findings only (design_decisions are disclos
 
 ## Required final report
 
-Emit this exact format at every terminal path. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, and the final verdict is `APPROVED`.
+Emit this exact format at every terminal path. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. `APPROVED does not replace verification`.
 
 ```
 +------------------------------------------------+
@@ -276,7 +301,7 @@ Review
 Work Done
 - Tasks: {N}/{total}
 - Changed files: {short summary or none}
-- Verification: {commands/results or blocker}
+- Verification: PASS - {commands/results} OR BLOCKED - {blocker}
 
 PR
 {url or "not created"}

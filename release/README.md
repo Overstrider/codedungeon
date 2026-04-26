@@ -75,7 +75,7 @@ Workflow guide:
 
 `one-shot` runs `codedungeon git guard` only after switching to a feature branch because guard rejects protected branches such as `main`.
 
-CodeDungeon completion is PR-centered. A code-writing workflow is `COMPLETE` only when the branch is pushed, a PR exists, adversarial review is posted to the PR, and the final verdict is `APPROVED`. Every terminal path returns the standard CodeDungeon PR Report with PR URL, review verdict, cycles, verification, and next action.
+CodeDungeon completion is PR-centered and verification-gated. A code-writing workflow is `COMPLETE` only when build/check/test verification passes, the branch is pushed, a PR exists, adversarial review is posted to the PR, and the final verdict is `APPROVED`. Review approval does not replace verification. Every terminal path returns the standard CodeDungeon PR Report with PR URL, review verdict, cycles, verification, and next action.
 
 Review cycles run up to 9 times. Cycles 1-3 use full adversarial mode; cycles 4-9 use reduced mode with fast model/effort and focus on fixes/new diff.
 
