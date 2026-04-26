@@ -115,12 +115,13 @@ codedungeon-codex migrate
 
 The same command surface exists for Claude via `codedungeon-claude`.
 
-After setup, agent-facing workflows are `/one-shot`, `/side-quest`, and `/main-quest` in Claude Code, or `$one-shot`, `$side-quest`, and `$main-quest` in Codex.
+After setup, agent-facing workflows are `/one-shot`, `/side-quest`, and `/main-quest` in Claude Code, or `$one-shot`, `$side-quest`, and `$main-quest` in Codex. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) for when to use each workflow and how branch/PR handling works.
 
 ## Docs
 
 - `src/codedungeon/docs/ARCHITECTURE.md`: current architecture.
 - `src/codedungeon/docs/PROVIDERS.md`: provider model and how to add another provider.
+- `docs/WORKFLOWS.md`: workflow names, provider invocation, and One Shot / Side Quest / Main Quest behavior.
 - `docs/MIGRATING.md`: safe upgrade and migration guide for existing projects.
 - `release/README.md`: release/install guide.
 - `release/QUICKSTART.md`: end-user quickstart.

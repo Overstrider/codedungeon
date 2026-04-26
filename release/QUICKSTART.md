@@ -60,14 +60,18 @@ Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global
 
 After Codex setup, invoke workflows as skills:
 
-- `$one-shot`
-- `$side-quest`
-- `$main-quest`
+- `$one-shot`: small scoped change; creates or switches to `feat/<slug>`, then guards, commits, pushes, creates or reuses a PR, and runs review.
+- `$side-quest`: compact single-repo task-splitting workflow.
+- `$main-quest`: full phase workflow for complex or multi-repo work.
 - `$code-review`
 - `$codedungeon-test-loop`
 - `$cleanup-tasks`
 
 Editable command playbooks live in `.codedungeon/commands/`; Codex workflows are invoked through skills.
+
+Claude Code uses the matching slash commands: `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
+
+`one-shot` intentionally creates or switches to a feature branch before running `codedungeon git guard`, because guard rejects protected branches such as `main`.
 
 ## Useful Commands
 

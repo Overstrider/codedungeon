@@ -66,6 +66,14 @@ Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, ph
 Codex workflows are skills such as `$one-shot`, `$side-quest`, `$main-quest`, and `$code-review`.
 Claude workflows are plugin slash commands such as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
 
+Workflow guide:
+
+- `one-shot`: smallest PR-producing workflow; creates or switches to `feat/<slug>`, then runs guard, commits, pushes, creates or reuses a PR, and runs review.
+- `side-quest`: compact task-splitting workflow for simple single-repo work.
+- `main-quest`: full phase lifecycle for complex or multi-repo work.
+
+`one-shot` runs `codedungeon git guard` only after switching to a feature branch because guard rejects protected branches such as `main`.
+
 ## Upgrade
 
 Replace the `release/` directory, rerun the provider installer, then run `codedungeon-<provider> migrate` inside existing projects when prompted.
