@@ -75,6 +75,12 @@ Release builds produce provider-specific binaries:
 
 Each provider binary embeds its default provider via Go ldflags. Normal users should not rely on `CODEDUNGEON_PROVIDER`.
 
+## Maintainer Rules
+
+Repository maintenance is `main` only. Agents must not create branches or git worktrees. Every finished change must update relevant docs (`README.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/*`), update installers only when install behavior changes, run validation, build release artifacts, commit on `main`, and push `main` to `origin`.
+
+See [`docs/MAINTAINER_POLICY.md`](docs/MAINTAINER_POLICY.md) for the full completion checklist.
+
 ## Architecture
 
 Source of truth lives in `src/codedungeon/`:
@@ -125,6 +131,7 @@ CodeDungeon completion is PR-centered: code-writing workflows are only `COMPLETE
 - `src/codedungeon/docs/PROVIDERS.md`: provider model and how to add another provider.
 - `docs/WORKFLOWS.md`: workflow names, provider invocation, and One Shot / Side Quest / Main Quest behavior.
 - `docs/MIGRATING.md`: safe upgrade and migration guide for existing projects.
+- `docs/MAINTAINER_POLICY.md`: main-only maintenance, required docs/build/commit/push flow, and hook policy.
 - `release/README.md`: release/install guide.
 - `release/QUICKSTART.md`: end-user quickstart.
 
