@@ -43,14 +43,22 @@ func RunBootstrap(target, reasoning, fast string, force bool) (*BootstrapResult,
 
 func RunBootstrapWithConfig(target string, cfg provider.ModelConfig, force bool) (*BootstrapResult, error) {
 	p := provider.Detect()
+	dbPath := filepath.Join(target, p.DBPath())
+	_, dbStatErr := os.Stat(dbPath)
+	dbExistedBeforeMigration := dbStatErr == nil
+	if err := migrateLegacyRuntimeState(target, p); err != nil {
+		return nil, err
+	}
+	if err := ensureRuntimeState(target, p); err != nil {
+		return nil, err
+	}
 	binDir := filepath.Join(target, p.BinDir())
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create %s: %w", binDir, err)
 	}
-	dbPath := filepath.Join(target, p.DBPath())
 	binPath := filepath.Join(binDir, "codedungeon"+osadapter.Detect().ExecutableExt())
 
-	if _, err := os.Stat(dbPath); err == nil && !force {
+	if _, err := os.Stat(dbPath); err == nil && !force && dbExistedBeforeMigration {
 		return nil, fmt.Errorf("already bootstrapped: %s (use force to overwrite)", dbPath)
 	}
 
@@ -213,6 +221,9 @@ func installEmbeddedArtifacts(s *db.Store) error {
 func installEmbeddedArtifactsAt(s *db.Store, root string) error {
 	embedded, err := prompts.Artifacts()
 	if err != nil {
+		return err
+	}
+	if err := prepareCommandArtifactInstall(root, provider.Detect(), embedded); err != nil {
 		return err
 	}
 	for _, a := range embedded {

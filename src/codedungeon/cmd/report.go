@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"text/template"
@@ -82,12 +84,47 @@ func reportRenderCmd() *cobra.Command {
 			if err := tpl.Execute(&out, data); err != nil {
 				return EmitErr("template exec: "+err.Error(), "")
 			}
-			fmt.Print(out.String())
+			report := out.String()
+			root := ResolveProjectRoot(".")
+			if err := writeReportMemoryFiles(root, run, repos, report); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			fmt.Print(report)
 			return nil
 		},
 	}
 	c.Flags().Bool("bootstrap", false, "force bootstrap template (auto-detected from project_mode)")
 	return c
+}
+
+func writeReportMemoryFiles(root string, run *db.Run, repos []reportRepo, report string) error {
+	runDir := filepath.Join(root, codedungeonDir, "memory", "runs")
+	prDir := filepath.Join(root, codedungeonDir, "memory", "prs")
+	reportDir := filepath.Join(root, codedungeonDir, "reports")
+	for _, dir := range []string{runDir, prDir, reportDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+	}
+	header := fmt.Sprintf("# CodeDungeon Run %d\n\nFeature: %s\nBranch: %s\n\n", run.ID, run.Feature, run.Branch)
+	runBody := header + report
+	if err := os.WriteFile(filepath.Join(runDir, fmt.Sprintf("run-%d.md", run.ID)), []byte(runBody), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(reportDir, fmt.Sprintf("run-%d.md", run.ID)), []byte(report), 0o644); err != nil {
+		return err
+	}
+	for _, repo := range repos {
+		if repo.PRNumber == "" {
+			continue
+		}
+		body := fmt.Sprintf("# PR #%s\n\nRun: %d\nFeature: %s\nBranch: %s\nRepo: %s\nVerdict: %s\n\n%s",
+			repo.PRNumber, run.ID, run.Feature, run.Branch, repo.Name, repo.Verdict, report)
+		if err := os.WriteFile(filepath.Join(prDir, "pr-"+repo.PRNumber+".md"), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveReportTemplate prefers DB-versioned templates over embedded.

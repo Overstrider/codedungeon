@@ -58,8 +58,10 @@ curl -fsSL https://raw.githubusercontent.com/Overstrider/codedungeon/main/releas
 
 The provider is built into the binary. Normal use should not depend on `CODEDUNGEON_PROVIDER`.
 
-- `codedungeon-codex` installs `.codex/*`, `.agents/skills/*`, and `AGENTS.md`.
-- `codedungeon-claude` installs `.claude/*`, the Claude plugin, and `CLAUDE.md`.
+- `codedungeon-codex` installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
+- `codedungeon-claude` installs `.claude/*`, `.codedungeon/*`, the Claude plugin, and `CLAUDE.md`.
+
+Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, and PR memory. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
 Codex workflows are skills such as `$minidungeon`, `$codedungeon-dev-cycle`, and `$code-review`.
 Claude workflows are plugin slash commands such as `/minidungeon`, `/codedungeon-dev-cycle`, and `/code-review`.

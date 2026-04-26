@@ -51,7 +51,7 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 func TestConfigEffortPrintsConfiguredTierEffort(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	dbPath := filepath.Join(root, ".claude", "codedungeon.db")
+	dbPath := filepath.Join(root, ".codedungeon", "codedungeon.db")
 	s, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)

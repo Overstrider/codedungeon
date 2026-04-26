@@ -5,13 +5,13 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
-- Existing QA plans: `.claude/plan/{repo_name}qaplan.md` (from Phase 3.5)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- Existing QA plans: `.codedungeon/plan/{repo_name}qaplan.md` (from Phase 3.5)
 - Actual implemented code (from Phase 5)
 
 ## Outputs
-- Refined `.claude/plan/{repo_name}qaplan.md` (updated with real selectors, paths, labels)
-- Update `.claude/plan/pipeline-state.md`: set Phase 5.5 status to DONE
+- Refined `.codedungeon/plan/{repo_name}qaplan.md` (updated with real selectors, paths, labels)
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 5.5 status to DONE
 
 ---
 
@@ -40,7 +40,7 @@ If you cannot find or read the file above, STOP immediately and report:
 AGENT_DEFINITION_MISSING: .claude/agents/basilisk-planner-qa.md
 Do NOT improvise without your agent definition.
 
-Read the EXISTING qaplan from: .claude/plan/{repo_name}qaplan.md
+Read the EXISTING qaplan from: .codedungeon/plan/{repo_name}qaplan.md
 Read the repo's CLAUDE.md for conventions.
 Read {repo_path}/docs/CODEBASE_MAP.md for comprehensive repo context.
 
@@ -61,7 +61,7 @@ YOUR JOB:
    - Update API endpoint paths if they differ from the plan
    - Add/remove test flows based on what was actually built vs planned
    - In ## frontend-ux-checks: update input masks with actual implementations
-4. Write the refined qaplan back to: .claude/plan/{repo_name}qaplan.md
+4. Write the refined qaplan back to: .codedungeon/plan/{repo_name}qaplan.md
 
 RULES:
 - Keep the qaplan structure intact (same sections, same format)
@@ -91,7 +91,7 @@ codedungeon phase done 5.5 \
   --promise "PHASE_55_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-55-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-55-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 5.5 --reason "..."` or `... fail 5.5 --reason "..."` for non-DONE terminal states.
 

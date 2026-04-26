@@ -5,7 +5,7 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
 - `FEATURE_PROMPT` — the validated user prompt from Phase 0
 - `REPO_MAP` — discovered repo map from Phase 0
 - `PROJECT_MODE` — BOOTSTRAP, SINGLE, or MULTI (from Phase 0)
@@ -16,8 +16,8 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 - `.claude/agents/dragon-architect-planner.md` — architect agent instructions
 
 ## Outputs
-- `.claude/plan/arcplan.md` — comprehensive architecture plan
-- Update `.claude/plan/pipeline-state.md`: set Phase 1 status to DONE + list artifacts
+- `.codedungeon/plan/arcplan.md` — comprehensive architecture plan
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 1 status to DONE + list artifacts
 
 ---
 
@@ -53,7 +53,7 @@ YOUR JOB:
    - Define the dependency list (packages/crates/modules to install)
    - Define configuration files needed (manifest, config, CI, linter, etc.)
 
-2. Write a comprehensive architecture plan to .claude/plan/arcplan.md
+2. Write a comprehensive architecture plan to .codedungeon/plan/arcplan.md
 
 The plan MUST include:
 - ## meta section with: project name, repos: ".", lang: {lang}, stack: {stack}, mode: bootstrap
@@ -109,7 +109,7 @@ YOUR JOB:
    - Read relevant existing code to understand current patterns
    - Find reference implementations to follow
 
-3. Write a comprehensive architecture plan to .claude/plan/arcplan.md
+3. Write a comprehensive architecture plan to .codedungeon/plan/arcplan.md
 
 The plan MUST include:
 - ## meta section with: feature name, repos list (which repos are affected — use "." for single-repo)
@@ -148,7 +148,7 @@ If `TEST_AUTH_MISSING_REPOS` is empty, do NOT include this block.
 
 When the agent returns, log to user:
 
-> **Phase 1 complete.** Architecture plan written to `.claude/plan/arcplan.md`. Continuing to Phase 2...
+> **Phase 1 complete.** Architecture plan written to `.codedungeon/plan/arcplan.md`. Continuing to Phase 2...
 
 **Immediately proceed to Phase 2. Do NOT wait for approval.**
 
@@ -171,7 +171,7 @@ codedungeon phase done 1 \
   --promise "PHASE_1_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-1-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-1-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 1 --reason "..."` or `... fail 1 --reason "..."` for non-DONE terminal states.
 

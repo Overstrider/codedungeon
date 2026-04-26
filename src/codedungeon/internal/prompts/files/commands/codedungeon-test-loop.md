@@ -24,7 +24,7 @@ Skipping any = invalid run.
 
 ## Parameters
 
-- `$ARGUMENTS` — task dir (e.g. `.claude/tasks/my-feature/backend/`). Contains PLAN.md + test-task-*.md files.
+- `$ARGUMENTS` — task dir (e.g. `.codedungeon/tasks/my-feature/backend/`). Contains PLAN.md + test-task-*.md files.
 
 ## Subagent spawn retry
 

@@ -114,7 +114,14 @@ func OpenDB(c *cobra.Command) (*db.Store, error) {
 	if path == "" {
 		cwd, _ := os.Getwd()
 		root := ResolveProjectRoot(cwd)
-		path = filepath.Join(root, provider.Detect().DBPath())
+		p := provider.Detect()
+		if err := migrateLegacyRuntimeState(root, p); err != nil {
+			return nil, err
+		}
+		if err := ensureRuntimeState(root, p); err != nil {
+			return nil, err
+		}
+		path = projectPath(root, provider.Detect().DBPath())
 	}
 	s, err := db.Open(path)
 	if err != nil {

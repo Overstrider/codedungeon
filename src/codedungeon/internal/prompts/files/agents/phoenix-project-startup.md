@@ -131,7 +131,7 @@ curl -s -o /dev/null -w "%{http_code}" {deployed_url}
 
 ### Step 5: Report Status
 
-Write to `.claude/plan/startup-status.md`:
+Write to `.codedungeon/plan/startup-status.md`:
 
 ```markdown
 status: {up | failed}
@@ -222,7 +222,7 @@ When invoked (typically by codedungeon-test-loop Step 1):
 3. Determine startup method
 4. Execute startup
 5. Validate with health check (retry up to 30s)
-6. Write status to `.claude/plan/startup-status.md`
+6. Write status to `.codedungeon/plan/startup-status.md`
 7. Report: status (up/failed), base_url, method
 
 **No stopping. No approval gates. Fully autonomous.**

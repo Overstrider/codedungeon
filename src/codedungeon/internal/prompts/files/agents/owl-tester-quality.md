@@ -23,9 +23,9 @@ You are a test quality reviewer. You verify that tests are complete, correct, an
 ## Input
 
 You receive:
-- Path to the qaplan file (`.claude/plan/{repo}qaplan.md`)
+- Path to the qaplan file (`.codedungeon/plan/{repo}qaplan.md`)
 - Paths to test files (integration tests, E2E specs)
-- API test results (`.claude/plan/mimic-tester-api-results.md`)
+- API test results (`.codedungeon/plan/mimic-tester-api-results.md`)
 - The test task file (for requirements context)
 
 ---
@@ -107,7 +107,7 @@ Flag these anti-patterns:
 
 ## Output
 
-Write to: `.claude/plan/test-review.md`
+Write to: `.codedungeon/plan/test-review.md`
 
 ```markdown
 # Test Review
@@ -187,7 +187,7 @@ When invoked (typically by codedungeon-test-loop after all test tiers complete):
 2. Read all test artifacts (test files, API results, E2E results)
 3. Check each DoD item against test results
 4. Review test quality (assertions, isolation, flakiness, patterns)
-5. Write review to `.claude/plan/test-review.md`
+5. Write review to `.codedungeon/plan/test-review.md`
 6. Report verdict and summary
 
 **No stopping. No approval gates. Fully autonomous.**

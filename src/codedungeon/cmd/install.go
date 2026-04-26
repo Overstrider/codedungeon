@@ -22,7 +22,7 @@ func InstallCmd() *cobra.Command {
 	p := provider.Detect()
 	c := &cobra.Command{
 		Use:   "install",
-		Short: fmt.Sprintf("Install embedded agents/skills/commands/phases into provider paths (%s)", p.Name()),
+		Short: fmt.Sprintf("Install embedded agents/skills plus .codedungeon commands/phases (%s)", p.Name()),
 		RunE: func(c *cobra.Command, _ []string) error {
 			return runInstall(c)
 		},
@@ -152,6 +152,11 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 	embedded, err := prompts.Artifacts()
 	if err != nil {
 		return EmitErr(err.Error(), "")
+	}
+	if !dry {
+		if err := prepareCommandArtifactInstall(root, provider.Detect(), embedded); err != nil {
+			return EmitErr(err.Error(), "")
+		}
 	}
 	var wrote, skipped, forced []string
 	for _, a := range embedded {

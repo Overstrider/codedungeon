@@ -37,10 +37,11 @@ codedungeon-codex setup --yes
 Codex setup:
 
 1. Copies the project binary to `.codex/bin/codedungeon`.
-2. Creates `.codex/codedungeon.db`.
-3. Installs Codex agents, commands, phases, and config under `.codex/`.
+2. Creates `.codedungeon/codedungeon.db`.
+3. Installs Codex agents and config under `.codex/`, including `multi_agent_v2` for custom subagents. Unless `--skip-global` is passed, setup also runs `codex features enable multi_agent_v2` so Codex accepts the installed custom agents.
 4. Installs workflow/domain skills under `.agents/skills/`.
-5. Writes a codedungeon section to `AGENTS.md`.
+5. Installs editable commands, phases, tasks/plans/state/reviews/memory folders under `.codedungeon/`.
+6. Writes a codedungeon section to `AGENTS.md`.
 
 Claude setup:
 
@@ -48,7 +49,7 @@ Claude setup:
 codedungeon-claude setup
 ```
 
-Claude setup installs `.claude/*`, `CLAUDE.md`, and the global Claude plugin.
+Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global Claude plugin.
 
 ## Requirements
 
@@ -65,7 +66,7 @@ After Codex setup, invoke workflows as skills:
 - `$codedungeon-test-loop`
 - `$cleanup-tasks`
 
-`.codex/commands/` contains reference playbooks, not Codex CLI slash commands.
+Editable command playbooks live in `.codedungeon/commands/`; Codex workflows are invoked through skills.
 
 ## Useful Commands
 

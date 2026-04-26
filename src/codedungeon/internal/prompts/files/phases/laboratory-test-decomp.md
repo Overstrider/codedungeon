@@ -5,14 +5,14 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map)
-- Refined QA plans: `.claude/plan/{repo_name}qaplan.md` (from Phase 5.5)
-- Existing PLAN.md files: `.claude/tasks/{feature}/{repo}/PLAN.md`
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map)
+- Refined QA plans: `.codedungeon/plan/{repo_name}qaplan.md` (from Phase 5.5)
+- Existing PLAN.md files: `.codedungeon/tasks/{feature}/{repo}/PLAN.md`
 
 ## Outputs
-- Test task files: `.claude/tasks/{feature}/{repo}/test-NN-*.md`
+- Test task files: `.codedungeon/tasks/{feature}/{repo}/test-NN-*.md`
 - Updated PLAN.md files with `## Test Tasks` section
-- Update `.claude/plan/pipeline-state.md`: set Phase 5.6 status to DONE
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 5.6 status to DONE
 
 ---
 
@@ -39,19 +39,19 @@ Read your full instructions from: .claude/agents/spider-architect-task.md
 
 MODE=test
 
-Read refined QA plans from .claude/plan/:
+Read refined QA plans from .codedungeon/plan/:
 - {repo_name}qaplan.md for each affected repo (refined in Phase 5.5)
 
-Read existing dev task files + MASTER.md at .claude/tasks/{feature}/ (do NOT modify them).
+Read existing dev task files + MASTER.md at .codedungeon/tasks/{feature}/ (do NOT modify them).
 
-Read canonical task template: .claude/tasks/TEMPLATE.md
-Read previous handoff: .claude/state/phase-55-output.md
+Read canonical task template: .codedungeon/tasks/TEMPLATE.md
+Read previous handoff: .codedungeon/state/phase-55-output.md
 
 Follow the MODE=test workflow in agent SKILL.md:
 - Produce TEST-{LAYER}-NNN.md files per test layer (integration/api/e2e).
 - Append `## Test Tasks` section to existing MASTER.md (preserve dev `## Tasks` block — do NOT rewrite dev side).
 - Append `## Test Tasks` to each repo's PLAN.md.
-- Write handoff `.claude/state/phase-56-output.md`.
+- Write handoff `.codedungeon/state/phase-56-output.md`.
 
 FULLY AUTONOMOUS. No approval gates.
 
@@ -80,7 +80,7 @@ codedungeon phase done 5.6 \
   --promise "PHASE_56_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-56-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-56-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 5.6 --reason "..."` or `... fail 5.6 --reason "..."` for non-DONE terminal states.
 

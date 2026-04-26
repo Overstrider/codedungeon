@@ -1,4 +1,4 @@
-# Pre-existing plugin snapshot, kept for reference — not versioned.
+# Pre-existing plugin snapshot, kept for reference - not versioned.
 OLD/
 
 # Go build artifacts (binaries live in release/bin, committed)
@@ -15,15 +15,24 @@ OLD/
 # Pre-purge tarballs (created by the refactor flow; ephemeral)
 /tmp/cd-*
 
-# Project-local codedungeon state (per consumer project; never part of THIS repo)
+# Legacy provider-local codedungeon state from old consumer projects.
 .claude/codedungeon.db*
 .claude/loldinis-state/
 .claude/state/
 .claude/plan/
 .claude/tasks/
 .claude/codereview/
+.codex/codedungeon.db*
+.codex/state/
+.codex/plan/
+.codex/tasks/
+.codex/codereview/
 
-# Example projects' per-run state (keep source + FEATURE.md, drop runtime state)
+# SQLite transient files; .codedungeon itself is intentionally versionable.
+.codedungeon/*.db-journal
+examples/*/.codedungeon/*.db-journal
+
+# Example projects' provider-native generated bootstrap files.
 examples/*/.claude/bin/
 examples/*/.claude/codedungeon.db*
 examples/*/.claude/tasks/
@@ -32,7 +41,6 @@ examples/*/.claude/agents/
 examples/*/.claude/skills/
 examples/*/.claude/commands/
 examples/*/.claude/phases/
-# Keep: examples/*/.claude/plan/ + state/  → demonstrates pipeline output
 
 # Nested example repos: keep local .git (codedungeon needs it) but never track it in outer repo
 examples/*/.git/

@@ -75,7 +75,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			cycle, _ := c.Flags().GetInt("cycle")
 
 			if dir == "" {
-				dir = filepath.Join(provider.Detect().PlanDir(), "adv-review")
+				dir = projectPath(currentProjectRoot(), filepath.Join(provider.Detect().ReviewsDir(), "adv-review"))
 			}
 			if _, err := os.Stat(dir); err != nil {
 				return EmitErr("findings dir not found: "+dir, "create it or pass --dir")
@@ -166,16 +166,16 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 
 			// ---- Step 11: verdict ----
 			return EmitJSON(map[string]any{
-				"ok":         true,
-				"verdict":    verdict,
-				"tally":      tally,
-				"review_md":  filepath.Join(dir, "review.md"),
+				"ok":          true,
+				"verdict":     verdict,
+				"tally":       tally,
+				"review_md":   filepath.Join(dir, "review.md"),
 				"review_json": filepath.Join(dir, "review.json"),
-				"personas":   personas,
+				"personas":    personas,
 			})
 		},
 	}
-	c.Flags().String("dir", "", "findings dir (default .claude/plan/adv-review)")
+	c.Flags().String("dir", "", "findings dir (default .codedungeon/reviews/adv-review)")
 	c.Flags().String("only", "", "run only one step: dedupe|filter|classify|render|verdict")
 	c.Flags().Int("nit-cap", 3, "max P2 findings before roll-up to suppressed count")
 	c.Flags().String("validator-model", "sonnet-4.6", "label for review.json metadata")
@@ -213,20 +213,20 @@ func reviewContextPathsCmd() *cobra.Command {
 			}
 			p := provider.Detect()
 			var taskFiles []string
-			matches, _ := filepath.Glob(filepath.Join(absRepo, p.TasksDir(), "**", "task-*.md"))
+			matches, _ := filepath.Glob(filepath.Join(projectRoot, p.TasksDir(), "**", "task-*.md"))
 			taskFiles = append(taskFiles, matches...)
 
 			return EmitJSON(map[string]any{
-				"ok":              true,
-				"project_root":    projectRoot,
-				"repo":            absRepo,
+				"ok":                true,
+				"project_root":      projectRoot,
+				"repo":              absRepo,
 				"agent_config_root": existsOr(filepath.Join(projectRoot, p.AgentConfigFile())),
 				"agent_config_repo": existsOr(filepath.Join(absRepo, p.AgentConfigFile())),
-				"review_md":       existsOr(filepath.Join(absRepo, "REVIEW.md")),
-				"architecture_md": firstExisting(filepath.Join(absRepo, "ARCHITECTURE.md"), filepath.Join(absRepo, "docs", "ARCHITECTURE.md")),
-				"adr_paths":       adrs,
-				"spec_md":         existsOr(filepath.Join(absRepo, "docs", "spec.md")),
-				"task_files":      taskFiles,
+				"review_md":         existsOr(filepath.Join(absRepo, "REVIEW.md")),
+				"architecture_md":   firstExisting(filepath.Join(absRepo, "ARCHITECTURE.md"), filepath.Join(absRepo, "docs", "ARCHITECTURE.md")),
+				"adr_paths":         adrs,
+				"spec_md":           existsOr(filepath.Join(absRepo, "docs", "spec.md")),
+				"task_files":        taskFiles,
 			})
 		},
 	}

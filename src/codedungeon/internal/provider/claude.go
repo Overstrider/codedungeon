@@ -13,15 +13,16 @@ func (Claude) ConfigDir() string       { return ".claude" }
 func (Claude) AgentConfigFile() string { return "CLAUDE.md" }
 
 func (Claude) BinDir() string      { return filepath.Join(".claude", "bin") }
-func (Claude) DBPath() string      { return filepath.Join(".claude", "codedungeon.db") }
-func (Claude) CommandsDir() string { return filepath.Join(".claude", "commands") }
+func (Claude) DBPath() string      { return filepath.Join(".codedungeon", "codedungeon.db") }
+func (Claude) CommandsDir() string { return filepath.Join(".codedungeon", "commands") }
 func (Claude) AgentsDir() string   { return filepath.Join(".claude", "agents") }
 func (Claude) SkillsDir() string   { return filepath.Join(".claude", "skills") }
-func (Claude) PhasesDir() string   { return filepath.Join(".claude", "phases") }
-func (Claude) TasksDir() string    { return filepath.Join(".claude", "tasks") }
-func (Claude) PlanDir() string     { return filepath.Join(".claude", "plan") }
-func (Claude) StateDir() string    { return filepath.Join(".claude", "state") }
-func (Claude) PlansDir() string    { return filepath.Join(".claude", "plans") }
+func (Claude) PhasesDir() string   { return filepath.Join(".codedungeon", "phases") }
+func (Claude) TasksDir() string    { return filepath.Join(".codedungeon", "tasks") }
+func (Claude) PlanDir() string     { return filepath.Join(".codedungeon", "plan") }
+func (Claude) StateDir() string    { return filepath.Join(".codedungeon", "state") }
+func (Claude) PlansDir() string    { return filepath.Join(".codedungeon", "plans") }
+func (Claude) ReviewsDir() string  { return filepath.Join(".codedungeon", "reviews") }
 
 func (Claude) PluginDir() string {
 	home, _ := os.UserHomeDir()

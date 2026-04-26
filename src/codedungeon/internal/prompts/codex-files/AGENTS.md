@@ -4,17 +4,18 @@ Use codedungeon as the deterministic workflow kernel. Preserve the phase flow, D
 
 Project artifacts:
 - Workflow skills: `.agents/skills/codedungeon-dev-cycle/`, `.agents/skills/minidungeon/`, `.agents/skills/code-review/`
-- Command playbooks for reference: `.codex/commands/`
-- Phase instructions: `.codex/phases/`
+- Editable command playbooks for reference: `.codedungeon/commands/`
+- Phase instructions: `.codedungeon/phases/`
 - Codex subagents: `.codex/agents/`
 - Codex skills: `.agents/skills/`
-- Local binary and DB: `./.codex/bin/codedungeon`, `.codex/codedungeon.db`
+- Local binary and DB: `./.codex/bin/codedungeon`, `.codedungeon/codedungeon.db`
 
 Default workflow:
 - Invoke workflows as skills: `$codedungeon-dev-cycle`, `$minidungeon`, `$code-review`, `$codedungeon-test-loop`, `$cleanup-tasks`.
+- If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
 - Use `./.codex/bin/codedungeon phase info` before changing phase state.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.
 - Preserve the `agent_type`, `model`, and `reasoning_effort` emitted by `spawn-prompt <phase>` when using Codex subagents.
 - Close completed phases with `./.codex/bin/codedungeon phase done`.
-- Treat `.codex/commands/` as reference playbooks, not Codex CLI slash commands.
+- Treat `.codedungeon/commands/` as reference playbooks, not Codex CLI slash commands.
 - Keep provider-specific instructions in Codex files; do not copy Claude-only syntax into Codex prompts.

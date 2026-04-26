@@ -28,7 +28,7 @@ Skipping any makes the run invalid.
 
 ## Parameters
 
-- `$ARGUMENTS` — path to task dir (e.g. `.claude/tasks/my-feature/backend/`).
+- `$ARGUMENTS` — path to task dir (e.g. `.codedungeon/tasks/my-feature/backend/`).
 
 ## Subagent spawn retry rule
 
@@ -193,9 +193,9 @@ MAX_REVIEW_CYCLES=9
 while : ; do
   # Run /code-review (posts comment to PR, writes review.json + review.md)
   /code-review "$REPO_DIR"
-  # Outputs adversarial review in $REPO_DIR/.claude/plan/adv-review/review.json.
+  # Outputs adversarial review in $REPO_DIR/.codedungeon/reviews/adv-review/review.json.
 
-  VERDICT=$(jq -r .verdict "$REPO_DIR/.claude/plan/adv-review/review.json")
+  VERDICT=$(jq -r .verdict "$REPO_DIR/.codedungeon/reviews/adv-review/review.json")
   case "$VERDICT" in
     APPROVED)
       echo "PR APPROVED after $REVIEW_CYCLE cycles."
@@ -209,7 +209,7 @@ while : ; do
       fi
       # Generate fix tasks from actionable findings.
       codedungeon plan append-fix-tasks \
-        --from "$REPO_DIR/.claude/plan/adv-review/review.json" \
+        --from "$REPO_DIR/.codedungeon/reviews/adv-review/review.json" \
         --to "$TASK_DIR/PLAN.md" \
         --cycle "$REVIEW_CYCLE"
       # Re-enter orchestrator loop (Step 2) to process new [ ] tasks.

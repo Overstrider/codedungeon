@@ -43,7 +43,7 @@ func TestInstalledArtifactStoresProviderPackAndInstallPath(t *testing.T) {
 	}
 }
 
-func TestMigrateV2DatabaseWithoutArtifactsTableToV6(t *testing.T) {
+func TestMigrateV2DatabaseWithoutArtifactsTableToV7(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "codedungeon.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -64,13 +64,28 @@ func TestMigrateV2DatabaseWithoutArtifactsTableToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ver != "6" {
-		t.Fatalf("schema version = %q, want 6", ver)
+	if ver != "7" {
+		t.Fatalf("schema version = %q, want 7", ver)
 	}
 	for _, key := range []string{"model_reasoning_effort", "model_fast_effort"} {
 		if _, err := s.GetMeta(key); err != nil {
 			t.Fatalf("missing %s: %v", key, err)
 		}
+	}
+}
+
+func TestOpenUsesDeleteJournalMode(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var mode string
+	if err := s.DB.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "delete" {
+		t.Fatalf("journal_mode = %q, want delete", mode)
 	}
 }
 

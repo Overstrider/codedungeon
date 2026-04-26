@@ -5,16 +5,16 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
-- `.claude/plan/MASTER.md` (execution order)
-- `.claude/tasks/{feature-name}/{repo-name}/PLAN.md` per repo
-- `.claude/tasks/{feature-name}/{repo-name}/task-*.md` (dev task files)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- `.codedungeon/plan/MASTER.md` (execution order)
+- `.codedungeon/tasks/{feature-name}/{repo-name}/PLAN.md` per repo
+- `.codedungeon/tasks/{feature-name}/{repo-name}/task-*.md` (dev task files)
 
 ## Outputs
 - Feature branches with committed code per repo
 - Pull requests per repo
 - Adversarial review comments on PRs (via `/code-review`)
-- Update `.claude/plan/pipeline-state.md`: set Phase 5 status to DONE + list artifacts + results
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 5 status to DONE + list artifacts + results
 - Populate `## Results (per repo)` section with PR numbers, verdicts, task counts
 
 ---
@@ -34,19 +34,18 @@ For each repo in execution order:
 1. Determine paths:
    ```
    # Multi-repo mode:
-   TASK_DIR = .claude/tasks/{feature-name}/{repo-name}/
+   TASK_DIR = .codedungeon/tasks/{feature-name}/{repo-name}/
 
    # Single-repo mode (repo-name = "."):
-   TASK_DIR = .claude/tasks/{feature-name}/root/
+   TASK_DIR = .codedungeon/tasks/{feature-name}/root/
 
    PLAN_FILE = {TASK_DIR}/PLAN.md
    ```
 
 2. **Resolve the absolute path to codedungeon-loop.md** before spawning the agent:
-   - First check: `{project_root}/.claude/commands/codedungeon-loop.md`
-   - Fallback: `$HOME/.claude/commands/codedungeon-loop.md`
-   - Set `LOLDINIS_LOOP_PATH` to the first path that exists (use the Read tool to verify)
-   - If neither exists, STOP with error: "codedungeon-loop.md not found. Cannot execute Phase 5."
+   - Use: `{project_root}/.codedungeon/commands/codedungeon-loop.md`
+   - Set `LOLDINIS_LOOP_PATH` to that absolute path (use the Read tool to verify)
+   - If it does not exist, STOP with error: "codedungeon-loop.md not found. Run `codedungeon install`."
 
 3. Announce to user:
    > Spawning execution agent for **{repo}** ({lang}) — {N} tasks
@@ -75,7 +74,7 @@ For each repo in execution order:
 
    ## REVIEW PROTOCOL — /code-review (adversarial, Opus 4.7 fanout)
    For Main Loop Step 5 (PR review), you MUST read and follow the full /code-review
-   protocol from: $HOME/.claude/commands/code-review.md
+   protocol from: {project_root}/.codedungeon/commands/code-review.md
 
    /code-review runs a multi-persona adversarial fanout (Saboteur + New Hire + Security Auditor
    + Spec Enforcer on Opus 4.7) followed by per-finding Sonnet Validators and a stack-specific
@@ -147,7 +146,7 @@ codedungeon phase done 5 \
   --promise "PHASE_5_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-5-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-5-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 5 --reason "..."` or `... fail 5 --reason "..."` for non-DONE terminal states.
 

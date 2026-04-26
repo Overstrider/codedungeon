@@ -8,10 +8,13 @@ Provider support is first-class:
 - `codedungeon-claude` for Claude Code.
 - `claude` is the canonical provider name. `claude-code` and `claude-ce` are accepted only as legacy aliases.
 
-The binary is project-scoped, requires a git repo, and stores state in provider-native SQLite:
+The binary is project-scoped, requires a git repo, and stores mutable state in `.codedungeon/`:
 
-- Codex: `.codex/codedungeon.db`, `.codex/*`, `AGENTS.md`, `.agents/skills/*`.
-- Claude: `.claude/codedungeon.db`, `.claude/*`, `CLAUDE.md`, optional global Claude plugin.
+- Shared runtime: `.codedungeon/codedungeon.db`, `.codedungeon/commands`, `.codedungeon/phases`, `.codedungeon/tasks`, `.codedungeon/plan`, `.codedungeon/state`, `.codedungeon/reviews`, `.codedungeon/memory`.
+- Codex-native bootstrap: `.codex/agents`, `.codex/config.toml` with `multi_agent_v2`, global Codex `multi_agent_v2` enablement when setup is not run with `--skip-global`, `AGENTS.md`, `.agents/skills/*`.
+- Claude-native bootstrap: `.claude/agents`, `.claude/commands` wrappers, `.claude/skills`, `.claude/bin`, `CLAUDE.md`, optional global Claude plugin.
+
+`.codedungeon/` is intended to be readable, editable, and versionable so interrupted runs can be resumed and PR history can be investigated later.
 
 ## Install
 
@@ -48,9 +51,9 @@ codedungeon-codex setup
 codedungeon-claude setup
 ```
 
-`setup` creates the provider DB, copies the local project binary, installs provider-native prompts/agents/skills/commands/phases, and writes the project instruction file.
+`setup` creates `.codedungeon`, copies the local project binary, installs provider-native agents/skills/config, installs editable command playbooks and phase prompts under `.codedungeon`, and writes the project instruction file.
 
-Codex setup installs `.codex/*`, `.agents/skills/*`, and `AGENTS.md`. Claude setup installs `.claude/*`, `CLAUDE.md`, and the Claude plugin when available.
+Codex setup installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`. Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the Claude plugin when available.
 
 ## Build
 

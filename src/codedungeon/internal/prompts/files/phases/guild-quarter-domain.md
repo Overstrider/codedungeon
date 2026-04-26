@@ -9,16 +9,16 @@ tools: Task, TodoWrite, Read
 (orchestrator — no Write/Edit)
 
 ## Inputs
-- `.claude/plan/pipeline-state.md` (config, repo map, env vars)
-- `.claude/plan/arcplan.md` (affected repos, sections)
-- `.claude/state/phase-1-output.md` (canonical handoff from Phase 1)
+- `.codedungeon/plan/pipeline-state.md` (config, repo map, env vars)
+- `.codedungeon/plan/arcplan.md` (affected repos, sections)
+- `.codedungeon/state/phase-1-output.md` (canonical handoff from Phase 1)
 - Per-repo CODEBASE_MAP: `{repo_path}/docs/CODEBASE_MAP.md` (existing project only)
 - Per-repo CLAUDE.md
 
 ## Outputs
-- Domain plan per repo: `.claude/plan/{repo_name}plan.md` (single-pass — no separate `#### {lang}` enrichment phase; the consolidated agent writes inline `#### {lang}` subsections in the same file)
-- `.claude/state/phase-2prime-output.md` (canonical handoff, ≤ 500 tokens)
-- `.claude/plan/pipeline-state.md` row: `| 2' | DONE | {artifact list} | {notes} |`
+- Domain plan per repo: `.codedungeon/plan/{repo_name}plan.md` (single-pass — no separate `#### {lang}` enrichment phase; the consolidated agent writes inline `#### {lang}` subsections in the same file)
+- `.codedungeon/state/phase-2prime-output.md` (canonical handoff, ≤ 500 tokens)
+- `.codedungeon/plan/pipeline-state.md` row: `| 2' | DONE | {artifact list} | {notes} |`
 
 ---
 
@@ -38,7 +38,7 @@ For a repo whose stack has no consolidated skill yet (e.g., go / python / elixir
 
 #### Step 2'.1: Read arcplan.md
 
-Read `.claude/plan/arcplan.md`. Identify affected repos from `## meta → repos:`.
+Read `.codedungeon/plan/arcplan.md`. Identify affected repos from `## meta → repos:`.
 
 #### Step 2'.2: Spawn consolidated skills in PARALLEL
 
@@ -61,15 +61,15 @@ MODE=plan
 PROJECT_MODE={project_mode}   # BOOTSTRAP | SINGLE | MULTI
 
 Read:
-- .claude/plan/arcplan.md → section `## repo:{repo_name}` + `## cross-repo`
-- .claude/state/phase-1-output.md (canonical handoff)
+- .codedungeon/plan/arcplan.md → section `## repo:{repo_name}` + `## cross-repo`
+- .codedungeon/state/phase-1-output.md (canonical handoff)
 - {repo_path}/docs/CODEBASE_MAP.md (if exists)
 - {repo_path}/CLAUDE.md (if exists)
 
 YOUR JOB (plan mode, single-pass):
 1. Follow the plan workflow in SKILL.md.
 2. Read companion files on demand per the SKILL.md guidance — do NOT front-load them all.
-3. Write the fully-enriched plan to .claude/plan/{repo_name}plan.md (domain structure + inline `#### {lang}` subsections per change).
+3. Write the fully-enriched plan to .codedungeon/plan/{repo_name}plan.md (domain structure + inline `#### {lang}` subsections per change).
 4. Final line of the file MUST be exactly: PLAN_COMPLETE: {repo_name}plan.md
 
 max_thinking_tokens: 8000
@@ -81,7 +81,7 @@ For the 3 consolidated skills, spawn with `model: opus`.
 
 #### Step 2'.3: Write handoff
 
-When ALL skills return, write `.claude/state/phase-2prime-output.md`:
+When ALL skills return, write `.codedungeon/state/phase-2prime-output.md`:
 
 ```
 # phase-2prime-output
@@ -91,8 +91,8 @@ Status: DONE
 Summary: domain + specialist enrichment single-pass. Produced {N} plans.
 
 Artifacts Produced:
-- .claude/plan/{repo1}plan.md
-- .claude/plan/{repo2}plan.md
+- .codedungeon/plan/{repo1}plan.md
+- .codedungeon/plan/{repo2}plan.md
 - ...
 
 Key Decisions:
@@ -104,7 +104,7 @@ Traps:
 Open Questions:
 - [any arcplan ambiguity surfaced by skills]
 
-Next Phase Input: .claude/plan/{repo_name}plan.md files + this handoff.
+Next Phase Input: .codedungeon/plan/{repo_name}plan.md files + this handoff.
 
 PHASE2PRIME_COMPLETE
 ```
@@ -133,7 +133,7 @@ codedungeon phase done 2' \
   --promise "PHASE_2PRIME_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-2prime-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-2prime-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 2' --reason "..."` or `... fail 2' --reason "..."` for non-DONE terminal states.
 

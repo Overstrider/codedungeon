@@ -12,15 +12,16 @@ func (Codex) ConfigDir() string       { return ".codex" }
 func (Codex) AgentConfigFile() string { return "AGENTS.md" }
 
 func (Codex) BinDir() string      { return filepath.Join(".codex", "bin") }
-func (Codex) DBPath() string      { return filepath.Join(".codex", "codedungeon.db") }
-func (Codex) CommandsDir() string { return filepath.Join(".codex", "commands") }
+func (Codex) DBPath() string      { return filepath.Join(".codedungeon", "codedungeon.db") }
+func (Codex) CommandsDir() string { return filepath.Join(".codedungeon", "commands") }
 func (Codex) AgentsDir() string   { return filepath.Join(".codex", "agents") }
 func (Codex) SkillsDir() string   { return filepath.Join(".agents", "skills") }
-func (Codex) PhasesDir() string   { return filepath.Join(".codex", "phases") }
-func (Codex) TasksDir() string    { return filepath.Join(".codex", "tasks") }
-func (Codex) PlanDir() string     { return filepath.Join(".codex", "plan") }
-func (Codex) StateDir() string    { return filepath.Join(".codex", "state") }
-func (Codex) PlansDir() string    { return filepath.Join(".codex", "plans") }
+func (Codex) PhasesDir() string   { return filepath.Join(".codedungeon", "phases") }
+func (Codex) TasksDir() string    { return filepath.Join(".codedungeon", "tasks") }
+func (Codex) PlanDir() string     { return filepath.Join(".codedungeon", "plan") }
+func (Codex) StateDir() string    { return filepath.Join(".codedungeon", "state") }
+func (Codex) PlansDir() string    { return filepath.Join(".codedungeon", "plans") }
+func (Codex) ReviewsDir() string  { return filepath.Join(".codedungeon", "reviews") }
 
 func (Codex) PluginDir() string            { return "" }
 func (Codex) PluginManifest(string) []byte { return nil }

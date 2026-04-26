@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "6"
+const SchemaVersion = "7"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -32,9 +32,10 @@ type Store struct {
 }
 
 // DefaultPath resolves the project-local db path: <cwd>/<configDir>/codedungeon.db.
-// configDir defaults to ".claude" when empty. Caller should pass provider.Detect().ConfigDir().
+// configDir defaults to ".codedungeon" when empty. Caller should pass provider.Detect().DBPath()
+// or provider runtime dir for provider-agnostic state.
 func DefaultPath(configDir ...string) string {
-	dir := ".claude"
+	dir := ".codedungeon"
 	if len(configDir) > 0 && configDir[0] != "" {
 		dir = configDir[0]
 	}
@@ -69,7 +70,7 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
-	d, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_time_format=sqlite")
+	d, err := sql.Open("sqlite", path+"?_pragma=journal_mode(DELETE)&_pragma=foreign_keys(1)&_time_format=sqlite")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}

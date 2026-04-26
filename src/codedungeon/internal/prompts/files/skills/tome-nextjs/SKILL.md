@@ -76,7 +76,7 @@ If MODE missing: yield with `MODE_MISSING: set MODE=plan|review in spawn prompt`
 2. Read code diff.
 3. Verify each acceptance criterion.
 4. For each changed file: match `nextjs-idioms.md` section (Server vs Client placement, `'use client'` push-down, rendering strategy, form steps, loading/error boundaries, next/image, next/font, a11y).
-5. Write `.claude/tasks/{feature}/{task-id}-review.md`: correct / missing / wrong — each with exact fix.
+5. Write `.codedungeon/tasks/{feature}/{task-id}-review.md`: correct / missing / wrong — each with exact fix.
 6. Final line: `REVIEW_COMPLETE: {task-id}`.
 
 ## Anti-patterns

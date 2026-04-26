@@ -6,8 +6,8 @@ This document explains the current provider model and how to add another AI codi
 
 | Provider | Binary | Project config | Instruction file | Pack |
 |---|---|---|---|---|
-| `codex` | `codedungeon-codex` | `.codex/` + `.agents/skills/` | `AGENTS.md` | `codedungeon-codex` |
-| `claude` | `codedungeon-claude` | `.claude/` | `CLAUDE.md` | `codedungeon-claude` |
+| `codex` | `codedungeon-codex` | `.codex/` + `.agents/skills/` + `.codedungeon/` | `AGENTS.md` | `codedungeon-codex` |
+| `claude` | `codedungeon-claude` | `.claude/` + `.codedungeon/` | `CLAUDE.md` | `codedungeon-claude` |
 
 `claude` is canonical. `claude-code` and `claude-ce` are accepted aliases for compatibility and normalize to `claude`.
 
@@ -31,6 +31,7 @@ type Provider interface {
     PlanDir() string
     StateDir() string
     PlansDir() string
+    ReviewsDir() string
 
     PluginDir() string
     PluginManifest(version string) []byte
@@ -55,7 +56,7 @@ Current packs:
 - Claude: `internal/prompts/files/`
 - Codex: `internal/prompts/codex-files/`
 
-The pack controls install paths through `prompts.ArtifactsFor(providerName)`. Codex skills intentionally install under `.agents/skills`, while Codex agents install under `.codex/agents`.
+The pack controls install paths through `prompts.ArtifactsFor(providerName)`. Codex skills intentionally install under `.agents/skills`, while Codex agents install under `.codex/agents`. Codex config enables `multi_agent_v2`, and setup also runs `codex features enable multi_agent_v2` unless `--skip-global` is passed, because current Codex CLI builds require the feature flag for project custom agents and do not reliably honor it from project-local config alone. Do not set `agents.max_threads` or `agents.max_depth` in the project config while this flag is enabled; current Codex builds reject that combination and the Codex defaults are already 6 and 1. Editable command playbooks and phase prompts install under `.codedungeon/commands` and `.codedungeon/phases` for all providers. Claude also gets thin `.claude/commands` wrappers so slash-command discovery keeps working without storing editable playbook content in the provider directory.
 
 ## Adding a Provider
 
@@ -95,7 +96,7 @@ Project smoke:
 mkdir /tmp/cd-smoke && cd /tmp/cd-smoke
 git init
 codedungeon-codex setup --yes
-test -f .codex/codedungeon.db
+test -f .codedungeon/codedungeon.db
 test -f AGENTS.md
 test -d .agents/skills
 ```

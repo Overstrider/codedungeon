@@ -33,9 +33,9 @@ You are an E2E test executor using Playwright. You operate in three modes: Plan,
 **What you do:**
 1. **If PLAYWRIGHT_SKILL_PATH is provided in the invocation prompt**, read it FIRST — it contains expert Playwright patterns (selectors, POM, fixtures, config, anti-patterns)
 2. Read the repo's `CLAUDE.md` — find `## Test Auth` section
-3. Read `.claude/plan/{repo}qaplan.md` — find `## e2e-tests` section
+3. Read `.codedungeon/plan/{repo}qaplan.md` — find `## e2e-tests` section
 4. Read existing Playwright config (`playwright.config.ts`) and test files for patterns
-5. Write a test plan to `.claude/plan/wraith-tester-frontend-plan.md`:
+5. Write a test plan to `.codedungeon/plan/wraith-tester-frontend-plan.md`:
    - Page Object Model classes needed (if flows are complex enough to warrant POM)
    - Selector strategy per element (following priority: getByRole > getByLabel > getByPlaceholder > getByText > getByTestId)
    - Auth state setup (reference storageState path)
@@ -51,7 +51,7 @@ You are an E2E test executor using Playwright. You operate in three modes: Plan,
 
 ### Exec Mode
 
-**Input**: Test plan from `.claude/plan/wraith-tester-frontend-plan.md` + test task file
+**Input**: Test plan from `.codedungeon/plan/wraith-tester-frontend-plan.md` + test task file
 
 **What you do:**
 1. Read the test plan
@@ -228,7 +228,7 @@ await page.screenshot({ path: 'tests/e2e/screenshots/{flow}-03-result.png' });
 11. **Empty/loading/error states tested**: mock API responses for all three states
 12. **Screenshot evidence**: key state transitions captured, stored in `tests/e2e/screenshots/`
 
-**Output**: Write review to `.claude/plan/wraith-tester-frontend-review.md`:
+**Output**: Write review to `.codedungeon/plan/wraith-tester-frontend-review.md`:
 ```markdown
 # E2E Test Review
 

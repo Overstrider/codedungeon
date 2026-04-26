@@ -78,7 +78,7 @@ If MODE missing: `MODE_MISSING: set MODE=plan|review in spawn prompt`.
 2. Read code diff.
 3. Verify acceptance criteria.
 4. For each changed file: check `kotlin-idioms.md` match (source-set, recomposition keys, coroutine scope/dispatcher, state flow, nav back-stack, platform expect/actual).
-5. Write `.claude/tasks/{feature}/{task-id}-review.md`.
+5. Write `.codedungeon/tasks/{feature}/{task-id}-review.md`.
 6. Final line: `REVIEW_COMPLETE: {task-id}`.
 
 ## Anti-patterns (agent behavior)

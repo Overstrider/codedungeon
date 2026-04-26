@@ -4,7 +4,7 @@ Feature: {{.Feature}}
 Mode: {{.Mode}}
 
 Plans:
-  Architecture: .claude/plan/arcplan.md
+  Architecture: .codedungeon/plan/arcplan.md
   Domain plans: {{.DomainPlans}}
   QA plans: {{.QAPlans}}
 

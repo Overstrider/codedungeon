@@ -2,7 +2,7 @@
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
-Lightweight pipeline. Reads a Claude Code plan (`.claude/plans/*.md`), splits into tasks, runs the ralph loop (codedungeon-loop), runs adversarial code review, ends with approved PR. No architect, no QA, no tests, no report — just plan → split → execute → review → PR.
+Lightweight pipeline. Reads a Claude Code plan (`.codedungeon/plans/*.md`), splits into tasks, runs the ralph loop (codedungeon-loop), runs adversarial code review, ends with approved PR. No architect, no QA, no tests, no report — just plan → split → execute → review → PR.
 
 **Deterministic mechanics (branch guard, plan parsing, PR creation, fix-task generation) delegated to `codedungeon`. Only LLM work (task decomposition, specialist plan/exec/review, persona fanout) is inline.**
 
@@ -20,12 +20,12 @@ Exits 1 if protected → HARD STOP.
 
 ## Parameters
 
-- `$ARGUMENTS` — optional path to a specific plan file. If omitted, uses most recently modified `.claude/plans/*.md`.
+- `$ARGUMENTS` — optional path to a specific plan file. If omitted, uses most recently modified `.codedungeon/plans/*.md`.
 
 ## Prerequisites
 
 - Claude Code plan file exists (from plan mode)
-- `codedungeon` bootstrapped in project (`.claude/bin/codedungeon` + `.claude/codedungeon.db`)
+- `codedungeon` bootstrapped in project (`.claude/bin/codedungeon` + `.codedungeon/codedungeon.db`)
 - `gh` CLI authenticated
 - Project is a git repo
 
@@ -36,7 +36,7 @@ Exits 1 if protected → HARD STOP.
 ```
 MINIDUNGEON (single orchestrator)
   │
-  ├─ Step 0: Resolve plan source (.claude/plans/*.md)
+  ├─ Step 0: Resolve plan source (.codedungeon/plans/*.md)
   ├─ Step 1: Discover repo lang/stack
   ├─ Step 2: Decompose plan → PLAN.md + TASK-NNN.md files
   │
@@ -59,7 +59,7 @@ MINIDUNGEON (single orchestrator)
 if [ -n "$ARGUMENTS" ] && [ -f "$ARGUMENTS" ]; then
   PLAN_FILE="$ARGUMENTS"
 else
-  PLAN_FILE=$(ls -t .claude/plans/*.md 2>/dev/null | head -1)
+  PLAN_FILE=$(ls -t .codedungeon/plans/*.md 2>/dev/null | head -1)
 fi
 [ -z "$PLAN_FILE" ] && { echo "No plan found. Use Claude Code plan mode first, then re-run /minidungeon."; exit 2; }
 ```
@@ -99,7 +99,7 @@ If `REPO_NAME` empty → use basename of `REPO_DIR`.
 Create task directory:
 
 ```bash
-mkdir -p .claude/tasks/mini
+mkdir -p .codedungeon/tasks/mini
 ```
 
 Read the Claude Code plan file content. Decompose into discrete implementation tasks.
@@ -112,7 +112,7 @@ Read the Claude Code plan file content. Decompose into discrete implementation t
 5. Tasks numbered `TASK-001`, `TASK-002`, ... in execution order from plan
 6. `depends:` references earlier TASK-xxx when ordering matters
 
-**Write `.claude/tasks/mini/PLAN.md`:**
+**Write `.codedungeon/tasks/mini/PLAN.md`:**
 
 ```markdown
 # Plan: <FEATURE_NAME>
@@ -130,7 +130,7 @@ Headers `# Plan:`, `# Repo:`, `# Lang:` are **required** — `codedungeon plan m
 
 Task lines `- [ ] TASK-NNN <title>` are **required** — `codedungeon plan meta` counts them.
 
-**Write `.claude/tasks/mini/TASK-NNN.md`** per task:
+**Write `.codedungeon/tasks/mini/TASK-NNN.md`** per task:
 
 ```markdown
 # TASK-NNN: <title>
@@ -161,7 +161,7 @@ estimated_complexity: <low|medium|high>
 **Verify decomposition:**
 
 ```bash
-$CD plan meta .claude/tasks/mini/PLAN.md
+$CD plan meta .codedungeon/tasks/mini/PLAN.md
 ```
 
 Must return valid JSON with `"ok": true`, correct `total_tasks`, `pending` = total, `done` = 0.
@@ -171,8 +171,8 @@ Must return valid JSON with `"ok": true`, correct `total_tasks`, `pending` = tot
 Resolve loop instructions:
 
 ```bash
-LOOP_PATH=".claude/commands/codedungeon-loop.md"
-[ -f "$LOOP_PATH" ] || LOOP_PATH=$($CD prompts get codedungeon-loop --path 2>/dev/null || echo "")
+LOOP_PATH=".codedungeon/commands/codedungeon-loop.md"
+[ -f "$LOOP_PATH" ] || LOOP_PATH=""
 ```
 
 If loop instructions not found → HARD STOP: "codedungeon-loop.md not found. Run `codedungeon install`."
@@ -184,7 +184,7 @@ Read the full codedungeon-loop instructions from: {LOOP_PATH}
 (Use the Read tool to read the file before doing anything else.)
 
 Execute with these parameters:
-  TASK_DIR = .claude/tasks/mini/
+  TASK_DIR = .codedungeon/tasks/mini/
 
 Follow the codedungeon-loop protocol exactly — branch setup, per-task specialist
 plan/exec/review cycle, commit, push, PR creation, /code-review adversarial
@@ -232,7 +232,7 @@ REVIEW_CYCLES: N
 
 ## Resume
 
-If `/minidungeon` is re-invoked and `.claude/tasks/mini/PLAN.md` exists with some `[x]` tasks:
+If `/minidungeon` is re-invoked and `.codedungeon/tasks/mini/PLAN.md` exists with some `[x]` tasks:
 - Skip Step 2 (tasks already exist)
 - Re-enter Step 3 — codedungeon-loop picks up from first `[ ]` task
-- To start fresh: delete `.claude/tasks/mini/` first
+- To start fresh: delete `.codedungeon/tasks/mini/` first

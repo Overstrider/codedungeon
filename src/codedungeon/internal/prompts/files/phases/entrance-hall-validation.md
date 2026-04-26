@@ -34,11 +34,11 @@ EXEMPT (write normal): code blocks, FILE CONTENTS (arcplan, plans, tasks, CLAUDE
 
 ## Step 0.0: Bootstrap codedungeon (first-run in project)
 
-`codedungeon` is project-scoped. Its binary must live at `<project>/.claude/bin/codedungeon` and its DB at `<project>/.claude/codedungeon.db`.
+`codedungeon` is project-scoped. Its binary must live at `<project>/.claude/bin/codedungeon` and its DB at `<project>/.codedungeon/codedungeon.db`.
 
 ```bash
 # If the project already has codedungeon bootstrapped, skip.
-if [ -x .claude/bin/codedungeon ] && [ -f .claude/codedungeon.db ]; then
+if [ -x .claude/bin/codedungeon ] && [ -f .codedungeon/codedungeon.db ]; then
   CD=./.claude/bin/codedungeon
 else
   # Need git at project root. If missing, STOP and ask user.
@@ -71,8 +71,7 @@ If `bootstrap` returns `{"error":"refuse: ... ~/.claude ..."}` the agent is in t
 PLAYWRIGHT_SKILL_PATH=""
 for p in \
   ".claude/skills/crystal-ball-e2e/SKILL.md" \
-  "$HOME/.claude/plugins/local/codedungeon/skills/crystal-ball-e2e/SKILL.md" \
-  "$HOME/.claude/commands/crystal-ball-e2e/SKILL.md"; do
+  "$HOME/.claude/plugins/local/codedungeon/skills/crystal-ball-e2e/SKILL.md"; do
   [ -f "$p" ] && PLAYWRIGHT_SKILL_PATH="$p" && break
 done
 ```
@@ -131,7 +130,7 @@ PREV_FEATURE=$(codedungeon phase config feature 2>/dev/null || echo "")
 ```
 
 - Se `PREV_FEATURE == FEATURE_PROMPT` semanticamente → **MODE=APPEND** (já inicializado; não reset).
-- Se diferente E `.claude/tasks/` tem conteúdo → **MODE=FRESH**: delete `.claude/tasks/*` e `.claude/plan/*`; manter `.claude/codedungeon.db` (histórico preservado; FTS5 search continua funcional).
+- Se diferente E `.codedungeon/tasks/` tem conteúdo → **MODE=FRESH**: delete `.codedungeon/tasks/*` e `.codedungeon/plan/*`; manter `.codedungeon/codedungeon.db` (histórico preservado; FTS5 search continua funcional).
 
 ## Step 0.4: Test-auth prerequisite check
 
@@ -158,14 +157,14 @@ Salvar `TEST_AUTH_MISSING_REPOS` (será lido em Phase 4 para injetar TASK-001).
 codedungeon phase done 0 \
   --summary "repos=$(jq -r '.repo_map | length' /tmp/discover.json); mode=$MODE; project_mode=$PROJECT_MODE" \
   --decisions "playwright=$PLAYWRIGHT_SKILL_PATH" \
-  --artifacts "CLAUDE.md" ".claude/codedungeon.db" \
-  --next ".claude/plan/arcplan.md (Phase 1)" \
+  --artifacts "CLAUDE.md" ".codedungeon/codedungeon.db" \
+  --next ".codedungeon/plan/arcplan.md (Phase 1)" \
   --promise "PHASE_0_COMPLETE: $(jq -r '.project_mode' /tmp/discover.json), $(jq -r '.repo_map | length' /tmp/discover.json) repos"
 ```
 
 `codedungeon phase done 0` atomically:
 - Marks phase 0 = DONE in DB
-- Writes `.claude/state/phase-0-output.md` (handoff for Phase 1)
+- Writes `.codedungeon/state/phase-0-output.md` (handoff for Phase 1)
 - Upserts into `runs`, `phases`, `handoffs` tables
 
 ## Tool discipline

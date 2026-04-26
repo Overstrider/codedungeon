@@ -48,7 +48,7 @@ If in doubt: **continue**.
 
 ## Pipeline state
 
-**Single source of truth**: `.claude/codedungeon.db` (SQLite). Human view: `.claude/plan/pipeline-state.md` regenerated via `codedungeon phase render-state`.
+**Single source of truth**: `.codedungeon/codedungeon.db` (SQLite). Human view: `.codedungeon/plan/pipeline-state.md` regenerated via `codedungeon phase render-state`.
 
 ---
 
@@ -68,7 +68,7 @@ Store as `FEATURE_PROMPT`.
 
 ```bash
 # Ensure codedungeon alive in project.
-if [ ! -x .claude/bin/codedungeon ] || [ ! -f .claude/codedungeon.db ]; then
+if [ ! -x .claude/bin/codedungeon ] || [ ! -f .codedungeon/codedungeon.db ]; then
   "$HOME/.claude/plugins/local/codedungeon/bin/codedungeon" bootstrap \
     --reasoning claude-opus-4-7 --fast claude-sonnet-4-6
 fi
@@ -92,16 +92,16 @@ fi
 ```
 PHASES = [0, 1, "2'", 3.5, 4, 5, 5.5, 5.6, 6, 7]
 PHASE_FILE_MAP = {
-  0:   ".claude/phases/entrance-hall-validation.md",
-  1:   ".claude/phases/war-room-architect.md",
-  "2'": ".claude/phases/guild-quarter-domain.md",
-  3.5: ".claude/phases/trap-workshop-qa.md",
-  4:   ".claude/phases/armory-decomposition.md",
-  5:   ".claude/phases/forge-execution.md",
-  5.5: ".claude/phases/crucible-qa-refine.md",
-  5.6: ".claude/phases/laboratory-test-decomp.md",
-  6:   ".claude/phases/arena-tests.md",
-  7:   ".claude/phases/throne-room-report.md"
+  0:   ".codedungeon/phases/entrance-hall-validation.md",
+  1:   ".codedungeon/phases/war-room-architect.md",
+  "2'": ".codedungeon/phases/guild-quarter-domain.md",
+  3.5: ".codedungeon/phases/trap-workshop-qa.md",
+  4:   ".codedungeon/phases/armory-decomposition.md",
+  5:   ".codedungeon/phases/forge-execution.md",
+  5.5: ".codedungeon/phases/crucible-qa-refine.md",
+  5.6: ".codedungeon/phases/laboratory-test-decomp.md",
+  6:   ".codedungeon/phases/arena-tests.md",
+  7:   ".codedungeon/phases/throne-room-report.md"
 }
 
 # Model tier per phase (deep thinking vs fast). Resolved at runtime via config.
@@ -126,8 +126,8 @@ CLEAR_BETWEEN_PHASES = True
 3. Status `PENDING`:
 
    a. Resolve phase file path:
-      - `.claude/phases/{file}` (installed by bootstrap) — **primary**.
-      - `$HOME/.claude/plugins/local/codedungeon/commands/phases/{file}` — fallback if project not yet migrated.
+      - `.codedungeon/phases/{file}` (installed by bootstrap) — **primary**.
+      - `.codedungeon/phases/{file}` — editable project-local phase file installed by CodeDungeon.
 
    b. Resolve model for this phase:
       ```bash
@@ -184,7 +184,7 @@ ORCHESTRATOR (thin — reads only `codedungeon phase info/next`)
   └─ Phase 7 → report                                              [fast, think 0]
 ```
 
-**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.claude/state/phase-{N}-output.md` + refreshes `pipeline-state.md`.
+**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.codedungeon/state/phase-{N}-output.md` + refreshes `pipeline-state.md`.
 
 ---
 

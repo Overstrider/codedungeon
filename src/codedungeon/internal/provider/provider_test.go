@@ -32,8 +32,20 @@ func TestDetectDefaultsToClaude(t *testing.T) {
 	if p.AgentConfigFile() != "CLAUDE.md" {
 		t.Fatalf("agent config = %q, want CLAUDE.md", p.AgentConfigFile())
 	}
-	if p.CommandsDir() != filepath.Join(".claude", "commands") {
+	if p.CommandsDir() != filepath.Join(".codedungeon", "commands") {
 		t.Fatalf("commands dir = %q", p.CommandsDir())
+	}
+	if p.DBPath() != filepath.Join(".codedungeon", "codedungeon.db") {
+		t.Fatalf("db path = %q, want .codedungeon/codedungeon.db", p.DBPath())
+	}
+	if p.PhasesDir() != filepath.Join(".codedungeon", "phases") {
+		t.Fatalf("phases dir = %q, want .codedungeon/phases", p.PhasesDir())
+	}
+	if p.TasksDir() != filepath.Join(".codedungeon", "tasks") {
+		t.Fatalf("tasks dir = %q, want .codedungeon/tasks", p.TasksDir())
+	}
+	if p.ReviewsDir() != filepath.Join(".codedungeon", "reviews") {
+		t.Fatalf("reviews dir = %q, want .codedungeon/reviews", p.ReviewsDir())
 	}
 	if !p.HasPluginSystem() {
 		t.Fatalf("claude should keep plugin system enabled")
@@ -94,7 +106,7 @@ func TestDetectCodexProvider(t *testing.T) {
 	if p.AgentConfigFile() != "AGENTS.md" {
 		t.Fatalf("agent config = %q, want AGENTS.md", p.AgentConfigFile())
 	}
-	if p.CommandsDir() != filepath.Join(".codex", "commands") {
+	if p.CommandsDir() != filepath.Join(".codedungeon", "commands") {
 		t.Fatalf("commands dir = %q", p.CommandsDir())
 	}
 	if p.AgentsDir() != filepath.Join(".codex", "agents") {
@@ -102,6 +114,18 @@ func TestDetectCodexProvider(t *testing.T) {
 	}
 	if p.SkillsDir() != filepath.Join(".agents", "skills") {
 		t.Fatalf("skills dir = %q", p.SkillsDir())
+	}
+	if p.DBPath() != filepath.Join(".codedungeon", "codedungeon.db") {
+		t.Fatalf("db path = %q, want .codedungeon/codedungeon.db", p.DBPath())
+	}
+	if p.PhasesDir() != filepath.Join(".codedungeon", "phases") {
+		t.Fatalf("phases dir = %q, want .codedungeon/phases", p.PhasesDir())
+	}
+	if p.PlanDir() != filepath.Join(".codedungeon", "plan") {
+		t.Fatalf("plan dir = %q, want .codedungeon/plan", p.PlanDir())
+	}
+	if p.ReviewsDir() != filepath.Join(".codedungeon", "reviews") {
+		t.Fatalf("reviews dir = %q, want .codedungeon/reviews", p.ReviewsDir())
 	}
 	if p.HasPluginSystem() {
 		t.Fatalf("codex provider should not use Claude plugin install flow")

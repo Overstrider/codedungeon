@@ -46,11 +46,11 @@ Emit the contents to the user.
 codedungeon phase done 7 \
   --verdict APPROVED \
   --summary "push verified, final report emitted" \
-  --artifacts ".claude/plan/pipeline-state.md" \
+  --artifacts ".codedungeon/plan/pipeline-state.md" \
   --promise "PHASE_7_COMPLETE: pipeline done"
 ```
 
-This atomically updates the DB, writes `.claude/state/phase-7-output.md`,
+This atomically updates the DB, writes `.codedungeon/state/phase-7-output.md`,
 and sets phase 7 = DONE in `pipeline-state.md`.
 
 ---

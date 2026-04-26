@@ -5,15 +5,15 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
-- `.claude/plan/MASTER.md` (execution order)
-- `.claude/tasks/{feature-name}/{repo-name}/PLAN.md` per repo (check for `## Test Tasks` section)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- `.codedungeon/plan/MASTER.md` (execution order)
+- `.codedungeon/tasks/{feature-name}/{repo-name}/PLAN.md` per repo (check for `## Test Tasks` section)
 - `PLAYWRIGHT_SKILL_PATH` from pipeline state
 
 ## Outputs
 - Test results per repo (integration, API, E2E)
 - Code fixes committed (if test failures triggered dev loop re-entry)
-- Update `.claude/plan/pipeline-state.md`: set Phase 6 status to DONE + list artifacts + results
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 6 status to DONE + list artifacts + results
 
 ---
 
@@ -33,9 +33,8 @@ For each repo in execution order:
 For each repo that has `## Test Tasks` in PLAN.md:
 
 1. **Resolve the absolute path to codedungeon-test-loop.md**:
-   - First check: `{project_root}/.claude/commands/codedungeon-test-loop.md`
-   - Fallback: `$HOME/.claude/commands/codedungeon-test-loop.md`
-   - If neither exists, STOP with error: "codedungeon-test-loop.md not found. Cannot execute Phase 6."
+   - Use: `{project_root}/.codedungeon/commands/codedungeon-test-loop.md`
+   - If it does not exist, STOP with error: "codedungeon-test-loop.md not found. Run `codedungeon install`."
 
 2. Spawn a `general-purpose` agent with **model: `opus`**:
 
@@ -115,7 +114,7 @@ codedungeon phase done 6 \
   --promise "PHASE_6_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-6-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-6-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 6 --reason "..."` or `... fail 6 --reason "..."` for non-DONE terminal states.
 

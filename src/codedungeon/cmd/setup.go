@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -55,8 +57,8 @@ func SetupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "One-step project + global setup (interactive)",
 		Long: `Download the binary, run 'codedungeon setup' in your git project — done.
-Initializes the project DB, installs provider-native artifacts, and lets you pick model tiers interactively.
-Providers with a global plugin system also install the plugin.`,
+Initializes the project DB, installs provider-native bootstrap files plus .codedungeon runtime artifacts, and lets you pick model tiers interactively.
+Providers with global setup needs also install provider support.`,
 		RunE: runSetup,
 	}
 	c.Flags().String("target", "", "project root (default: CWD)")
@@ -65,7 +67,7 @@ Providers with a global plugin system also install the plugin.`,
 	c.Flags().String("fast", "", "fast model ID (skip interactive selection)")
 	c.Flags().String("fast-effort", "", "fast effort (skip interactive selection)")
 	c.Flags().Bool("force", false, "overwrite existing setup")
-	c.Flags().Bool("skip-global", false, "skip global plugin install")
+	c.Flags().Bool("skip-global", false, "skip global provider setup")
 	c.Flags().BoolP("yes", "y", false, "accept all defaults, no interactive prompts")
 	return c
 }
@@ -157,10 +159,10 @@ func runSetupWithOptions(opts setupOptions) error {
 		}
 	}
 
-	// ---- Step 2: Global plugin install ----
+	// ---- Step 2: Global provider setup ----
 	if interactive {
 		fmt.Fprintln(tuiOut)
-		printStep(2, totalSteps, "Global plugin install...")
+		printStep(2, totalSteps, "Global provider setup...")
 	}
 
 	globalStatus := ""
@@ -182,6 +184,27 @@ func runSetupWithOptions(opts setupOptions) error {
 		globalStatus = "skipped"
 		if interactive {
 			printDetail("Skipped (--skip-global)")
+		}
+	}
+
+	codexFeatureStatus := ""
+	if provider.Detect().Name() == "codex" {
+		if skipGlobal {
+			codexFeatureStatus = "skipped"
+		} else {
+			status, err := enableCodexMultiAgentV2()
+			if err != nil {
+				codexFeatureStatus = "failed: " + err.Error()
+				if interactive {
+					printWarn("Codex custom agents feature flag failed: " + err.Error())
+					printWarn("Start Codex with '--enable multi_agent_v2' if custom subagents are rejected.")
+				}
+			} else {
+				codexFeatureStatus = status
+				if interactive {
+					printOK("Codex custom agents:", status)
+				}
+			}
 		}
 	}
 
@@ -254,8 +277,18 @@ func runSetupWithOptions(opts setupOptions) error {
 				return nil
 			}
 			force = true
-		} else if !yes {
-			return EmitErr("already bootstrapped: "+dbPath, "use --force to overwrite")
+		} else {
+			if !yes {
+				return EmitErr("already bootstrapped: "+dbPath, "use --force to overwrite")
+			}
+			return EmitJSON(map[string]any{
+				"ok":                   true,
+				"already_bootstrapped": true,
+				"project_root":         target,
+				"db":                   dbPath,
+				"global_plugin":        globalStatus,
+				"codex_multi_agent_v2": codexFeatureStatus,
+			})
 		}
 	}
 
@@ -289,13 +322,14 @@ func runSetupWithOptions(opts setupOptions) error {
 		fmt.Fprintln(tuiOut)
 	} else {
 		_ = EmitJSON(map[string]any{
-			"ok":                  true,
-			"project_root":        result.ProjectRoot,
-			"bin":                 result.BinPath,
-			"db":                  result.DBPath,
-			"global_plugin":       globalStatus,
-			"prompts_seeded":      len(result.PromptsSeeded),
-			"artifacts_installed": result.ArtifactsInstalled,
+			"ok":                   true,
+			"project_root":         result.ProjectRoot,
+			"bin":                  result.BinPath,
+			"db":                   result.DBPath,
+			"global_plugin":        globalStatus,
+			"codex_multi_agent_v2": codexFeatureStatus,
+			"prompts_seeded":       len(result.PromptsSeeded),
+			"artifacts_installed":  result.ArtifactsInstalled,
 			"models": map[string]string{
 				"reasoning":        result.Reasoning,
 				"reasoning_effort": result.ReasoningEffort,
@@ -306,6 +340,22 @@ func runSetupWithOptions(opts setupOptions) error {
 	}
 
 	return nil
+}
+
+func enableCodexMultiAgentV2() (string, error) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return "", fmt.Errorf("codex CLI not found: %w", err)
+	}
+	cmd := exec.Command("codex", "features", "enable", "multi_agent_v2")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", err
+	}
+	return "enabled", nil
 }
 
 func installGlobalPlugin() (string, error) {

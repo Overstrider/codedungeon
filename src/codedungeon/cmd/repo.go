@@ -347,13 +347,13 @@ func renderCodedungeonSection() string {
 	b.WriteString("## codedungeon\n\n")
 	p := provider.Detect()
 	if p.Name() == "codex" {
-		b.WriteString("Codex CLI pipeline available. Command playbooks live in `.codex/commands/`.\n\n")
+		b.WriteString("Codex CLI pipeline available. Editable command playbooks live in `.codedungeon/commands/`.\n\n")
 		b.WriteString("| Playbook | Use when |\n")
 		b.WriteString("|----------|----------|\n")
 		b.WriteString("| `minidungeon` | Simple tasks, single-repo. |\n")
 		b.WriteString("| `codedungeon-dev-cycle` | Complex features, multi-repo, full phase pipeline. |\n")
 		b.WriteString("| `code-review` | Standalone adversarial review on current branch. |\n")
-		b.WriteString(fmt.Sprintf("\nAgents in `%s/`, skills in `%s/`, phases in `%s/`. CLI binary at `%s/codedungeon`.\n", p.AgentsDir(), p.SkillsDir(), p.PhasesDir(), p.BinDir()))
+		b.WriteString(fmt.Sprintf("\nAgents in `%s/`, skills in `%s/`, commands/phases/mutable state in `.codedungeon/`. CLI binary at `%s/codedungeon`.\n", p.AgentsDir(), p.SkillsDir(), p.BinDir()))
 		return b.String()
 	}
 	b.WriteString("CLI pipeline available. Three commands:\n\n")
@@ -362,7 +362,7 @@ func renderCodedungeonSection() string {
 	b.WriteString("| `/minidungeon` | Simple tasks, single-repo. Plan in plan mode first, then `/minidungeon` splits, executes, reviews, creates PR. |\n")
 	b.WriteString("| `/codedungeon-dev-cycle` | Complex features, multi-repo. Full 10-phase pipeline with architect, QA, tests, formal report. |\n")
 	b.WriteString("| `/code-review` | Standalone adversarial review on current branch. |\n")
-	b.WriteString(fmt.Sprintf("\nSubagents, skills, and phases installed in `%s/`. CLI binary at `%s/codedungeon`.\n", p.ConfigDir(), p.BinDir()))
+	b.WriteString(fmt.Sprintf("\nSubagents and skills installed in `%s/`; editable commands, phases, and mutable state live in `.codedungeon/`. CLI binary at `%s/codedungeon`.\n", p.ConfigDir(), p.BinDir()))
 	return b.String()
 }
 

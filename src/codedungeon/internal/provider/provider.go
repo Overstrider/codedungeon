@@ -24,6 +24,7 @@ type Provider interface {
 	PlanDir() string
 	StateDir() string
 	PlansDir() string
+	ReviewsDir() string
 
 	PluginDir() string
 	PluginManifest(version string) []byte

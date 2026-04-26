@@ -75,11 +75,11 @@ Read only the subset relevant to THIS change — do not front-load context:
 
 ## Review workflow
 
-1. Read task file (`.claude/tasks/{feature}/TASK-{id}.md`).
+1. Read task file (`.codedungeon/tasks/{feature}/TASK-{id}.md`).
 2. Read code diff (git diff or named files from spawn prompt).
 3. For each acceptance criterion: verify met. Flag any missing.
 4. For each changed file: check `rust-idioms.md` section matching concern (errors, async, DB, API). Flag Rust-pattern violations with exact fix.
-5. Write `.claude/tasks/{feature}/{task-id}-review.md` listing: correct items, missing items, wrong items — each with exact fix instruction.
+5. Write `.codedungeon/tasks/{feature}/{task-id}-review.md` listing: correct items, missing items, wrong items — each with exact fix instruction.
 6. Final line: `REVIEW_COMPLETE: {task-id}`.
 
 ## Anti-patterns

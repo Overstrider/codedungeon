@@ -5,15 +5,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 func TestInstallEmbeddedArtifactsAtUsesExplicitRoot(t *testing.T) {
 	root := t.TempDir()
-	s, err := db.Open(filepath.Join(root, ".claude", "codedungeon.db"))
+	s, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,11 +56,199 @@ func TestRunBootstrapReturnsArtifactInstallErrors(t *testing.T) {
 	}
 }
 
+func TestRunBootstrapMigratesLegacyRuntimeState(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	legacyDB := filepath.Join(root, ".claude", "codedungeon.db")
+	legacyPlan := filepath.Join(root, ".claude", "plan", "pipeline-state.md")
+	if err := os.MkdirAll(filepath.Dir(legacyPlan), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyStore, err := db.Open(legacyDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyStore.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPlan, []byte("legacy-plan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RunBootstrap(root, "reasoning-model", "fast-model", true); err != nil {
+		t.Fatalf("RunBootstrap failed: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "plan", "pipeline-state.md"))
+	if _, err := os.Stat(legacyDB); !os.IsNotExist(err) {
+		t.Fatalf("legacy db still exists or stat failed unexpectedly: %v", err)
+	}
+	if _, err := os.Stat(legacyPlan); !os.IsNotExist(err) {
+		t.Fatalf("legacy plan still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestLegacyDBSidecarsArchiveWithLegacyDBWhenRuntimeDBExists(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runtimeStore, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeStore.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"codedungeon.db", "codedungeon.db-wal", "codedungeon.db-shm"} {
+		path := filepath.Join(root, ".claude", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("legacy-"+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := migrateLegacyRuntimeState(root, provider.Claude{}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"codedungeon.db-wal", "codedungeon.db-shm"} {
+		if _, err := os.Stat(filepath.Join(root, ".codedungeon", name)); !os.IsNotExist(err) {
+			t.Fatalf("legacy sidecar %s should not be moved next to runtime DB: %v", name, err)
+		}
+	}
+	var archived []string
+	err = filepath.Walk(filepath.Join(root, ".codedungeon", "archive"), func(path string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			archived = append(archived, filepath.Base(path))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(archived, ",")
+	for _, name := range []string{"codedungeon.db", "codedungeon.db-wal", "codedungeon.db-shm"} {
+		if !strings.Contains(got, name) {
+			t.Fatalf("archive missing %s, got %v", name, archived)
+		}
+	}
+}
+
+func TestPhaseOutputsFromSubdirectoryWriteToProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(sub); err != nil {
+		t.Fatal(err)
+	}
+
+	initCmd := PhaseCmd()
+	initCmd.SetArgs([]string{"init", "--feature", "demo"})
+	if err := initCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	doneCmd := PhaseCmd()
+	doneCmd.SetArgs([]string{"done", "0", "--summary", "ok", "--promise", "PHASE_0_COMPLETE"})
+	if err := doneCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	renderCmd := PhaseCmd()
+	renderCmd.SetArgs([]string{"render-state"})
+	if err := renderCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "state", "phase-0-output.md"))
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "plan", "pipeline-state.md"))
+	if _, err := os.Stat(filepath.Join(sub, ".codedungeon")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected subdir runtime state: %v", err)
+	}
+}
+
+func TestSetupYesIsIdempotentWhenAlreadyBootstrapped(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	opts := setupOptions{Target: root, Yes: true, SkipGlobal: true}
+	if err := runSetupWithOptions(opts); err != nil {
+		t.Fatalf("first setup failed: %v", err)
+	}
+	if err := runSetupWithOptions(opts); err != nil {
+		t.Fatalf("second setup should be idempotent: %v", err)
+	}
+}
+
+func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	legacyCommand := filepath.Join(root, ".claude", "commands", "minidungeon.md")
+	if err := os.MkdirAll(filepath.Dir(legacyCommand), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyCommand, []byte("custom legacy command"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RunBootstrap(root, "reasoning-model", "fast-model", true); err != nil {
+		t.Fatalf("RunBootstrap failed: %v", err)
+	}
+
+	playbook := filepath.Join(root, ".codedungeon", "commands", "minidungeon.md")
+	wrapper := filepath.Join(root, ".claude", "commands", "minidungeon.md")
+	assertFileExists(t, playbook)
+	wrapperBody, err := os.ReadFile(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wrapperBody), "@.codedungeon/commands/minidungeon.md") {
+		t.Fatalf("wrapper body should point at .codedungeon playbook, got:\n%s", wrapperBody)
+	}
+
+	var archived bool
+	err = filepath.Walk(filepath.Join(root, ".codedungeon", "archive"), func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		if filepath.Base(path) != "minidungeon.md" {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if string(data) == "custom legacy command" {
+			archived = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !archived {
+		t.Fatal("legacy command was not archived before wrapper install")
+	}
+}
+
 func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
 
-	cmd := exec.Command("go", "run", ".", "setup", "--target", root, "--yes")
+	cmd := exec.Command("go", "run", ".", "setup", "--target", root, "--yes", "--skip-global")
 	cmd.Dir = filepath.Clean("..")
 	cmd.Env = append(os.Environ(), "CODEDUNGEON_PROVIDER=codex")
 	out, err := cmd.CombinedOutput()
@@ -68,6 +258,7 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	var payload struct {
 		OK                 bool              `json:"ok"`
 		ArtifactsInstalled int               `json:"artifacts_installed"`
+		CodexMultiAgentV2  string            `json:"codex_multi_agent_v2"`
 		Models             map[string]string `json:"models"`
 	}
 	if err := json.Unmarshal(out, &payload); err != nil {
@@ -75,6 +266,9 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	}
 	if !payload.OK || payload.ArtifactsInstalled == 0 {
 		t.Fatalf("setup payload = %+v, want ok with artifacts", payload)
+	}
+	if payload.CodexMultiAgentV2 != "skipped" {
+		t.Fatalf("codex_multi_agent_v2 = %q, want skipped", payload.CodexMultiAgentV2)
 	}
 	if payload.Models["reasoning"] != "gpt-5.5" || payload.Models["reasoning_effort"] != "xhigh" {
 		t.Fatalf("reasoning model config = %#v, want gpt-5.5/xhigh", payload.Models)
@@ -84,11 +278,21 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	}
 	for _, path := range []string{
 		"AGENTS.md",
+		filepath.Join(".codedungeon", "codedungeon.db"),
+		filepath.Join(".codedungeon", "README.md"),
+		filepath.Join(".codedungeon", "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(".codedungeon", "phases", "forge-execution.md"),
 		filepath.Join(".codex", "config.toml"),
 		filepath.Join(".codex", "agents", "cd_dev_worker.toml"),
 		filepath.Join(".agents", "skills", "codedungeon-dev-cycle", "SKILL.md"),
 	} {
 		assertFileExists(t, filepath.Join(root, path))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex", "codedungeon.db")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected provider-local db at .codex/codedungeon.db: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex", "commands")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected codex command dir at .codex/commands: %v", err)
 	}
 }
 

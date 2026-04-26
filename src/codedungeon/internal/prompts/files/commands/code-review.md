@@ -89,27 +89,27 @@ Write it to {OUTPUT_PATH}.
 ```
 
 Dispatch:
-- `subagent_type: gremlin-reviewer-saboteur`        → `.claude/plan/adv-review/findings-saboteur.json`
-- `subagent_type: kobold-reviewer-newhire`         → `.claude/plan/adv-review/findings-newhire.json`
-- `subagent_type: cerberus-reviewer-security` → `.claude/plan/adv-review/findings-security.json`
-- `subagent_type: paladin-reviewer-spec`   → `.claude/plan/adv-review/findings-spec.json`
+- `subagent_type: gremlin-reviewer-saboteur`        → `.codedungeon/reviews/adv-review/findings-saboteur.json`
+- `subagent_type: kobold-reviewer-newhire`         → `.codedungeon/reviews/adv-review/findings-newhire.json`
+- `subagent_type: cerberus-reviewer-security` → `.codedungeon/reviews/adv-review/findings-security.json`
+- `subagent_type: paladin-reviewer-spec`   → `.codedungeon/reviews/adv-review/findings-spec.json`
 
 ## Step 6: Dedupe + severity promotion (CLI)
 
 ```bash
-codedungeon review run --only dedupe --dir "$REPO_DIR/.claude/plan/adv-review"
+codedungeon review run --only dedupe --dir "$REPO_DIR/.codedungeon/reviews/adv-review"
 ```
 
 Writes `findings-merged.json` with `flagged_by: [...]` per finding. ≥2 personas on same (file, category, overlapping lines) → severity promoted one tier (capped P0). P2 extras over `--nit-cap 3` roll into `suppressed_nits_count`.
 
 ## Step 7: Per-finding validator (LLM — parallel, Sonnet)
 
-For each merged finding, spawn a `oracle-reviewer-validator` subagent (Sonnet). Batch up to 10 parallel Task calls per message. Validator writes `.claude/plan/adv-review/validator-<idx>.json` per input.
+For each merged finding, spawn a `oracle-reviewer-validator` subagent (Sonnet). Batch up to 10 parallel Task calls per message. Validator writes `.codedungeon/reviews/adv-review/validator-<idx>.json` per input.
 
 Then:
 
 ```bash
-codedungeon review run --only filter --dir "$REPO_DIR/.claude/plan/adv-review"
+codedungeon review run --only filter --dir "$REPO_DIR/.codedungeon/reviews/adv-review"
 ```
 
 Drops `confirmed:false` + `confidence:low`.
@@ -128,7 +128,7 @@ Spawn `sage-reviewer-classifier` per finding (batches of 10). Each reads the con
 Then:
 
 ```bash
-codedungeon review run --only classify --dir "$REPO_DIR/.claude/plan/adv-review"
+codedungeon review run --only classify --dir "$REPO_DIR/.codedungeon/reviews/adv-review"
 ```
 
 Merge rule: `classification=design_decision && confidence=high` → `actionable=false`; else `actionable=true`. **Hard override**: `severity=P0 && confidence≠high` → force `actionable=true`.
@@ -142,7 +142,7 @@ Classify the stack findings (same classifier flow as Step 7.5) → `classifier-s
 Then the final merge + render:
 
 ```bash
-codedungeon review run --dir "$REPO_DIR/.claude/plan/adv-review" \
+codedungeon review run --dir "$REPO_DIR/.codedungeon/reviews/adv-review" \
   --validator-model "sonnet-4.6" --classifier-model "sonnet-4.6" \
   --stack-specialist "${LANG}-specialist" > /tmp/verdict.json
 ```
@@ -156,7 +156,7 @@ This runs classify (including stack findings) + render + verdict in one shot. Ou
 ## Step 10: Post to GitHub PR
 
 ```bash
-gh pr comment "$PR_NUM" --body "$(cat "$REPO_DIR/.claude/plan/adv-review/review.md")
+gh pr comment "$PR_NUM" --body "$(cat "$REPO_DIR/.codedungeon/reviews/adv-review/review.md")
 
 ---
 *Automated adversarial review — Claude Opus 4.7 (personas) + Sonnet 4.6 (validators)*"
@@ -179,7 +179,7 @@ Return verdict to caller (`codedungeon-loop`, `forge-execution`).
 
 - **Anti-hallucination**: three layers (persona quote requirement, Validator re-read, the title regex in phase-5 verification).
 - **Cross-model split**: Opus 4.7 for personas (recall); Sonnet 4.6 for Validator and Design-Decision Classifier (precision, cost, anti-sycophancy).
-- **Output paths**: all intermediates under `<REPO>/.claude/plan/adv-review/` — safe to gitignore at repo level.
+- **Output paths**: all intermediates under `<REPO>/.codedungeon/reviews/adv-review/` — safe to gitignore at repo level.
 - **Severity tiers**: P0 Important, P1 Should-fix, P2 Nit. **All three block** unless classified as design decision.
 - **Design-decision escape hatch**: documented in REVIEW.md / CLAUDE.md / ADRs / spec / `// INTENTIONAL:` comments. `TODO`/`FIXME`/`HACK` do NOT count.
-- **Extensibility**: per-repo `REVIEW.md` overrides severity calibration, nit cap, skip-rules, threat model. Template (installed by bootstrap): `.claude/commands/templates/REVIEW.md.template` (fallback: `$HOME/.claude/plugins/local/codedungeon/commands/templates/REVIEW.md.template`).
+- **Extensibility**: per-repo `REVIEW.md` overrides severity calibration, nit cap, skip-rules, threat model. Template (installed by bootstrap): `.codedungeon/commands/templates/REVIEW.md.template`.

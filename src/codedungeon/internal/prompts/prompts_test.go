@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestClaudeArtifactsKeepClaudeInstallPaths(t *testing.T) {
+func TestClaudeArtifactsSplitNativeAndRuntimeInstallPaths(t *testing.T) {
 	arts, err := ArtifactsFor("claude")
 	if err != nil {
 		t.Fatal(err)
@@ -20,8 +20,20 @@ func TestClaudeArtifactsKeepClaudeInstallPaths(t *testing.T) {
 		if a.PackID != "codedungeon-claude" {
 			t.Fatalf("pack id = %q, want codedungeon-claude", a.PackID)
 		}
+		if strings.HasPrefix(a.RelPath, "phases/") || strings.HasPrefix(a.RelPath, "commands/") {
+			if !strings.HasPrefix(a.InstallPath, ".codedungeon/") {
+				t.Fatalf("editable install path %q should live under .codedungeon/", a.InstallPath)
+			}
+			continue
+		}
+		if strings.HasPrefix(a.RelPath, "command-wrappers/") {
+			if !strings.HasPrefix(a.InstallPath, ".claude/commands/") || a.Kind != "command-wrapper" {
+				t.Fatalf("wrapper install path/kind = %q/%q, want .claude/commands + command-wrapper", a.InstallPath, a.Kind)
+			}
+			continue
+		}
 		if !strings.HasPrefix(a.InstallPath, ".claude/") {
-			t.Fatalf("install path %q should stay under .claude/", a.InstallPath)
+			t.Fatalf("native install path %q should stay under .claude/", a.InstallPath)
 		}
 	}
 }
@@ -80,18 +92,18 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"AGENTS.md":                                     false,
-		".codex/config.toml":                            false,
-		".codex/agents/cd_dev_worker.toml":              false,
-		".codex/commands/codedungeon-dev-cycle.md":      false,
-		".codex/phases/forge-execution.md":              false,
-		".agents/skills/codedungeon-flow/SKILL.md":      false,
-		".agents/skills/backend-specialist/SKILL.md":    false,
-		".agents/skills/codedungeon-dev-cycle/SKILL.md": false,
-		".agents/skills/minidungeon/SKILL.md":           false,
-		".agents/skills/code-review/SKILL.md":           false,
-		".agents/skills/codedungeon-test-loop/SKILL.md": false,
-		".agents/skills/cleanup-tasks/SKILL.md":         false,
+		"AGENTS.md":                                      false,
+		".codex/config.toml":                             false,
+		".codex/agents/cd_dev_worker.toml":               false,
+		".codedungeon/commands/codedungeon-dev-cycle.md": false,
+		".codedungeon/phases/forge-execution.md":         false,
+		".agents/skills/codedungeon-flow/SKILL.md":       false,
+		".agents/skills/backend-specialist/SKILL.md":     false,
+		".agents/skills/codedungeon-dev-cycle/SKILL.md":  false,
+		".agents/skills/minidungeon/SKILL.md":            false,
+		".agents/skills/code-review/SKILL.md":            false,
+		".agents/skills/codedungeon-test-loop/SKILL.md":  false,
+		".agents/skills/cleanup-tasks/SKILL.md":          false,
 	}
 	for _, a := range arts {
 		if a.Provider != "codex" {
@@ -99,6 +111,15 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		}
 		if strings.HasPrefix(a.InstallPath, ".codex/skills/") {
 			t.Fatalf("codex skills must install under .agents/skills, got %q", a.InstallPath)
+		}
+		if strings.HasPrefix(a.RelPath, "phases/") && !strings.HasPrefix(a.InstallPath, ".codedungeon/phases/") {
+			t.Fatalf("codex phases must install under .codedungeon/phases, got %q", a.InstallPath)
+		}
+		if strings.HasPrefix(a.RelPath, "commands/") && !strings.HasPrefix(a.InstallPath, ".codedungeon/commands/") {
+			t.Fatalf("codex commands must install under .codedungeon/commands, got %q", a.InstallPath)
+		}
+		if strings.HasPrefix(a.InstallPath, ".codex/commands/") {
+			t.Fatalf("codex commands must not install under .codex/commands, got %q", a.InstallPath)
 		}
 		if _, ok := want[a.InstallPath]; ok {
 			want[a.InstallPath] = true
@@ -134,9 +155,49 @@ func TestCodexAgentsUseOfficialTomlSchema(t *testing.T) {
 		if strings.Contains(body, "\nprompt = ") {
 			t.Fatalf("%s uses prompt field; Codex custom agents require developer_instructions", a.RelPath)
 		}
+		for _, required := range []string{"Role:", "Working mode:", "Return:"} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing compact instruction section %q", a.RelPath, required)
+			}
+		}
+		for _, forbidden := range []string{
+			"max_thinking_tokens",
+			"--dangerously-skip-permissions",
+			"model = ",
+			"model_reasoning_effort",
+			"sandbox_mode",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s contains provider/runtime setting %q that should stay outside Codex agent TOML", a.RelPath, forbidden)
+			}
+		}
 	}
 	if count == 0 {
 		t.Fatal("expected codex agents")
+	}
+}
+
+func TestCodexConfigEnablesCustomAgentSpawning(t *testing.T) {
+	raw, err := GetRawFor("codex", "config.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"[features]",
+		"multi_agent_v2 = true",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("codex config missing %q:\n%s", required, body)
+		}
+	}
+	for _, forbidden := range []string{
+		"max_threads",
+		"max_depth",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("codex config contains %q, which current Codex rejects with multi_agent_v2 enabled:\n%s", forbidden, body)
+		}
 	}
 }
 

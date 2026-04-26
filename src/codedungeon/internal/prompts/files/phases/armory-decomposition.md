@@ -5,24 +5,24 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
-- `.claude/plan/arcplan.md` (architect's plan)
-- `.claude/plan/{repo_name}plan.md` for each affected repo (enriched domain plans)
-- `.claude/plan/{repo_name}qaplan.md` for each affected repo (QA test strategies, if they exist)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- `.codedungeon/plan/arcplan.md` (architect's plan)
+- `.codedungeon/plan/{repo_name}plan.md` for each affected repo (enriched domain plans)
+- `.codedungeon/plan/{repo_name}qaplan.md` for each affected repo (QA test strategies, if they exist)
 - `TEST_AUTH_MISSING_REPOS` and `TEST_AUTH_SPEC` from pipeline state (if populated)
 
 ## Outputs
-- `.claude/plan/MASTER.md` (master task list with execution order)
-- `.claude/tasks/{feature-name}/{repo-name}/PLAN.md` per repo
-- `.claude/tasks/{feature-name}/{repo-name}/task-*.md` (dev task files)
-- `.claude/tasks/{feature-name}/{repo-name}/test-task-*.md` (test task files, if qaplan exists)
-- Update `.claude/plan/pipeline-state.md`: set Phase 4 status to DONE + list artifacts + results
+- `.codedungeon/plan/MASTER.md` (master task list with execution order)
+- `.codedungeon/tasks/{feature-name}/{repo-name}/PLAN.md` per repo
+- `.codedungeon/tasks/{feature-name}/{repo-name}/task-*.md` (dev task files)
+- `.codedungeon/tasks/{feature-name}/{repo-name}/test-task-*.md` (test task files, if qaplan exists)
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 4 status to DONE + list artifacts + results
 
 ---
 
 ### PHASE 4: Task Decomposition (Task Architect, Autonomous)
 
-**Goal**: Spawn `spider-architect-task` in MODE=dev to decompose enriched {repo}plan.md files into canonical task files per `.claude/tasks/TEMPLATE.md` (200–500 tokens each) + MASTER.md + PLAN.md per repo.
+**Goal**: Spawn `spider-architect-task` in MODE=dev to decompose enriched {repo}plan.md files into canonical task files per `.codedungeon/tasks/TEMPLATE.md` (200–500 tokens each) + MASTER.md + PLAN.md per repo.
 
 #### Step 4.1: Spawn Task Architect (MODE=dev)
 
@@ -37,18 +37,18 @@ Read your full instructions from: .claude/agents/spider-architect-task.md
 
 MODE=dev
 
-Read all plan files from .claude/plan/:
+Read all plan files from .codedungeon/plan/:
 - arcplan.md (architect's plan)
 - {repo_name}plan.md for each affected repo (single-pass enriched, includes inline `#### {lang}` subsections — Phase 2' output)
 
-Read canonical task template at: .claude/tasks/TEMPLATE.md (must conform).
-Read previous handoff: .claude/state/phase-2prime-output.md (or phase-35-output.md if QA ran).
+Read canonical task template at: .codedungeon/tasks/TEMPLATE.md (must conform).
+Read previous handoff: .codedungeon/state/phase-2prime-output.md (or phase-35-output.md if QA ran).
 
 Follow the MODE=dev workflow in the agent SKILL.md:
 - Produce MASTER.md (topo-sorted by depends-on).
-- Produce `.claude/tasks/{feature}/{repo}/PLAN.md` per repo.
-- Produce `.claude/tasks/{feature}/{repo}/TASK-NNN.md` per dev task (200–500 tokens each, template-conformant).
-- Write handoff `.claude/state/phase-4-output.md`.
+- Produce `.codedungeon/tasks/{feature}/{repo}/PLAN.md` per repo.
+- Produce `.codedungeon/tasks/{feature}/{repo}/TASK-NNN.md` per dev task (200–500 tokens each, template-conformant).
+- Write handoff `.codedungeon/state/phase-4-output.md`.
 
 CRITICAL: FULLY AUTONOMOUS. Execute all decomposition in one pass. No approval gate.
 
@@ -106,7 +106,7 @@ codedungeon phase done 4 \
   --promise "PHASE_4_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-4-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-4-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 4 --reason "..."` or `... fail 4 --reason "..."` for non-DONE terminal states.
 

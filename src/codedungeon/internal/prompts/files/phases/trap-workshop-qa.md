@@ -5,15 +5,15 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 **You are a phase agent.** Read these instructions, execute them, then update pipeline-state.md.
 
 ## Inputs
-- Pipeline state: `.claude/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
-- Enriched domain plans: `.claude/plan/{repo_name}plan.md` (one per affected repo, produced by Phase 3)
+- Pipeline state: `.codedungeon/plan/pipeline-state.md` (read this FIRST for config, repo map, env vars)
+- Enriched domain plans: `.codedungeon/plan/{repo_name}plan.md` (one per affected repo, produced by Phase 3)
 - Per-repo CODEBASE_MAP: `{repo_path}/docs/CODEBASE_MAP.md`
 - Per-repo CLAUDE.md (for test conventions and startup instructions)
 - Playwright skill at `PLAYWRIGHT_SKILL_PATH` (if set)
 
 ## Outputs
-- QA plan per repo: `.claude/plan/{repo_name}qaplan.md`
-- Update `.claude/plan/pipeline-state.md`: set Phase 3.5 status to DONE + list artifacts
+- QA plan per repo: `.codedungeon/plan/{repo_name}qaplan.md`
+- Update `.codedungeon/plan/pipeline-state.md`: set Phase 3.5 status to DONE + list artifacts
 
 ---
 
@@ -38,7 +38,7 @@ For each affected repo (from arcplan.md meta → repos):
    AGENT_DEFINITION_MISSING: .claude/agents/basilisk-planner-qa.md
    Do NOT improvise without your agent definition.
 
-   Read the enriched domain plan from: .claude/plan/{repo_name}plan.md
+   Read the enriched domain plan from: .codedungeon/plan/{repo_name}plan.md
    Read the repo's CLAUDE.md for test conventions and startup instructions.
    Read {repo_path}/docs/CODEBASE_MAP.md for comprehensive repo context.
 
@@ -64,7 +64,7 @@ For each affected repo (from arcplan.md meta → repos):
       - API tests: only if this is a backend repo with HTTP endpoints
       - E2E tests: only if this is a frontend repo with ## Test Auth configured
         in CLAUDE.md OR where TEST_AUTH_BEING_CREATED = true
-   4. Write the QA plan to: .claude/plan/{repo_name}qaplan.md
+   4. Write the QA plan to: .codedungeon/plan/{repo_name}qaplan.md
    5. Include EXACT curl commands for API tests (the mimic-tester-api agent executes them literally)
    6. Include a precise Definition of Done for each feature
 
@@ -116,7 +116,7 @@ codedungeon phase done 3.5 \
   --promise "PHASE_35_COMPLETE"
 ```
 
-Writes DB row + `.claude/state/phase-35-output.md` + updates `pipeline-state.md`.
+Writes DB row + `.codedungeon/state/phase-35-output.md` + updates `pipeline-state.md`.
 
 Use `codedungeon phase skip 3.5 --reason "..."` or `... fail 3.5 --reason "..."` for non-DONE terminal states.
 

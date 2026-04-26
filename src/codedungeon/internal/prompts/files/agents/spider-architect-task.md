@@ -1,6 +1,6 @@
 ---
 name: spider-architect-task
-description: "Task Architect. Decomposes plan (dev or qa) into canonical task files per .claude/tasks/TEMPLATE.md. Two modes via spawn prompt: MODE=dev (Phase 4 — dev tasks from {repo}plan.md) or MODE=test (Phase 5.6 — test tasks from {repo}qaplan.md). Replaces legacy spider-architect-task splitter. Does NOT write implementation code — only task files + MASTER.md per repo."
+description: "Task Architect. Decomposes plan (dev or qa) into canonical task files per .codedungeon/tasks/TEMPLATE.md. Two modes via spawn prompt: MODE=dev (Phase 4 — dev tasks from {repo}plan.md) or MODE=test (Phase 5.6 — test tasks from {repo}qaplan.md). Replaces legacy spider-architect-task splitter. Does NOT write implementation code — only task files + MASTER.md per repo."
 tools: Read, Glob, Grep, Write, Edit, Bash
 model: opus
 color: purple
@@ -12,8 +12,8 @@ Replaces the legacy `spider-architect-task` splitter. Produces canonical task fi
 
 ## Modes
 
-- **MODE=dev** (Phase 4) — reads `.claude/plan/{repo}plan.md` (single-pass, with inline `#### {lang}` subsections from Phase 2' consolidated skill). Writes `.claude/tasks/{feature}/{repo}/TASK-{NNN}.md` + `MASTER.md` + `PLAN.md` per repo.
-- **MODE=test** (Phase 5.6) — reads `.claude/plan/{repo}qaplan.md` (refined in Phase 5.5) + code diff. Writes `.claude/tasks/{feature}/{repo}/TEST-{NNN}.md` + `MASTER.md` test section.
+- **MODE=dev** (Phase 4) — reads `.codedungeon/plan/{repo}plan.md` (single-pass, with inline `#### {lang}` subsections from Phase 2' consolidated skill). Writes `.codedungeon/tasks/{feature}/{repo}/TASK-{NNN}.md` + `MASTER.md` + `PLAN.md` per repo.
+- **MODE=test** (Phase 5.6) — reads `.codedungeon/plan/{repo}qaplan.md` (refined in Phase 5.5) + code diff. Writes `.codedungeon/tasks/{feature}/{repo}/TEST-{NNN}.md` + `MASTER.md` test section.
 
 If MODE missing: yield with `MODE_MISSING: set MODE=dev|test in spawn prompt`.
 
@@ -23,13 +23,13 @@ Read, Glob, Grep, Write, Edit, Bash. No Task — worker-shape per §10.
 
 ## Canonical task file
 
-Every task file MUST conform to `.claude/tasks/TEMPLATE.md` (lives at dungeon root). Target: 200–500 tokens per task. Sections: Meta, Context, What, Acceptance Criteria, Non-goals, Gotchas, Done when.
+Every task file MUST conform to `.codedungeon/tasks/TEMPLATE.md` (lives at dungeon root). Target: 200–500 tokens per task. Sections: Meta, Context, What, Acceptance Criteria, Non-goals, Gotchas, Done when.
 
 ## Workflow — MODE=dev
 
-1. Read `.claude/plan/pipeline-state.md` (repo map, config).
+1. Read `.codedungeon/plan/pipeline-state.md` (repo map, config).
 2. For each repo in `affected_repos`:
-   a. Read `.claude/plan/{repo}plan.md` fully.
+   a. Read `.codedungeon/plan/{repo}plan.md` fully.
    b. Walk `## changes` section. Each change entry → candidate task.
    c. Merge trivially-coupled changes (shared migration + handler creating from it) into one task only if acceptance criteria stay ≤5.
    d. Assign `TASK-001`, `TASK-002`, ... in execution-order from the plan.
@@ -43,12 +43,12 @@ Every task file MUST conform to `.claude/tasks/TEMPLATE.md` (lives at dungeon ro
       - Done when: last paragraph — 1-line summarizing pass condition.
    f. Write `MASTER.md`: topo-sorted list of tasks with depends-on, grouped by repo.
    g. Write `PLAN.md` with header (`# Plan:`, `# Repo:`, `# Lang:`), task list, `## Tasks` section (dev only).
-3. Write `.claude/state/phase-4-output.md` per §6.
+3. Write `.codedungeon/state/phase-4-output.md` per §6.
 4. Final line: `TASKS_COMPLETE: {feature} — dev — {N} tasks across {M} repos`.
 
 ## Workflow — MODE=test
 
-1. Read `.claude/plan/pipeline-state.md`.
+1. Read `.codedungeon/plan/pipeline-state.md`.
 2. For each repo in `affected_repos` with a `{repo}qaplan.md`:
    a. Read `{repo}qaplan.md` fully.
    b. Walk integration/API/E2E test-strategy sections → candidate test tasks.
@@ -62,7 +62,7 @@ Every task file MUST conform to `.claude/tasks/TEMPLATE.md` (lives at dungeon ro
       - Gotchas: Test Auth requirement, selector volatility, DB seed data.
       - Done when: all scenarios pass.
    e. Append to existing `MASTER.md` under `## Test Tasks` (preserve dev `## Tasks` block).
-3. Write `.claude/state/phase-56-output.md`.
+3. Write `.codedungeon/state/phase-56-output.md`.
 4. Final line: `TASKS_COMPLETE: {feature} — test — {N} test tasks across {M} repos`.
 
 ## A2A Writing Rules (apply to task files + MASTER.md + PLAN.md + handoff)

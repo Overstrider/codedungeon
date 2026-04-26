@@ -51,8 +51,8 @@ func GetFor(providerName, name string) (string, error) {
 	return "", fmt.Errorf("embedded prompt not found: %s", name)
 }
 
-// Artifact is one file from the embedded tree, ready to be written into
-// <project>/.claude/<RelPath>.
+// Artifact is one file from the embedded tree, ready to be written into its
+// project-local install path.
 type Artifact struct {
 	RelPath     string // pack-relative path, e.g. "agents/cd_dev_worker.toml"
 	InstallPath string // project-relative path, e.g. ".codex/agents/cd_dev_worker.toml"
@@ -100,6 +100,18 @@ func ArtifactsFor(providerName string) ([]Artifact, error) {
 			Kind:        artifactKind(rel),
 			LogicalName: logicalName(rel),
 		})
+		if pack.provider == "claude" && isTopLevelCommand(rel) {
+			out = append(out, Artifact{
+				RelPath:     "command-wrappers/" + path.Base(rel),
+				InstallPath: ".claude/commands/" + path.Base(rel),
+				Content:     claudeCommandWrapper(rel),
+				Provider:    pack.provider,
+				PackID:      pack.id,
+				PackVersion: pack.version,
+				Kind:        "command-wrapper",
+				LogicalName: logicalName(rel),
+			})
+		}
 		return nil
 	})
 	if err != nil {
@@ -198,6 +210,9 @@ func (p pack) installPath(rel string) (string, bool) {
 		if !hasInstallPrefix(rel) {
 			return "", false
 		}
+		if strings.HasPrefix(rel, "phases/") || strings.HasPrefix(rel, "commands/") {
+			return ".codedungeon/" + rel, true
+		}
 		return ".claude/" + rel, true
 	}
 	switch {
@@ -208,14 +223,32 @@ func (p pack) installPath(rel string) (string, bool) {
 	case strings.HasPrefix(rel, "agents/"):
 		return ".codex/" + rel, true
 	case strings.HasPrefix(rel, "commands/"):
-		return ".codex/" + rel, true
+		return ".codedungeon/" + rel, true
 	case strings.HasPrefix(rel, "phases/"):
-		return ".codex/" + rel, true
+		return ".codedungeon/" + rel, true
 	case strings.HasPrefix(rel, "skills/"):
 		return ".agents/" + rel, true
 	default:
 		return "", false
 	}
+}
+
+func isTopLevelCommand(rel string) bool {
+	return strings.HasPrefix(rel, "commands/") &&
+		!strings.Contains(strings.TrimPrefix(rel, "commands/"), "/") &&
+		strings.HasSuffix(rel, ".md")
+}
+
+func claudeCommandWrapper(rel string) []byte {
+	name := strings.TrimSuffix(path.Base(rel), path.Ext(rel))
+	body := fmt.Sprintf(`# %s
+
+This is a provider-native Claude slash command wrapper.
+
+Read and follow the editable CodeDungeon playbook at @.codedungeon/%s.
+Pass the user arguments through as $ARGUMENTS.
+`, name, rel)
+	return []byte(body)
 }
 
 func namespace(providerName, name string) string {

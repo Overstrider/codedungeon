@@ -11,13 +11,13 @@ import (
 	"github.com/loldinis/codedungeon/internal/provider"
 )
 
-func cleanupDirsMap() map[string]string {
+func cleanupDirsMap(root string) map[string]string {
 	p := provider.Detect()
 	return map[string]string{
-		"tasks":   p.TasksDir(),
-		"plans":   p.PlanDir(),
-		"reviews": filepath.Join(p.ConfigDir(), "codereview"),
-		"state":   p.StateDir(),
+		"tasks":   projectPath(root, p.TasksDir()),
+		"plans":   projectPath(root, p.PlanDir()),
+		"reviews": projectPath(root, p.ReviewsDir()),
+		"state":   projectPath(root, p.StateDir()),
 	}
 }
 
@@ -25,7 +25,7 @@ func CleanupCmd() *cobra.Command {
 	p := provider.Detect()
 	c := &cobra.Command{
 		Use:   "cleanup",
-		Short: fmt.Sprintf("Remove stale %s artifacts (tasks, plans, reviews, state)", p.ConfigDir()),
+		Short: "Remove stale .codedungeon artifacts (tasks, plans, reviews, state)",
 		Long: `Deletes CONTENTS (not the directory itself) of ephemeral artifact dirs
 (tasks, plans, reviews, state). NEVER deletes commands, agents, skills, bin,
 settings, codedungeon.db, or .git.`,
@@ -38,10 +38,11 @@ settings, codedungeon.db, or .git.`,
 			feature, _ := c.Flags().GetString("feature")
 			dry, _ := c.Flags().GetBool("dry-run")
 
-			dirs := cleanupDirsMap()
+			root := currentProjectRoot()
+			dirs := cleanupDirsMap(root)
 
 			if !all && !doTasks && !doPlans && !doReviews && !doState && feature == "" {
-				inv := inventory()
+				inv := inventory(root)
 				return EmitJSON(map[string]any{"ok": true, "mode": "inventory", "inventory": inv})
 			}
 
@@ -108,7 +109,7 @@ settings, codedungeon.db, or .git.`,
 	c.Flags().Bool("all", false, "delete contents of tasks/ + plans/ + reviews/ + state/")
 	c.Flags().Bool("tasks", false, fmt.Sprintf("delete %s/*", p.TasksDir()))
 	c.Flags().Bool("plans", false, fmt.Sprintf("delete %s/*", p.PlanDir()))
-	c.Flags().Bool("reviews", false, fmt.Sprintf("delete %s/*", filepath.Join(p.ConfigDir(), "codereview")))
+	c.Flags().Bool("reviews", false, fmt.Sprintf("delete %s/*", p.ReviewsDir()))
 	c.Flags().Bool("state", false, fmt.Sprintf("delete %s/*", p.StateDir()))
 	c.Flags().String("feature", "", fmt.Sprintf("delete only %s/<NAME>/", p.TasksDir()))
 	c.Flags().Bool("dry-run", false, "don't delete; just list what would be deleted")
@@ -123,9 +124,9 @@ func modeLabel(dry bool) string {
 }
 
 // inventory returns a map of dirs → file counts + total bytes.
-func inventory() map[string]any {
+func inventory(root string) map[string]any {
 	out := map[string]any{}
-	for k, dir := range cleanupDirsMap() {
+	for k, dir := range cleanupDirsMap(root) {
 		n, size := walkStats(dir)
 		out[k] = map[string]any{"dir": dir, "files": n, "bytes": size}
 	}

@@ -11,14 +11,14 @@ Single Go binary. SQLite (FTS5) backend + embedded prompts. Project-only.
 - Shipped master: `$HOME/.claude/plugins/local/codedungeon/bin/codedungeon`
 - Project-local (after bootstrap): `<project>/.claude/bin/codedungeon`
 
-**State file**: `<project>/.claude/codedungeon.db` (per-project SQLite, FTS5-indexed). Markdown (`pipeline-state.md`, `phase-{N}-output.md`) are rendered VIEWS.
+**State file**: `<project>/.codedungeon/codedungeon.db` (per-project SQLite, FTS5-indexed). Markdown (`pipeline-state.md`, `phase-{N}-output.md`) are rendered VIEWS.
 
 ## First-run bootstrap (agent responsibility)
 
 Before any other command, make sure codedungeon is alive in this project:
 
 ```bash
-if [ -x .claude/bin/codedungeon ] && [ -f .claude/codedungeon.db ]; then
+if [ -x .claude/bin/codedungeon ] && [ -f .codedungeon/codedungeon.db ]; then
   CD=./.claude/bin/codedungeon
 else
   # Requires .git at project root.

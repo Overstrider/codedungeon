@@ -72,7 +72,7 @@ Parent agents MUST NOT parse prose beyond that 1-line status. The artifact is th
 
 ## §8.4 — ROI hook
 
-On every SubagentStop, the hook `subagent-stop.sh` appends one JSONL entry to `.claude/state/subagent-metrics.jsonl`:
+On every SubagentStop, the hook `subagent-stop.sh` appends one JSONL entry to `.codedungeon/state/subagent-metrics.jsonl`:
 
 ```
 {"ts":"2026-04-21T18:00:00Z","type":"general-purpose","in_tokens":1200,"out_tokens":180,"ratio":6.67}

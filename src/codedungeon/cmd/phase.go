@@ -252,7 +252,7 @@ func phaseFailCmd() *cobra.Command {
 }
 
 // setStatusRun is the atomic "update phase status + optionally write handoff +
-// render markdown to .claude/state/phase-{N}-output.md".
+// render markdown to .codedungeon/state/phase-{N}-output.md".
 // Returns a runResult that EmitsJSON on success and lets caller chain file
 // writes.
 func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []string, h *db.Handoff) runResult {
@@ -280,8 +280,8 @@ func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []str
 		if err := s.UpsertHandoff(h); err != nil {
 			return runResult{err: EmitErr(err.Error(), "")}
 		}
-		// Also write to .claude/state/phase-{N}-output.md next to cwd.
-		outPath := filepath.Join(provider.Detect().StateDir(), "phase-"+phaseLabel(phase)+"-output.md")
+		// Also write to .codedungeon/state/phase-{N}-output.md next to cwd.
+		outPath := projectPath(currentProjectRoot(), filepath.Join(provider.Detect().StateDir(), "phase-"+phaseLabel(phase)+"-output.md"))
 		_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
 		_ = os.WriteFile(outPath, []byte(rendered), 0o644)
 	}
@@ -475,7 +475,7 @@ func phaseConfigCmd() *cobra.Command {
 func phaseRenderStateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "render-state",
-		Short: "Regenerate .claude/plan/pipeline-state.md from DB",
+		Short: "Regenerate .codedungeon/plan/pipeline-state.md from DB",
 		RunE: func(c *cobra.Command, _ []string) error {
 			s, err := OpenDB(c)
 			if err != nil {
@@ -496,7 +496,7 @@ func phaseRenderStateCmd() *cobra.Command {
 			body := renderPipelineStateMD(run, phases)
 			out, _ := c.Flags().GetString("out")
 			if out == "" {
-				out = filepath.Join(provider.Detect().PlanDir(), "pipeline-state.md")
+				out = projectPath(currentProjectRoot(), filepath.Join(provider.Detect().PlanDir(), "pipeline-state.md"))
 			}
 			_ = os.MkdirAll(filepath.Dir(out), 0o755)
 			if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
@@ -505,7 +505,7 @@ func phaseRenderStateCmd() *cobra.Command {
 			return EmitJSON(map[string]any{"ok": true, "path": out, "bytes": len(body)})
 		},
 	}
-	c.Flags().String("out", "", "override path (default .claude/plan/pipeline-state.md)")
+	c.Flags().String("out", "", "override path (default .codedungeon/plan/pipeline-state.md)")
 	return c
 }
 
@@ -540,4 +540,3 @@ branch: {{.Branch}}
 	})
 	return b.String()
 }
-
