@@ -111,7 +111,7 @@ if [[ "$PROVIDER" == "codex" ]]; then
     echo "     \$codedungeon --full|--lite|--oneshot <prompt>"
     echo "     Compatibility aliases: \$main-quest, \$side-quest, \$one-shot"
 else
-    echo "  3. Claude Code slash commands become available:"
+    echo "  3. Claude Code workflow router becomes available:"
     echo "     /codedungeon --full|--lite|--oneshot <prompt>"
     echo "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 fi

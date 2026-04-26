@@ -81,7 +81,7 @@ if ($Provider -eq 'codex') {
     Write-Host "     `$codedungeon --full|--lite|--oneshot <prompt>"
     Write-Host "     Compatibility aliases: `$main-quest, `$side-quest, `$one-shot"
 } else {
-    Write-Host "  3. Claude Code slash commands become available:"
+    Write-Host "  3. Claude Code workflow router becomes available:"
     Write-Host "     /codedungeon --full|--lite|--oneshot <prompt>"
     Write-Host "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 }
