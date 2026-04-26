@@ -63,8 +63,8 @@ The provider is built into the binary. Normal use should not depend on `CODEDUNG
 
 Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, and PR memory. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
-Codex workflows are skills such as `$minidungeon`, `$codedungeon-dev-cycle`, and `$code-review`.
-Claude workflows are plugin slash commands such as `/minidungeon`, `/codedungeon-dev-cycle`, and `/code-review`.
+Codex workflows are skills such as `$one-shot`, `$side-quest`, `$main-quest`, and `$code-review`.
+Claude workflows are plugin slash commands such as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
 
 ## Upgrade
 

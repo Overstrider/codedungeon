@@ -60,8 +60,9 @@ Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global
 
 After Codex setup, invoke workflows as skills:
 
-- `$minidungeon`
-- `$codedungeon-dev-cycle`
+- `$one-shot`
+- `$side-quest`
+- `$main-quest`
 - `$code-review`
 - `$codedungeon-test-loop`
 - `$cleanup-tasks`

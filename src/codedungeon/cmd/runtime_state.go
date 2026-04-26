@@ -79,6 +79,9 @@ func migrateLegacyRuntimeState(root string, p provider.Provider) error {
 
 func prepareCommandArtifactInstall(root string, p provider.Provider, artifacts []prompts.Artifact) error {
 	stamp := time.Now().UTC().Format("20060102-150405")
+	if err := archiveRenamedWorkflowArtifacts(root, stamp); err != nil {
+		return err
+	}
 	if p.Name() == "codex" {
 		legacy := filepath.Join(p.ConfigDir(), "commands")
 		if _, err := os.Stat(projectPath(root, legacy)); os.IsNotExist(err) {
@@ -129,6 +132,22 @@ func prepareCommandArtifactInstall(root string, p provider.Provider, artifacts [
 			continue
 		}
 		if err := archiveLegacyPath(root, rel, p.Name(), stamp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func archiveRenamedWorkflowArtifacts(root, stamp string) error {
+	for _, rel := range []string{
+		filepath.Join(codedungeonDir, "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(codedungeonDir, "commands", "minidungeon.md"),
+		filepath.Join(".claude", "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(".claude", "commands", "minidungeon.md"),
+		filepath.Join(".agents", "skills", "codedungeon-dev-cycle"),
+		filepath.Join(".agents", "skills", "minidungeon"),
+	} {
+		if err := archiveRenamedArtifactPath(root, rel, stamp); err != nil {
 			return err
 		}
 	}
@@ -227,6 +246,24 @@ func archiveLegacyPath(root, fromRel, providerName, stamp string) error {
 	}
 	if err := os.Rename(from, archive); err != nil {
 		return fmt.Errorf("archive legacy path %s: %w", fromRel, err)
+	}
+	return nil
+}
+
+func archiveRenamedArtifactPath(root, fromRel, stamp string) error {
+	from := projectPath(root, fromRel)
+	if _, err := os.Stat(from); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat renamed artifact %s: %w", fromRel, err)
+	}
+	archiveRel := filepath.Join(codedungeonDir, "archive", "renamed-artifacts", stamp, filepath.ToSlash(fromRel))
+	archive := filepath.Join(root, archiveRel)
+	if err := os.MkdirAll(filepath.Dir(archive), 0o755); err != nil {
+		return fmt.Errorf("mkdir archive for renamed artifact %s: %w", fromRel, err)
+	}
+	if err := os.Rename(from, archive); err != nil {
+		return fmt.Errorf("archive renamed artifact %s: %w", fromRel, err)
 	}
 	return nil
 }

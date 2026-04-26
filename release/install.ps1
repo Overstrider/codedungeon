@@ -79,7 +79,8 @@ Write-Host "  2. codedungeon-$Provider setup"
 if ($Provider -eq 'codex') {
     Write-Host "  3. Codex workflow skills become available under .agents/skills"
 } else {
-    Write-Host "  3. Claude Code slash commands become available"
+    Write-Host "  3. Claude Code slash commands become available:"
+    Write-Host "     /one-shot, /side-quest, /main-quest, /code-review"
 }
 
 & $DestBin version --human

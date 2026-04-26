@@ -1,4 +1,4 @@
-=== LOLDINIS DEV CYCLE COMPLETE (BOOTSTRAP) ===
+=== MAIN QUEST COMPLETE (BOOTSTRAP) ===
 
 Project: {{.Feature}}
 Mode: BOOTSTRAP (created from scratch)
@@ -30,4 +30,4 @@ Next steps:
   1. Review the PR (it contains the entire project scaffold)
   2. Merge to main
   3. Run cartographer to generate CODEBASE_MAP.md for future iterations
-  4. Continue development with /codedungeon-dev-cycle
+  4. Continue development with /main-quest

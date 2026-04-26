@@ -115,6 +115,8 @@ codedungeon-codex migrate
 
 The same command surface exists for Claude via `codedungeon-claude`.
 
+After setup, agent-facing workflows are `/one-shot`, `/side-quest`, and `/main-quest` in Claude Code, or `$one-shot`, `$side-quest`, and `$main-quest` in Codex.
+
 ## Docs
 
 - `src/codedungeon/docs/ARCHITECTURE.md`: current architecture.

@@ -33,12 +33,12 @@ func TestInstallEmbeddedArtifactsAtUsesExplicitRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, a := range arts {
-		if a.LogicalName == "minidungeon" {
+		if a.LogicalName == "side-quest" {
 			assertFileExists(t, filepath.Join(root, filepath.FromSlash(a.InstallPath)))
 			return
 		}
 	}
-	t.Fatal("minidungeon artifact not found")
+	t.Fatal("side-quest artifact not found")
 }
 
 func TestRunBootstrapReturnsArtifactInstallErrors(t *testing.T) {
@@ -196,7 +196,7 @@ func TestSetupYesIsIdempotentWhenAlreadyBootstrapped(t *testing.T) {
 func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	legacyCommand := filepath.Join(root, ".claude", "commands", "minidungeon.md")
+	legacyCommand := filepath.Join(root, ".claude", "commands", "side-quest.md")
 	if err := os.MkdirAll(filepath.Dir(legacyCommand), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -208,14 +208,14 @@ func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
 		t.Fatalf("RunBootstrap failed: %v", err)
 	}
 
-	playbook := filepath.Join(root, ".codedungeon", "commands", "minidungeon.md")
-	wrapper := filepath.Join(root, ".claude", "commands", "minidungeon.md")
+	playbook := filepath.Join(root, ".codedungeon", "commands", "side-quest.md")
+	wrapper := filepath.Join(root, ".claude", "commands", "side-quest.md")
 	assertFileExists(t, playbook)
 	wrapperBody, err := os.ReadFile(wrapper)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(wrapperBody), "@.codedungeon/commands/minidungeon.md") {
+	if !strings.Contains(string(wrapperBody), "@.codedungeon/commands/side-quest.md") {
 		t.Fatalf("wrapper body should point at .codedungeon playbook, got:\n%s", wrapperBody)
 	}
 
@@ -224,7 +224,7 @@ func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
 		if err != nil || info == nil || info.IsDir() {
 			return err
 		}
-		if filepath.Base(path) != "minidungeon.md" {
+		if filepath.Base(path) != "side-quest.md" {
 			return nil
 		}
 		data, readErr := os.ReadFile(path)
@@ -241,6 +241,62 @@ func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
 	}
 	if !archived {
 		t.Fatal("legacy command was not archived before wrapper install")
+	}
+}
+
+func TestSetupArchivesRenamedWorkflowArtifacts(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldPaths := []string{
+		filepath.Join(".codedungeon", "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(".codedungeon", "commands", "minidungeon.md"),
+		filepath.Join(".claude", "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(".claude", "commands", "minidungeon.md"),
+		filepath.Join(".agents", "skills", "codedungeon-dev-cycle", "SKILL.md"),
+		filepath.Join(".agents", "skills", "minidungeon", "SKILL.md"),
+	}
+	for _, rel := range oldPaths {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("old "+rel), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := RunBootstrap(root, "reasoning-model", "fast-model", true); err != nil {
+		t.Fatalf("RunBootstrap failed: %v", err)
+	}
+
+	for _, rel := range oldPaths {
+		top := rel
+		if strings.HasSuffix(rel, string(filepath.Separator)+"SKILL.md") {
+			top = filepath.Dir(rel)
+		}
+		if _, err := os.Stat(filepath.Join(root, top)); !os.IsNotExist(err) {
+			t.Fatalf("old renamed artifact still exists at %s: %v", top, err)
+		}
+	}
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "main-quest.md"))
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "side-quest.md"))
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "commands", "one-shot.md"))
+	assertFileExists(t, filepath.Join(root, ".claude", "commands", "main-quest.md"))
+	assertFileExists(t, filepath.Join(root, ".claude", "commands", "side-quest.md"))
+	assertFileExists(t, filepath.Join(root, ".claude", "commands", "one-shot.md"))
+
+	var archived int
+	err := filepath.Walk(filepath.Join(root, ".codedungeon", "archive", "renamed-artifacts"), func(path string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			archived++
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived != len(oldPaths) {
+		t.Fatalf("archived renamed artifacts = %d, want %d", archived, len(oldPaths))
 	}
 }
 
@@ -280,11 +336,15 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		"AGENTS.md",
 		filepath.Join(".codedungeon", "codedungeon.db"),
 		filepath.Join(".codedungeon", "README.md"),
-		filepath.Join(".codedungeon", "commands", "codedungeon-dev-cycle.md"),
+		filepath.Join(".codedungeon", "commands", "main-quest.md"),
+		filepath.Join(".codedungeon", "commands", "side-quest.md"),
+		filepath.Join(".codedungeon", "commands", "one-shot.md"),
 		filepath.Join(".codedungeon", "phases", "forge-execution.md"),
 		filepath.Join(".codex", "config.toml"),
 		filepath.Join(".codex", "agents", "cd_dev_worker.toml"),
-		filepath.Join(".agents", "skills", "codedungeon-dev-cycle", "SKILL.md"),
+		filepath.Join(".agents", "skills", "main-quest", "SKILL.md"),
+		filepath.Join(".agents", "skills", "side-quest", "SKILL.md"),
+		filepath.Join(".agents", "skills", "one-shot", "SKILL.md"),
 	} {
 		assertFileExists(t, filepath.Join(root, path))
 	}

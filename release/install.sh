@@ -110,7 +110,7 @@ if [[ "$PROVIDER" == "codex" ]]; then
     echo "  3. Codex workflow skills become available under .agents/skills"
 else
     echo "  3. Claude Code slash commands become available:"
-    echo "     /minidungeon, /codedungeon-dev-cycle, /code-review"
+    echo "     /one-shot, /side-quest, /main-quest, /code-review"
 fi
 echo ""
 "$DEST_BIN" version --human

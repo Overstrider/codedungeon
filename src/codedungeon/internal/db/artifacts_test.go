@@ -113,7 +113,7 @@ func TestMigrateV4RenamesClaudeProviderMetadataToCanonicalName(t *testing.T) {
 			installed_at INTEGER NOT NULL
 		);
 		INSERT INTO installed_artifacts(rel_path, install_path, sha256, binary_version, provider, pack_id, pack_version, kind, logical_name, user_modified, installed_at)
-		VALUES ('commands/minidungeon.md', '.claude/commands/minidungeon.md', 'abc', 'test', 'claude-code', 'codedungeon-claude-code', '1', 'command', 'minidungeon', 0, 123);
+		VALUES ('commands/side-quest.md', '.claude/commands/side-quest.md', 'abc', 'test', 'claude-code', 'codedungeon-claude-code', '1', 'command', 'side-quest', 0, 123);
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestMigrateV4RenamesClaudeProviderMetadataToCanonicalName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.GetArtifact("commands/minidungeon.md")
+	got, err := s.GetArtifact("commands/side-quest.md")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -92,18 +92,21 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"AGENTS.md":                                      false,
-		".codex/config.toml":                             false,
-		".codex/agents/cd_dev_worker.toml":               false,
-		".codedungeon/commands/codedungeon-dev-cycle.md": false,
-		".codedungeon/phases/forge-execution.md":         false,
-		".agents/skills/codedungeon-flow/SKILL.md":       false,
-		".agents/skills/backend-specialist/SKILL.md":     false,
-		".agents/skills/codedungeon-dev-cycle/SKILL.md":  false,
-		".agents/skills/minidungeon/SKILL.md":            false,
-		".agents/skills/code-review/SKILL.md":            false,
-		".agents/skills/codedungeon-test-loop/SKILL.md":  false,
-		".agents/skills/cleanup-tasks/SKILL.md":          false,
+		"AGENTS.md":                                     false,
+		".codex/config.toml":                            false,
+		".codex/agents/cd_dev_worker.toml":              false,
+		".codedungeon/commands/main-quest.md":           false,
+		".codedungeon/commands/side-quest.md":           false,
+		".codedungeon/commands/one-shot.md":             false,
+		".codedungeon/phases/forge-execution.md":        false,
+		".agents/skills/codedungeon-flow/SKILL.md":      false,
+		".agents/skills/backend-specialist/SKILL.md":    false,
+		".agents/skills/main-quest/SKILL.md":            false,
+		".agents/skills/side-quest/SKILL.md":            false,
+		".agents/skills/one-shot/SKILL.md":              false,
+		".agents/skills/code-review/SKILL.md":           false,
+		".agents/skills/codedungeon-test-loop/SKILL.md": false,
+		".agents/skills/cleanup-tasks/SKILL.md":         false,
 	}
 	for _, a := range arts {
 		if a.Provider != "codex" {
@@ -203,8 +206,9 @@ func TestCodexConfigEnablesCustomAgentSpawning(t *testing.T) {
 
 func TestCodexCommandSkillsArePrimaryWorkflowSurface(t *testing.T) {
 	for _, name := range []string{
-		"codedungeon-dev-cycle",
-		"minidungeon",
+		"main-quest",
+		"side-quest",
+		"one-shot",
 		"code-review",
 		"codedungeon-test-loop",
 		"cleanup-tasks",
@@ -262,8 +266,10 @@ func TestCodexWorkflowPromptsUseProjectLocalBinary(t *testing.T) {
 	for _, rel := range []string{
 		"AGENTS.md",
 		"skills/codedungeon-cli/SKILL.md",
-		"skills/codedungeon-dev-cycle/SKILL.md",
-		"commands/codedungeon-dev-cycle.md",
+		"skills/main-quest/SKILL.md",
+		"commands/main-quest.md",
+		"skills/one-shot/SKILL.md",
+		"commands/one-shot.md",
 	} {
 		raw, err := GetRawFor("codex", rel)
 		if err != nil {

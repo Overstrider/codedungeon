@@ -179,4 +179,4 @@ Use `codedungeon phase skip 1 --reason "..."` or `... fail 1 --reason "..."` for
 
 Phase-agent = orchestrator. Allowed: `Task` (spawn workers), `Read` (state + handoff files), `Bash` (for `codedungeon` + `git` + tool calls). Forbidden: `Write`/`Edit` on artifact files (arcplan.md, plans, task files, review files) — workers own those.
 
-Thinking budget inherited from `PHASE_THINKING[1]` in the orchestrator (`codedungeon-dev-cycle.md`). Model tier via `codedungeon config model <reasoning|fast>` (Sprint 7).
+Thinking budget inherited from `PHASE_THINKING[1]` in the orchestrator (`main-quest.md`). Model tier via `codedungeon config model <reasoning|fast>` (Sprint 7).

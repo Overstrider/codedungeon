@@ -302,7 +302,7 @@ When Mobile MCP is NOT available (no emulator, no device):
 
 ## On Invocation
 
-When invoked (typically by codedungeon-dev-cycle Phase 3.5):
+When invoked (typically by main-quest Phase 3.5):
 
 1. Read the enriched domain plan from `.codedungeon/plan/{repo}plan.md`
 2. Read the repo's `CLAUDE.md` for test conventions and startup instructions

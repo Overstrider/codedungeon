@@ -104,6 +104,22 @@ During setup or migration, legacy runtime state is moved or archived so that:
 
 New versions reinstall current CodeDungeon-owned agents and skills. They do not broadly delete unknown files from `.codex`, `.claude`, or `.agents`.
 
+## Renamed Workflows
+
+Current workflow names are:
+
+- `main-quest`: full phase pipeline, previously `codedungeon-dev-cycle`
+- `side-quest`: compact task-splitting workflow, previously `minidungeon`
+- `one-shot`: minimal plan, code, PR, and review workflow
+
+During setup or migration, known obsolete workflow artifacts are moved to:
+
+```text
+.codedungeon/archive/renamed-artifacts/<timestamp>/
+```
+
+This removes stale commands and skills from the active provider surfaces while preserving their old contents for inspection. New installs expose `/main-quest`, `/side-quest`, and `/one-shot` for Claude Code, or `$main-quest`, `$side-quest`, and `$one-shot` for Codex.
+
 If an old agent or skill remains and `status` shows it as stale or user-modified:
 
 1. Inspect the file.

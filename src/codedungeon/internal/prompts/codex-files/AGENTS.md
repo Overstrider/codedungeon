@@ -3,7 +3,7 @@
 Use codedungeon as the deterministic workflow kernel. Preserve the phase flow, DB state, handoff schema, review JSON, and task contracts.
 
 Project artifacts:
-- Workflow skills: `.agents/skills/codedungeon-dev-cycle/`, `.agents/skills/minidungeon/`, `.agents/skills/code-review/`
+- Workflow skills: `.agents/skills/main-quest/`, `.agents/skills/side-quest/`, `.agents/skills/one-shot/`, `.agents/skills/code-review/`
 - Editable command playbooks for reference: `.codedungeon/commands/`
 - Phase instructions: `.codedungeon/phases/`
 - Codex subagents: `.codex/agents/`
@@ -11,7 +11,7 @@ Project artifacts:
 - Local binary and DB: `./.codex/bin/codedungeon`, `.codedungeon/codedungeon.db`
 
 Default workflow:
-- Invoke workflows as skills: `$codedungeon-dev-cycle`, `$minidungeon`, `$code-review`, `$codedungeon-test-loop`, `$cleanup-tasks`.
+- Invoke workflows as skills: `$main-quest`, `$side-quest`, `$one-shot`, `$code-review`, `$codedungeon-test-loop`, `$cleanup-tasks`.
 - If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
 - Use `./.codex/bin/codedungeon phase info` before changing phase state.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.

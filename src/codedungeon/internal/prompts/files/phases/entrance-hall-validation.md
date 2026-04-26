@@ -57,7 +57,7 @@ If `bootstrap` returns `{"error":"refuse: ... ~/.claude ..."}` the agent is in t
 ## Step 0.1: Validate Input
 
 1. If `$ARGUMENTS` empty:
-   > Usage: `/codedungeon-dev-cycle <feature description>`
+   > Usage: `/main-quest <feature description>`
    >
    > Tip: `@sphinx-prompt-enhancer` first to refine.
 
