@@ -9,13 +9,9 @@ $ErrorActionPreference = 'Stop'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Installer = Join-Path $Here 'release/install.ps1'
 
-$ArgsList = @()
 if ($Provider) {
-    $ArgsList += @('-Provider', $Provider)
+    & $Installer -Provider $Provider -Yes:$Yes
+} else {
+    & $Installer -Yes:$Yes
 }
-if ($Yes) {
-    $ArgsList += '-Yes'
-}
-
-& $Installer @ArgsList
 exit $LASTEXITCODE
