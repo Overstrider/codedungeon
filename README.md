@@ -69,10 +69,11 @@ Existing projects should use `codedungeon-<provider> migrate` after upgrading th
 
 ## Build
 
-```bash
-make test
-make build
-make release
+```powershell
+Push-Location src/codedungeon
+go test ./...
+Pop-Location
+.\scripts\build-release.ps1
 ```
 
 Release builds produce provider-specific binaries:
@@ -102,6 +103,7 @@ Source of truth lives in `src/codedungeon/`:
 - `internal/prompts/`: embedded provider prompt packs. Claude uses `files/`; Codex uses `codex-files/`.
 - `internal/db/`: SQLite schema, migrations, FTS5, and installed artifact tracking.
 - `release/`: shippable installers, docs, skills, and binaries.
+- `scripts/build-release.ps1`: cross-platform Go release build used by maintainers.
 
 The shared lifecycle is provider-agnostic. Provider-specific differences live at the edges: paths, project instruction file, command/skill surfaces, agent format, models, and plugin installation.
 

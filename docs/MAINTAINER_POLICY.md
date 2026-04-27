@@ -30,7 +30,7 @@ Every completed change must finish with:
    - `go test ./...` from `src/codedungeon` for Go or embedded prompt changes
    - focused smoke tests for setup, install, or provider behavior changes
    - `git diff --check`
-4. Release artifacts rebuilt with `make release` or the equivalent cross-platform build.
+4. Release artifacts rebuilt with `.\scripts\build-release.ps1`.
 5. Commit created on `main`.
 6. `main` pushed to `origin`.
 

@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func TestMakefileBuildsProviderSpecificBinaries(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
+func TestReleaseBuildScriptBuildsProviderSpecificBinaries(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "build-release.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,11 +17,12 @@ func TestMakefileBuildsProviderSpecificBinaries(t *testing.T) {
 	for _, want := range []string{
 		"codedungeon-codex",
 		"codedungeon-claude",
-		"-X github.com/loldinis/codedungeon/internal/provider.DefaultProvider=codex",
-		"-X github.com/loldinis/codedungeon/internal/provider.DefaultProvider=claude",
+		"Provider = 'codex'",
+		"Provider = 'claude'",
+		"-X github.com/loldinis/codedungeon/internal/provider.DefaultProvider=$($Target.Provider)",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("Makefile missing %q", want)
+			t.Fatalf("scripts/build-release.ps1 missing %q", want)
 		}
 	}
 }
@@ -70,8 +71,10 @@ func TestInstallersAndDocsExposeProviderChoice(t *testing.T) {
 func TestReleaseV2MetadataAndGuidance(t *testing.T) {
 	root := repoRoot(t)
 	files := map[string][]string{
-		"Makefile": {
-			"VERSION ?= v2.0.0",
+		"scripts/build-release.ps1": {
+			`[string]$Version = 'v2.0.0'`,
+			"codedungeon-codex.exe",
+			"codedungeon-claude.exe",
 		},
 		"release/install.sh": {
 			`"version": "2.0.0"`,
@@ -134,7 +137,7 @@ func repoRoot(t *testing.T) string {
 func findRepoRoot(start string) (string, bool) {
 	dir, _ := filepath.Abs(start)
 	for i := 0; i < 8; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "Makefile")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "scripts", "build-release.ps1")); err == nil {
 			if _, err := os.Stat(filepath.Join(dir, "src", "codedungeon", "go.mod")); err == nil {
 				return dir, true
 			}
