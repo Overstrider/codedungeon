@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tidwall/gjson"
 
+	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/manifest"
 	"github.com/loldinis/codedungeon/internal/osadapter"
 )
@@ -21,6 +22,68 @@ func QACmd() *cobra.Command {
 	c := &cobra.Command{Use: "qa", Short: "QA test helpers (API validation, framework detect)"}
 	c.AddCommand(qaValidateAPICmd())
 	c.AddCommand(qaDetectFrameworkCmd())
+	c.AddCommand(qaRecordCmd())
+	return c
+}
+
+func qaRecordCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "record",
+		Short: "Record a concrete verification command in the phase ledger",
+		RunE: func(c *cobra.Command, _ []string) error {
+			phase, _ := c.Flags().GetString("phase")
+			command, _ := c.Flags().GetString("cmd")
+			status, _ := c.Flags().GetString("status")
+			logPath, _ := c.Flags().GetString("log")
+			if phase == "" {
+				return EmitErr("--phase is required", "")
+			}
+			if command == "" {
+				return EmitErr("--cmd is required", "")
+			}
+			status = strings.ToUpper(status)
+			if status != "PASS" && status != "FAIL" {
+				return EmitErr("--status must be PASS or FAIL", "")
+			}
+			if logPath == "" {
+				return EmitErr("--log is required", "")
+			}
+			info, err := os.Stat(logPath)
+			if err != nil {
+				return EmitErr("verification log not found: "+logPath, "")
+			}
+			if info.Size() == 0 {
+				return EmitErr("verification log is empty: "+logPath, "")
+			}
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			run, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if run == nil {
+				return EmitErr("no active run", "run `codedungeon phase init` first")
+			}
+			id, err := s.InsertVerificationRecord(db.VerificationRecord{
+				RunID:   run.ID,
+				Phase:   phase,
+				Command: command,
+				Status:  status,
+				LogPath: logPath,
+			})
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": true, "id": id, "phase": phase, "status": status})
+		},
+	}
+	c.Flags().String("phase", "", "phase number, usually 6")
+	c.Flags().String("cmd", "", "verification command that was run")
+	c.Flags().String("status", "", "PASS or FAIL")
+	c.Flags().String("log", "", "path to non-empty command log")
 	return c
 }
 
@@ -28,28 +91,28 @@ func QACmd() *cobra.Command {
 type APISpec struct {
 	Name    string            `json:"name,omitempty"`
 	Method  string            `json:"method"`
-	Path    string            `json:"path"`                 // relative, appended to base-url
-	URL     string            `json:"url,omitempty"`        // alternative: full URL
+	Path    string            `json:"path"`          // relative, appended to base-url
+	URL     string            `json:"url,omitempty"` // alternative: full URL
 	Headers map[string]string `json:"headers,omitempty"`
-	Body    any               `json:"body,omitempty"`       // string OR object (marshalled)
+	Body    any               `json:"body,omitempty"` // string OR object (marshalled)
 	Expect  struct {
-		Status        int               `json:"status"`
-		BodyContains  []string          `json:"body_contains,omitempty"` // gjson paths
-		BodyShape     map[string]string `json:"body_shape,omitempty"`    // path → type
-		BodyAbsent    []string          `json:"body_absent,omitempty"`   // paths that must NOT exist
-		BodyEqual     map[string]any    `json:"body_equal,omitempty"`    // path → expected value
+		Status       int               `json:"status"`
+		BodyContains []string          `json:"body_contains,omitempty"` // gjson paths
+		BodyShape    map[string]string `json:"body_shape,omitempty"`    // path → type
+		BodyAbsent   []string          `json:"body_absent,omitempty"`   // paths that must NOT exist
+		BodyEqual    map[string]any    `json:"body_equal,omitempty"`    // path → expected value
 	} `json:"expect"`
 }
 
 // ValidationResult is the JSON output.
 type ValidationResult struct {
-	OK      bool              `json:"ok"`
-	Status  int               `json:"status"`
-	TimeMs  int               `json:"time_ms"`
-	Verdict string            `json:"verdict"` // PASS | FAIL
-	Checks  []Check           `json:"checks"`
-	Body    string            `json:"body,omitempty"`
-	Error   string            `json:"error,omitempty"`
+	OK      bool    `json:"ok"`
+	Status  int     `json:"status"`
+	TimeMs  int     `json:"time_ms"`
+	Verdict string  `json:"verdict"` // PASS | FAIL
+	Checks  []Check `json:"checks"`
+	Body    string  `json:"body,omitempty"`
+	Error   string  `json:"error,omitempty"`
 }
 
 type Check struct {

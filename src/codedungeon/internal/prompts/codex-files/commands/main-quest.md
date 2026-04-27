@@ -14,6 +14,13 @@ PROJECT_RULES_READ: yes|no
 
 Use for complex features or multi-repo work.
 
+## Evidence Gates
+
+- Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
+- Do not write final reports manually. COMPLETE can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
+- Record every concrete build/check/test command with `./.codex/bin/codedungeon qa record --phase 6 --cmd "<cmd>" --status PASS|FAIL --log <path>`.
+- Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+
 Steps:
 - Run `./.codex/bin/codedungeon phase init` if no active run exists.
 - Execute phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`, `7`.

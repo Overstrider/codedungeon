@@ -544,6 +544,57 @@ func TestCodeReviewPromptsTreatMissingVerificationAsBlocking(t *testing.T) {
 	}
 }
 
+func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
+	for _, rel := range []string{
+		"commands/main-quest.md",
+		"commands/side-quest.md",
+		"commands/one-shot.md",
+		"skills/main-quest/SKILL.md",
+		"skills/side-quest/SKILL.md",
+		"skills/one-shot/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"Do not write review reports manually",
+			"Do not write final reports manually",
+			"codedungeon review run",
+			"review-manifest.json",
+			"codedungeon qa record",
+			"codedungeon report render",
+			"COMPLETE can only come from `codedungeon report render`",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing deterministic gate instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+
+	for _, rel := range []string{
+		"commands/code-review.md",
+		"skills/code-review/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"Do not write review reports manually",
+			"review-manifest.json",
+			"findings-saboteur.json",
+			"codedungeon review run",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing deterministic review instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+}
+
 func TestReportTemplatesRenderPRReportFields(t *testing.T) {
 	for _, name := range []string{"report-template-multi", "report-template-bootstrap"} {
 		body, err := GetFor("claude", name)

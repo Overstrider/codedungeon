@@ -13,6 +13,7 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
+	"github.com/loldinis/codedungeon/internal/reviewpipe"
 )
 
 var _ = json.RawMessage{}
@@ -154,6 +155,8 @@ func phaseTerminal(status string) *cobra.Command {
 							promise = fmt.Sprintf("PHASE_%s_FAILED: %s", phaseLabel(phase), forceEsc)
 						}
 						notes = "ESCALATED: " + forceEsc
+					} else if err := validatePhase5Gate(c); err != nil {
+						return err
 					}
 				}
 				if phase == "7" {
@@ -178,11 +181,24 @@ func phaseTerminal(status string) *cobra.Command {
 							gs.Close()
 						}
 					}
+					if err := validatePhase7DoneGate(c); err != nil {
+						return err
+					}
 				}
 			}
 
 			if status == "DONE" && promise == "" {
 				return EmitErr("--promise is required for `codedungeon phase done`", "e.g. --promise 'PHASE_5_COMPLETE: ...'")
+			}
+			if status == "DONE" {
+				if err := validatePhaseDoneArtifacts(c, phase, artifacts); err != nil {
+					return err
+				}
+				if phase == "6" {
+					if err := validatePhase6Gate(c); err != nil {
+						return err
+					}
+				}
 			}
 
 			return setStatusRun(c, phase, status, notes, artifacts, &db.Handoff{
@@ -211,6 +227,181 @@ func phaseTerminal(status string) *cobra.Command {
 	c.Flags().String("force-escalate", "", "override non-APPROVED verdict on phase 5 (escalation reason)")
 	c.Flags().Bool("force-report", false, "force phase-7 report despite upstream FAIL phases")
 	return c
+}
+
+func validatePhaseDoneArtifacts(c *cobra.Command, phase string, artifacts []string) error {
+	switch phase {
+	case "1", "2'":
+	default:
+		return nil
+	}
+	if len(artifacts) == 0 {
+		return EmitErr("phase-"+phaseLabel(phase)+"-gate: at least one artifact path is required", "")
+	}
+	for _, artifact := range artifacts {
+		path := strings.TrimSpace(artifact)
+		if path == "" {
+			continue
+		}
+		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+			return EmitErr("phase-"+phaseLabel(phase)+"-gate: artifact must be a local file: "+path, "")
+		}
+		if !filepath.IsAbs(path) {
+			path = projectPath(currentProjectRoot(), path)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return EmitErr("phase-"+phaseLabel(phase)+"-gate: artifact not found: "+artifact, "")
+		}
+		if info.IsDir() || info.Size() == 0 {
+			return EmitErr("phase-"+phaseLabel(phase)+"-gate: artifact is empty: "+artifact, "")
+		}
+	}
+	return nil
+}
+
+func validatePhase5Gate(c *cobra.Command) error {
+	s, err := OpenDB(c)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if run == nil {
+		return EmitErr("phase-5-gate: no active run", "")
+	}
+	evidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if err := validateReviewEvidence(evidence); err != nil {
+		return EmitErr("phase-5-gate: "+err.Error(), "")
+	}
+	if err := validateBranchPushed(run.Branch); err != nil {
+		return EmitErr("phase-5-gate: "+err.Error(), "")
+	}
+	return nil
+}
+
+func validateReviewEvidence(e *db.ReviewEvidence) error {
+	if e == nil {
+		return fmt.Errorf("approved review evidence is required")
+	}
+	if e.Verdict != "APPROVED" {
+		return fmt.Errorf("latest review evidence verdict is %s", e.Verdict)
+	}
+	if e.PRNumber == "" {
+		return fmt.Errorf("review evidence missing PR number")
+	}
+	if e.BaseSHA == "" || e.HeadSHA == "" {
+		return fmt.Errorf("review evidence missing base/head SHA")
+	}
+	if len(e.PersonasExpected) == 0 || len(e.PersonasRun) == 0 {
+		return fmt.Errorf("review evidence missing persona outputs")
+	}
+	runSet := map[string]bool{}
+	for _, persona := range e.PersonasRun {
+		runSet[persona] = true
+	}
+	for _, persona := range e.PersonasExpected {
+		if !runSet[persona] {
+			return fmt.Errorf("review evidence missing persona %s", persona)
+		}
+	}
+	body, err := os.ReadFile(e.ReviewJSONPath)
+	if err != nil {
+		return fmt.Errorf("review.json not readable: %w", err)
+	}
+	var review reviewpipe.ReviewJSON
+	if err := json.Unmarshal(body, &review); err != nil {
+		return fmt.Errorf("review.json invalid: %w", err)
+	}
+	if review.Verdict != e.Verdict {
+		return fmt.Errorf("review.json verdict %s does not match evidence %s", review.Verdict, e.Verdict)
+	}
+	return nil
+}
+
+func validateBranchPushed(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("run branch is required")
+	}
+	current, err := currentBranch(".")
+	if err != nil {
+		return err
+	}
+	if current != branch {
+		return fmt.Errorf("current branch %s does not match run branch %s", current, branch)
+	}
+	upstream, errb, err := run(".", "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil || strings.TrimSpace(upstream) == "" {
+		return fmt.Errorf("branch is not pushed to an upstream: %s", strings.TrimSpace(errb))
+	}
+	unpushed, errb, err := run(".", "git", "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return fmt.Errorf("cannot verify pushed branch: %s", strings.TrimSpace(errb))
+	}
+	if strings.TrimSpace(unpushed) != "0" {
+		return fmt.Errorf("branch has unpushed commits")
+	}
+	return nil
+}
+
+func validatePhase6Gate(c *cobra.Command) error {
+	s, err := OpenDB(c)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if run == nil {
+		return EmitErr("phase-6-gate: no active run", "")
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if len(records) == 0 {
+		return EmitErr("phase-6-gate: verification ledger is required", "record commands with `codedungeon qa record --phase 6 ...`")
+	}
+	for _, record := range records {
+		if record.Status != "PASS" {
+			return EmitErr("phase-6-gate: verification command failed: "+record.Command, record.LogPath)
+		}
+		info, err := os.Stat(record.LogPath)
+		if err != nil {
+			return EmitErr("phase-6-gate: verification log not found: "+record.LogPath, "")
+		}
+		if info.Size() == 0 {
+			return EmitErr("phase-6-gate: verification log is empty: "+record.LogPath, "")
+		}
+	}
+	return nil
+}
+
+func validatePhase7DoneGate(c *cobra.Command) error {
+	s, err := OpenDB(c)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if run == nil {
+		return EmitErr("phase-7-gate: no active run", "")
+	}
+	if err := validateReportGates(s, run, true, true); err != nil {
+		return EmitErr("phase-7-gate: "+err.Error(), "")
+	}
+	return nil
 }
 
 // orWriteFile is chained on the EmitJSON return of setStatusRun; when writeFile

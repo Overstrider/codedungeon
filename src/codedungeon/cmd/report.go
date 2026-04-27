@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -68,6 +70,10 @@ func reportRenderCmd() *cobra.Command {
 				return EmitErr("no active run", "")
 			}
 
+			if err := validateReportGates(s, run, false, true); err != nil {
+				return EmitErr("report-gate: "+err.Error(), "")
+			}
+
 			repos := aggregateRepos(s, run)
 			phases, _ := s.AllPhases(run.ID)
 			execOrder := buildExecutionOrder(repos)
@@ -100,12 +106,101 @@ func reportRenderCmd() *cobra.Command {
 			if err := writeReportMemoryFiles(root, run, repos, report); err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if err := recordReportEvidence(s, root, run, report); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			fmt.Print(report)
 			return nil
 		},
 	}
 	c.Flags().Bool("bootstrap", false, "force bootstrap template (auto-detected from project_mode)")
 	return c
+}
+
+func validateReportGates(s *db.Store, run *db.Run, requireReportEvidence, requireGitVerify bool) error {
+	phases, err := s.AllPhases(run.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range phases {
+		if p.Phase == "7" {
+			break
+		}
+		if p.Status != "DONE" && p.Status != "SKIPPED" {
+			return fmt.Errorf("phase %s is %s", p.Phase, p.Status)
+		}
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return err
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		return err
+	}
+	if err := validateVerificationRecords(records); err != nil {
+		return err
+	}
+	if requireGitVerify {
+		status, err := gitVerifyStatus(".", run.Branch)
+		if err != nil {
+			return err
+		}
+		if ok, _ := status["ok"].(bool); !ok {
+			return fmt.Errorf("codedungeon git verify did not pass")
+		}
+	}
+	if requireReportEvidence {
+		evidence, err := s.LatestReportEvidence(run.ID)
+		if err != nil {
+			return err
+		}
+		if evidence == nil {
+			return fmt.Errorf("report render evidence is required")
+		}
+		body, err := os.ReadFile(evidence.ReportPath)
+		if err != nil {
+			return fmt.Errorf("report evidence not readable: %w", err)
+		}
+		sum := sha256.Sum256(body)
+		if hex.EncodeToString(sum[:]) != evidence.SHA256 {
+			return fmt.Errorf("report evidence sha mismatch")
+		}
+	}
+	return nil
+}
+
+func validateVerificationRecords(records []db.VerificationRecord) error {
+	if len(records) == 0 {
+		return fmt.Errorf("verification ledger is required")
+	}
+	for _, record := range records {
+		if record.Status != "PASS" {
+			return fmt.Errorf("verification command failed: %s", record.Command)
+		}
+		info, err := os.Stat(record.LogPath)
+		if err != nil {
+			return fmt.Errorf("verification log not found: %s", record.LogPath)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("verification log is empty: %s", record.LogPath)
+		}
+	}
+	return nil
+}
+
+func recordReportEvidence(s *db.Store, root string, run *db.Run, report string) error {
+	reportPath := filepath.Join(root, codedungeonDir, "reports", fmt.Sprintf("run-%d.md", run.ID))
+	sum := sha256.Sum256([]byte(report))
+	_, err := s.InsertReportEvidence(db.ReportEvidence{
+		RunID:      run.ID,
+		ReportPath: reportPath,
+		SHA256:     hex.EncodeToString(sum[:]),
+	})
+	return err
 }
 
 func writeReportMemoryFiles(root string, run *db.Run, repos []reportRepo, report string) error {
@@ -206,6 +301,7 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 			testResult[d] = d
 		}
 	}
+	verification := summarizeVerificationRecords(s, run.ID)
 
 	var repos []reportRepo
 	for _, e := range entries {
@@ -224,7 +320,7 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 			RemainingFindings: "unknown",
 			TasksCompleted:    "unknown",
 			ChangedFiles:      "unknown",
-			Verification:      "unknown",
+			Verification:      verification,
 			NextAction:        "inspect PR review state",
 			IntegrationResult: fallback(matchPrefix(testResult, e.Name+":integration"), "n/a"),
 			APIResult:         fallback(matchPrefix(testResult, e.Name+":api"), "n/a"),
@@ -232,6 +328,18 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 		})
 	}
 	return repos
+}
+
+func summarizeVerificationRecords(s *db.Store, runID int64) string {
+	records, err := s.VerificationRecords(runID, "6")
+	if err != nil || len(records) == 0 {
+		return "missing"
+	}
+	var parts []string
+	for _, r := range records {
+		parts = append(parts, fmt.Sprintf("%s: %s", r.Command, r.Status))
+	}
+	return strings.Join(parts, "; ")
 }
 
 var prNumRE = regexp.MustCompile(`(?:#|PR\s*#?\s*)(\d+)`)

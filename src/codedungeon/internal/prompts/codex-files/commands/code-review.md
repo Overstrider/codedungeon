@@ -14,6 +14,12 @@ PROJECT_RULES_READ: yes|no
 
 Use for standalone adversarial review of the current branch.
 
+Deterministic evidence:
+- Do not write review reports manually.
+- Write `review-manifest.json` with personas, base/head SHA, PR number, and timestamp.
+- Ensure each persona writes its own output, including `findings-saboteur.json`, before aggregation.
+- Run `./.codex/bin/codedungeon review run` to generate `review.md` and `review.json`.
+
 Review power:
 - Cycles 1-3: full adversarial mode.
 - Cycles 4-9: reduced mode. Keep personas, use fast model/effort, and focus on fixes/new diff.

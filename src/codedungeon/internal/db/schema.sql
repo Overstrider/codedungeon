@@ -1,4 +1,4 @@
--- codedungeon schema v7
+-- codedungeon schema v8
 -- SQLite with FTS5. Pure-Go driver (modernc.org/sqlite).
 -- All times are unix seconds (INTEGER).
 
@@ -93,6 +93,45 @@ CREATE TABLE IF NOT EXISTS findings (
 
 CREATE INDEX IF NOT EXISTS idx_findings_run ON findings(run_id, cycle);
 
+CREATE TABLE IF NOT EXISTS review_evidence (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    review_dir        TEXT    NOT NULL,
+    review_json_path  TEXT    NOT NULL,
+    manifest_path     TEXT    NOT NULL,
+    verdict           TEXT    NOT NULL,
+    pr_number         TEXT    NOT NULL,
+    base_sha          TEXT    NOT NULL,
+    head_sha          TEXT    NOT NULL,
+    personas_expected TEXT    NOT NULL,
+    personas_run      TEXT    NOT NULL,
+    created_at        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_evidence_run ON review_evidence(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS verification_records (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    phase      TEXT    NOT NULL,
+    command    TEXT    NOT NULL,
+    status     TEXT    NOT NULL,
+    log_path   TEXT    NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_records_run_phase ON verification_records(run_id, phase, created_at);
+
+CREATE TABLE IF NOT EXISTS report_evidence (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    report_path TEXT    NOT NULL,
+    sha256      TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_evidence_run ON report_evidence(run_id, created_at);
+
 -- FTS5 virtual tables (external content — mirror rowid of source table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_handoffs USING fts5(
     summary, decisions, traps, rendered_md,
@@ -179,6 +218,6 @@ CREATE TABLE IF NOT EXISTS installed_artifacts (
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '7');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '8');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_reasoning_effort', '');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_fast_effort', '');

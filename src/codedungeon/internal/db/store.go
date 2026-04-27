@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "7"
+const SchemaVersion = "8"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -571,6 +571,131 @@ func (s *Store) MaxFindingCycle(runID int64) (int, error) {
 	var max int
 	err := s.DB.QueryRow(`SELECT COALESCE(MAX(cycle), 0) FROM findings WHERE run_id=?`, runID).Scan(&max)
 	return max, err
+}
+
+// ===== Gate evidence =====
+
+type ReviewEvidence struct {
+	ID               int64
+	RunID            int64
+	ReviewDir        string
+	ReviewJSONPath   string
+	ManifestPath     string
+	Verdict          string
+	PRNumber         string
+	BaseSHA          string
+	HeadSHA          string
+	PersonasExpected []string
+	PersonasRun      []string
+	CreatedAt        int64
+}
+
+func (s *Store) InsertReviewEvidence(e ReviewEvidence) (int64, error) {
+	expected, _ := json.Marshal(e.PersonasExpected)
+	run, _ := json.Marshal(e.PersonasRun)
+	res, err := s.DB.Exec(`
+        INSERT INTO review_evidence
+          (run_id, review_dir, review_json_path, manifest_path, verdict,
+           pr_number, base_sha, head_sha, personas_expected, personas_run, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		e.RunID, e.ReviewDir, e.ReviewJSONPath, e.ManifestPath, e.Verdict,
+		e.PRNumber, e.BaseSHA, e.HeadSHA, string(expected), string(run), time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) LatestReviewEvidence(runID int64) (*ReviewEvidence, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, review_dir, review_json_path, manifest_path, verdict,
+               pr_number, base_sha, head_sha, personas_expected, personas_run, created_at
+        FROM review_evidence WHERE run_id=? ORDER BY created_at DESC, id DESC LIMIT 1`, runID)
+	var e ReviewEvidence
+	var expected, run string
+	if err := row.Scan(&e.ID, &e.RunID, &e.ReviewDir, &e.ReviewJSONPath, &e.ManifestPath, &e.Verdict,
+		&e.PRNumber, &e.BaseSHA, &e.HeadSHA, &expected, &run, &e.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(expected), &e.PersonasExpected)
+	_ = json.Unmarshal([]byte(run), &e.PersonasRun)
+	return &e, nil
+}
+
+type VerificationRecord struct {
+	ID        int64
+	RunID     int64
+	Phase     string
+	Command   string
+	Status    string
+	LogPath   string
+	CreatedAt int64
+}
+
+func (s *Store) InsertVerificationRecord(r VerificationRecord) (int64, error) {
+	res, err := s.DB.Exec(`
+        INSERT INTO verification_records(run_id, phase, command, status, log_path, created_at)
+        VALUES (?,?,?,?,?,?)`,
+		r.RunID, r.Phase, r.Command, r.Status, r.LogPath, time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) VerificationRecords(runID int64, phase string) ([]VerificationRecord, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, run_id, phase, command, status, log_path, created_at
+        FROM verification_records WHERE run_id=? AND phase=?
+        ORDER BY created_at, id`, runID, phase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []VerificationRecord
+	for rows.Next() {
+		var r VerificationRecord
+		if err := rows.Scan(&r.ID, &r.RunID, &r.Phase, &r.Command, &r.Status, &r.LogPath, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+type ReportEvidence struct {
+	ID         int64
+	RunID      int64
+	ReportPath string
+	SHA256     string
+	CreatedAt  int64
+}
+
+func (s *Store) InsertReportEvidence(e ReportEvidence) (int64, error) {
+	res, err := s.DB.Exec(`
+        INSERT INTO report_evidence(run_id, report_path, sha256, created_at)
+        VALUES (?,?,?,?)`, e.RunID, e.ReportPath, e.SHA256, time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) LatestReportEvidence(runID int64) (*ReportEvidence, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, report_path, sha256, created_at
+        FROM report_evidence WHERE run_id=? ORDER BY created_at DESC, id DESC LIMIT 1`, runID)
+	var e ReportEvidence
+	if err := row.Scan(&e.ID, &e.RunID, &e.ReportPath, &e.SHA256, &e.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &e, nil
 }
 
 // ===== Tasks =====

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +15,14 @@ import (
 	"github.com/loldinis/codedungeon/internal/provider"
 	"github.com/loldinis/codedungeon/internal/reviewpipe"
 )
+
+type reviewManifest struct {
+	PersonasExpected []string `json:"personas_expected"`
+	BaseSHA          string   `json:"base_sha"`
+	HeadSHA          string   `json:"head_sha"`
+	PRNumber         string   `json:"pr_number"`
+	Timestamp        string   `json:"timestamp"`
+}
 
 // persistFindings writes each finding into the findings table of the active
 // run so FTS5 search picks them up. Best-effort: silent on error (findings are
@@ -80,15 +91,18 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			if _, err := os.Stat(dir); err != nil {
 				return EmitErr("findings dir not found: "+dir, "create it or pass --dir")
 			}
+			manifest, manifestPath, err := loadAndValidateReviewManifest(dir)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
 
 			// ---- Step 6: dedupe + promote ----
 			personaFindings, personas, err := reviewpipe.LoadPersonaFindings(dir)
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			if len(personaFindings) == 0 {
-				// Still run through to produce an APPROVED verdict with empty results.
-				fmt.Fprintln(os.Stderr, "[WARN] no persona findings loaded from", dir)
+			if err := validateManifestPersonas(dir, manifest.PersonasExpected, personas); err != nil {
+				return EmitErr(err.Error(), "")
 			}
 			merged := reviewpipe.DedupeAndPromote(personaFindings)
 			merged, suppressed := reviewpipe.ApplyNitCap(merged, nitCap)
@@ -160,6 +174,7 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			}
 			// Persist findings into DB so FTS5 search + history work across runs.
 			persistFindings(store, merged, cycle)
+			persistReviewEvidence(store, dir, manifestPath, manifest, rj)
 			if only == "render" {
 				return EmitJSON(map[string]any{"ok": true, "step": "render", "path_md": filepath.Join(dir, "review.md"), "path_json": filepath.Join(dir, "review.json")})
 			}
@@ -183,6 +198,103 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 	c.Flags().String("stack-specialist", "", "e.g. rust-specialist (optional)")
 	c.Flags().Int("cycle", 0, "adversarial review cycle (0 = auto-detect as MAX(cycle)+1)")
 	return c
+}
+
+func loadAndValidateReviewManifest(dir string) (reviewManifest, string, error) {
+	path := filepath.Join(dir, "review-manifest.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return reviewManifest{}, path, fmt.Errorf("review-manifest.json required in %s", dir)
+		}
+		return reviewManifest{}, path, fmt.Errorf("read review-manifest.json: %w", err)
+	}
+	var m reviewManifest
+	if err := json.Unmarshal(body, &m); err != nil {
+		return reviewManifest{}, path, fmt.Errorf("unmarshal review-manifest.json: %w", err)
+	}
+	if len(m.PersonasExpected) == 0 {
+		return reviewManifest{}, path, fmt.Errorf("review-manifest.json missing personas_expected")
+	}
+	if m.BaseSHA == "" || m.HeadSHA == "" {
+		return reviewManifest{}, path, fmt.Errorf("review-manifest.json requires base_sha and head_sha")
+	}
+	if m.PRNumber == "" {
+		return reviewManifest{}, path, fmt.Errorf("review-manifest.json requires pr_number")
+	}
+	if m.Timestamp == "" {
+		return reviewManifest{}, path, fmt.Errorf("review-manifest.json requires timestamp")
+	}
+	if _, err := time.Parse(time.RFC3339, m.Timestamp); err != nil {
+		return reviewManifest{}, path, fmt.Errorf("review-manifest.json timestamp must be RFC3339: %w", err)
+	}
+	m.PersonasExpected = uniqueSorted(m.PersonasExpected)
+	return m, path, nil
+}
+
+func validateManifestPersonas(dir string, expected, loaded []string) error {
+	if len(loaded) == 0 {
+		return fmt.Errorf("no persona outputs found in %s", dir)
+	}
+	loadedSet := map[string]bool{}
+	for _, p := range loaded {
+		loadedSet[p] = true
+	}
+	for _, persona := range expected {
+		if !loadedSet[persona] {
+			return fmt.Errorf("missing persona output: findings-%s.json", persona)
+		}
+		path := filepath.Join(dir, "findings-"+persona+".json")
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		var pf reviewpipe.PersonaFile
+		if err := json.Unmarshal(body, &pf); err != nil {
+			var arr []reviewpipe.Finding
+			if aerr := json.Unmarshal(body, &arr); aerr != nil {
+				return fmt.Errorf("unmarshal %s: %w", path, err)
+			}
+		}
+	}
+	return nil
+}
+
+func persistReviewEvidence(store *db.Store, dir, manifestPath string, manifest reviewManifest, review reviewpipe.ReviewJSON) {
+	if store == nil {
+		return
+	}
+	run, err := store.CurrentRun()
+	if err != nil || run == nil {
+		return
+	}
+	_, _ = store.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            run.ID,
+		ReviewDir:        dir,
+		ReviewJSONPath:   filepath.Join(dir, "review.json"),
+		ManifestPath:     manifestPath,
+		Verdict:          review.Verdict,
+		PRNumber:         manifest.PRNumber,
+		BaseSHA:          manifest.BaseSHA,
+		HeadSHA:          manifest.HeadSHA,
+		PersonasExpected: manifest.PersonasExpected,
+		PersonasRun:      uniqueSorted(review.PersonasRun),
+	})
+}
+
+func uniqueSorted(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func reviewContextPathsCmd() *cobra.Command {

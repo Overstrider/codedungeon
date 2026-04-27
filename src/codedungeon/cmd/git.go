@@ -109,44 +109,48 @@ func gitVerifyCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			repo, _ := c.Flags().GetString("repo")
 			branch, _ := c.Flags().GetString("branch")
-			if branch == "" {
-				b, err := currentBranch(repo)
-				if err != nil {
-					return EmitErr(err.Error(), "")
-				}
-				branch = b
+			status, err := gitVerifyStatus(repo, branch)
+			if err != nil {
+				return EmitErr(err.Error(), "")
 			}
-			// protected?
-			for _, p := range protectedBranches {
-				if branch == p {
-					return EmitErr("on protected branch: "+branch, "")
-				}
-			}
-			// unpushed?
-			unpushed, _, _ := run(repo, "git", "log", fmt.Sprintf("origin/%s..%s", branch, branch), "--oneline")
-			// PR number
-			prNum, _, _ := run(repo, "gh", "pr", "list", "--head", branch, "--json", "number", "-q", ".[0].number")
-			// review posted?
-			reviewCount := "0"
-			if prNum != "" {
-				marker := provider.Detect().ReviewCommentMarker()
-				reviewCount, _, _ = run(repo, "gh", "pr", "view", prNum, "--comments", "--json", "comments", "-q",
-					fmt.Sprintf(`[.comments[] | select(.body | test("%s"))] | length`, marker))
-			}
-			pass := prNum != "" && reviewCount != "0"
-			return EmitJSON(map[string]any{
-				"ok":              pass,
-				"branch":          branch,
-				"protected":       false,
-				"unpushed_commits": strings.Count(unpushed, "\n") + boolToInt(unpushed != ""),
-				"pr_number":       prNum,
-				"adv_review_count": reviewCount,
-			})
+			return EmitJSON(status)
 		},
 	}
 	c.Flags().String("repo", ".", "repo dir")
 	c.Flags().String("branch", "", "branch (default: current)")
 	return c
+}
+
+func gitVerifyStatus(repo, branch string) (map[string]any, error) {
+	if branch == "" {
+		b, err := currentBranch(repo)
+		if err != nil {
+			return nil, err
+		}
+		branch = b
+	}
+	for _, p := range protectedBranches {
+		if branch == p {
+			return nil, fmt.Errorf("on protected branch: %s", branch)
+		}
+	}
+	unpushed, _, _ := run(repo, "git", "log", fmt.Sprintf("origin/%s..%s", branch, branch), "--oneline")
+	prNum, _, _ := run(repo, "gh", "pr", "list", "--head", branch, "--json", "number", "-q", ".[0].number")
+	reviewCount := "0"
+	if prNum != "" {
+		marker := provider.Detect().ReviewCommentMarker()
+		reviewCount, _, _ = run(repo, "gh", "pr", "view", prNum, "--comments", "--json", "comments", "-q",
+			fmt.Sprintf(`[.comments[] | select(.body | test("%s"))] | length`, marker))
+	}
+	pass := prNum != "" && reviewCount != "0" && strings.TrimSpace(unpushed) == ""
+	return map[string]any{
+		"ok":               pass,
+		"branch":           branch,
+		"protected":        false,
+		"unpushed_commits": strings.Count(unpushed, "\n") + boolToInt(unpushed != ""),
+		"pr_number":        prNum,
+		"adv_review_count": reviewCount,
+	}, nil
 }
 
 func gitDiffCmd() *cobra.Command {

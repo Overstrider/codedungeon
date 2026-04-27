@@ -16,6 +16,13 @@ Minimal CodeDungeon workflow for a small Codex task that still needs branch, com
 
 Use when the request can be handled by one planner pass and one implementation pass. Do not split into task files, do not run the full phase pipeline, and do not call `codedungeon-loop`.
 
+## Evidence Gates
+
+- Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
+- Do not write final reports manually. COMPLETE can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
+- Record every concrete build/check/test command with `./.codex/bin/codedungeon qa record --phase 6 --cmd "<cmd>" --status PASS|FAIL --log <path>`.
+- Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+
 Steps:
 - Validate setup, git repo state, `origin`, and `gh auth status` before editing.
 - Write a short plan to `.codedungeon/plans/one-shot/PLAN.md`.
