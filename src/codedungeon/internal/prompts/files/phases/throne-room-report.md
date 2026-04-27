@@ -26,7 +26,7 @@ codedungeon git verify --repo "$REPO_DIR" --branch "$BRANCH_NAME"
 
 Expected `ok: true`. If any `ok: false`, record the failure and do **not**
 render the report until fixed (absolute guarantee: all commits pushed, PR
-exists, adversarial review posted).
+exists and remains open, adversarial review posted through `codedungeon review post`).
 
 For every repo, final output must include a CodeDungeon PR Report block. `Status
 COMPLETE` is valid only when `codedungeon git verify` returns `ok: true` and
@@ -50,7 +50,7 @@ The emitted final report must include, per repo:
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      main-quest
 | PR            #<number> <url>
 | Branch        <branch>

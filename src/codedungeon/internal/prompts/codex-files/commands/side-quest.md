@@ -17,9 +17,12 @@ Use for simple single-repo changes that should be split into a few explicit task
 ## Evidence Gates
 
 - Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
-- Do not write final reports manually. COMPLETE can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
-- Record every concrete build/check/test command with `./.codex/bin/codedungeon qa record --phase 6 --cmd "<cmd>" --status PASS|FAIL --log <path>`.
+- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
+- Execute every concrete build/check/test command with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+- This workflow may execute steps only when `CODEDUNGEON_SESSION_TOKEN` is set. Otherwise run `./.codex/bin/codedungeon run --lite --prompt "<prompt>"`.
+- Post review evidence with `./.codex/bin/codedungeon review post`; arbitrary marker comments do not satisfy `git verify`.
+- Do not merge PRs. The user performs final review and merge.
 
 Steps:
 - Resolve or write a short plan under `.codedungeon/plans/`.
@@ -29,7 +32,7 @@ Steps:
 - Commit, push, and create or reuse a GitHub PR.
 - Run `$code-review`; fix requested changes and rerun review for up to 9 cycles.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
-- Return the standard CodeDungeon PR Report. `COMPLETE` requires pushed branch, PR URL, adversarial review comment, and `APPROVED` verdict.
+- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict.
 
 Return format:
 
@@ -37,7 +40,7 @@ Return format:
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      side-quest
 | PR            #<number> <url>
 | Branch        <branch>

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -65,6 +67,7 @@ func persistFindings(store *db.Store, findings []reviewpipe.Finding, cycle int) 
 func ReviewCmd() *cobra.Command {
 	c := &cobra.Command{Use: "review", Short: "Adversarial review pipeline (dedupe→filter→classify→render→verdict)"}
 	c.AddCommand(reviewRunCmd())
+	c.AddCommand(reviewPostCmd())
 	c.AddCommand(reviewContextPathsCmd())
 	return c
 }
@@ -153,6 +156,11 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			store, _ := OpenDB(c) // best-effort; Render falls back to embedded when nil
 			if store != nil {
 				defer store.Close()
+				if run, rErr := store.CurrentRun(); rErr == nil && run != nil {
+					if err := requireAutonomousCustody(store, run.ID, "review run"); err != nil {
+						return err
+					}
+				}
 			}
 			validatorLabel := validatorModel
 			if len(validators) == 0 {
@@ -255,6 +263,15 @@ func validateManifestPersonas(dir string, expected, loaded []string) error {
 			if aerr := json.Unmarshal(body, &arr); aerr != nil {
 				return fmt.Errorf("unmarshal %s: %w", path, err)
 			}
+			pf = reviewpipe.PersonaFile{Persona: persona, Findings: arr}
+		}
+		if len(pf.Findings) == 0 {
+			if strings.TrimSpace(pf.NoFindingsRationale) == "" {
+				return fmt.Errorf("%s has zero findings but no no_findings_rationale", path)
+			}
+			if pf.ReviewedFiles <= 0 {
+				return fmt.Errorf("%s has zero findings but reviewed_files is zero", path)
+			}
 		}
 	}
 	return nil
@@ -295,6 +312,97 @@ func uniqueSorted(in []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func reviewPostCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "post",
+		Short: "Post generated review.md to the GitHub PR and record comment custody",
+		RunE: func(c *cobra.Command, _ []string) error {
+			dir, _ := c.Flags().GetString("dir")
+			if dir == "" {
+				dir = projectPath(currentProjectRoot(), filepath.Join(provider.Detect().ReviewsDir(), "adv-review"))
+			}
+			bodyBytes, err := os.ReadFile(filepath.Join(dir, "review.md"))
+			if err != nil {
+				return EmitErr("read review.md: "+err.Error(), "")
+			}
+			body := string(bodyBytes)
+			marker := provider.Detect().ReviewCommentMarker()
+			if !strings.Contains(body, marker) {
+				body = "## " + marker + "\n\n" + body
+			}
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			runRow, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if runRow == nil {
+				return EmitErr("no active run", "")
+			}
+			if err := requireAutonomousCustody(s, runRow.ID, "review post"); err != nil {
+				return err
+			}
+			evidence, err := s.LatestReviewEvidence(runRow.ID)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if err := validateReviewEvidence(evidence); err != nil {
+				return EmitErr("review post gate: "+err.Error(), "")
+			}
+			repoName, errb, err := run(".", "gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
+			if err != nil {
+				return EmitErr("gh repo view failed: "+errb, "")
+			}
+			input, err := os.CreateTemp("", "codedungeon-review-*.json")
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer os.Remove(input.Name())
+			payload, _ := json.Marshal(map[string]string{"body": body})
+			if _, err := input.Write(payload); err != nil {
+				_ = input.Close()
+				return EmitErr(err.Error(), "")
+			}
+			_ = input.Close()
+			out, errb, err := run(".", "gh", "api", "-X", "POST",
+				fmt.Sprintf("/repos/%s/issues/%s/comments", strings.TrimSpace(repoName), evidence.PRNumber),
+				"--input", input.Name())
+			if err != nil {
+				return EmitErr("gh api review comment failed: "+errb, "")
+			}
+			var posted struct {
+				ID      int64  `json:"id"`
+				HTMLURL string `json:"html_url"`
+				User    struct {
+					Login string `json:"login"`
+				} `json:"user"`
+			}
+			if err := json.Unmarshal([]byte(out), &posted); err != nil {
+				return EmitErr("parse posted comment: "+err.Error(), "")
+			}
+			sum := sha256.Sum256([]byte(strings.TrimSpace(body)))
+			id, err := s.InsertPRReviewPost(db.PRReviewPost{
+				RunID:            runRow.ID,
+				ReviewEvidenceID: evidence.ID,
+				PRNumber:         evidence.PRNumber,
+				CommentID:        fmt.Sprintf("%d", posted.ID),
+				CommentURL:       posted.HTMLURL,
+				BodySHA256:       hex.EncodeToString(sum[:]),
+				PostedBy:         posted.User.Login,
+			})
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": true, "id": id, "pr_number": evidence.PRNumber, "comment_url": posted.HTMLURL})
+		},
+	}
+	c.Flags().String("dir", "", "review dir (default .codedungeon/reviews/adv-review)")
+	return c
 }
 
 func reviewContextPathsCmd() *cobra.Command {

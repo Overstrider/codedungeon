@@ -459,6 +459,9 @@ func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []str
 	if run == nil {
 		return runResult{err: EmitErr("no active run — run `codedungeon phase init` first", "")}
 	}
+	if err := requireAutonomousCustody(s, run.ID, "phase state mutation"); err != nil {
+		return runResult{err: err}
+	}
 	if err := s.SetPhaseStatus(run.ID, phase, status, notes, artifacts); err != nil {
 		return runResult{err: EmitErr(err.Error(), "")}
 	}

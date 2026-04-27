@@ -40,10 +40,10 @@ db         init, migrate, search, export
 phase      init, start, done, skip, fail, next, info, config, render-state
 prompts    get, list, set, diff
 repo       discover, resolve, check-test-auth
-review     (Sprint 3) run
+review     run, post
 plan       (Sprint 4) meta, append-fix-tasks
 git        guard, pr, verify, diff
-qa         (Sprint 5) validate-api, detect-framework
+qa         validate-api, detect-framework, run
 report     render
 cleanup    (Sprint 5)
 ```
@@ -64,8 +64,8 @@ Default output: JSON on stdout. Logs on stderr. Exit 0/1/2.
 # 0) Bootstrap (once per project)
 codedungeon bootstrap
 
-# 1) Start a pipeline
-codedungeon phase init --feature "add X" --branch feat/x --mode FRESH
+# 1) Start an autonomous pipeline
+codedungeon run --full --prompt "add X"
 
 # 2) Discover repos (auto-populates REPO_MAP, upserts CLAUDE.md)
 codedungeon repo discover --write-claude-md --persist
@@ -83,7 +83,7 @@ codedungeon phase done 5 \
 # 4) Orchestrator
 codedungeon phase render-state
 
-# 5) Final
+# 5) Final leaves the PR open for human review/merge
 codedungeon report render
 ```
 

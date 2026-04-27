@@ -161,13 +161,13 @@ If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHAN
 
 ## Step 7: Report
 
-Always return this exact format. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, and the final verdict is `APPROVED`.
+Always return this exact format. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, and the final verdict is `APPROVED`. Do not merge; the user performs final review and merge.
 
 ```text
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      one-shot
 | PR            #<number> <url>
 | Branch        <branch>

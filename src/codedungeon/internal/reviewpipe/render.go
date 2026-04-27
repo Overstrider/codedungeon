@@ -31,27 +31,27 @@ func resolvePrompt(src PromptSource, name string) (string, error) {
 
 // RenderView is the data passed to the markdown template.
 type RenderView struct {
-	Verdict          string
-	PersonasStr      string
-	ValidatorModel   string
-	ClassifierModel  string
-	StackSpecialist  string
-	Actionable       []findingView
-	DesignDecisions  []findingView
-	Tally            Tally
-	TallyJSON        string
+	Verdict         string
+	PersonasStr     string
+	ValidatorModel  string
+	ClassifierModel string
+	StackSpecialist string
+	Actionable      []findingView
+	DesignDecisions []findingView
+	Tally           Tally
+	TallyJSON       string
 }
 
 type findingView struct {
-	Severity               string
-	Title                  string
-	File                   string
-	LineStart              int
-	LineEnd                int
-	FlaggedByStr           string
-	EvidenceQuote          string
-	SuggestedFix           string
-	WhyItMattersOrScenario string
+	Severity                 string
+	Title                    string
+	File                     string
+	LineStart                int
+	LineEnd                  int
+	FlaggedByStr             string
+	EvidenceQuote            string
+	SuggestedFix             string
+	WhyItMattersOrScenario   string
 	ClassifierEvidenceSource string
 	ClassifierEvidenceQuote  string
 	ClassifierRationale      string
@@ -90,6 +90,9 @@ func Verdict(t Tally) string {
 // Render produces the review.md body and the review.json content.
 // Pass `src` as a *db.Store to honor DB-versioned prompts; pass nil for embedded-only.
 func Render(src PromptSource, findings []Finding, tally Tally, verdict string, personas []string, validatorModel, classifierModel, stackSpec string) (md string, review ReviewJSON, err error) {
+	if findings == nil {
+		findings = []Finding{}
+	}
 	tpl, err := resolvePrompt(src, "review-md-template")
 	if err != nil {
 		return "", ReviewJSON{}, err
@@ -150,13 +153,13 @@ func Render(src PromptSource, findings []Finding, tally Tally, verdict string, p
 	md = buf.String()
 
 	review = ReviewJSON{
-		Verdict:          verdict,
-		Tally:            tally,
-		Findings:         findings,
-		PersonasRun:      personas,
-		ValidatorModel:   validatorModel,
-		ClassifierModel:  classifierModel,
-		StackSpecialist:  stackSpec,
+		Verdict:         verdict,
+		Tally:           tally,
+		Findings:        findings,
+		PersonasRun:     personas,
+		ValidatorModel:  validatorModel,
+		ClassifierModel: classifierModel,
+		StackSpecialist: stackSpec,
 	}
 	return md, review, nil
 }

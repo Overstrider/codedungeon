@@ -26,7 +26,7 @@ Loop:
 
 `APPROVED does not replace verification`. Reviews are judgment gates; they do not prove the code compiles, tests pass, or container images build.
 
-Before marking a task complete, before commit/push, and before returning `Status COMPLETE`:
+Before marking a task complete, before commit/push, and before returning `Status READY_FOR_USER_REVIEW`:
 
 1. Run `./.codex/bin/codedungeon qa detect-framework --path "$REPO_DIR"`.
 2. Run the detected build/check/test command.
@@ -34,4 +34,4 @@ Before marking a task complete, before commit/push, and before returning `Status
 4. If `Dockerfile` or `Containerfile` changed, run `podman build -t codedungeon-verify "$REPO_DIR"`.
 5. If no verification command is identifiable, or if required `podman build` cannot run, return `Status BLOCKED`.
 
-For `Status COMPLETE`, the CodeDungeon PR Report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` with the blocker. `APPROVED does not replace verification`.
+For `Status READY_FOR_USER_REVIEW`, the CodeDungeon PR Report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` with the blocker. `APPROVED does not replace verification`.

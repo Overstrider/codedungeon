@@ -16,6 +16,7 @@ import (
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/manifest"
 	"github.com/loldinis/codedungeon/internal/osadapter"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 func QACmd() *cobra.Command {
@@ -23,6 +24,77 @@ func QACmd() *cobra.Command {
 	c.AddCommand(qaValidateAPICmd())
 	c.AddCommand(qaDetectFrameworkCmd())
 	c.AddCommand(qaRecordCmd())
+	c.AddCommand(qaRunCmd())
+	return c
+}
+
+func qaRunCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "run",
+		Short: "Execute and record a concrete verification command",
+		RunE: func(c *cobra.Command, _ []string) error {
+			phase, _ := c.Flags().GetString("phase")
+			command, _ := c.Flags().GetString("cmd")
+			cwd, _ := c.Flags().GetString("cwd")
+			if phase == "" {
+				return EmitErr("--phase is required", "")
+			}
+			if command == "" {
+				return EmitErr("--cmd is required", "")
+			}
+			if cwd == "" {
+				cwd = "."
+			}
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			run, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if run == nil {
+				return EmitErr("no active run", "run `codedungeon phase init` first")
+			}
+			if err := requireAutonomousCustody(s, run.ID, "qa run"); err != nil {
+				return err
+			}
+
+			ad := osadapter.Detect()
+			stdout, stderr, execErr := ad.RunShell(cwd, command)
+			status := "PASS"
+			if execErr != nil {
+				status = "FAIL"
+			}
+			logDir := projectPath(currentProjectRoot(), filepath.Join(provider.Detect().StateDir(), "qa-logs"))
+			if err := os.MkdirAll(logDir, 0o755); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			logPath := filepath.Join(logDir, fmt.Sprintf("phase-%s-%d.log", phaseLabel(phase), time.Now().UnixNano()))
+			body := fmt.Sprintf("$ %s\n\n[stdout]\n%s\n\n[stderr]\n%s\n", command, stdout, stderr)
+			if execErr != nil {
+				body += fmt.Sprintf("\n[error]\n%v\n", execErr)
+			}
+			if err := os.WriteFile(logPath, []byte(body), 0o644); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			id, err := s.InsertVerificationRecord(db.VerificationRecord{
+				RunID:   run.ID,
+				Phase:   phase,
+				Command: command,
+				Status:  status,
+				LogPath: logPath,
+			})
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": execErr == nil, "id": id, "phase": phase, "status": status, "log": logPath})
+		},
+	}
+	c.Flags().String("phase", "", "phase number, usually 6")
+	c.Flags().String("cmd", "", "verification command to execute")
+	c.Flags().String("cwd", ".", "working directory for command")
 	return c
 }
 
@@ -66,6 +138,11 @@ func qaRecordCmd() *cobra.Command {
 			}
 			if run == nil {
 				return EmitErr("no active run", "run `codedungeon phase init` first")
+			}
+			if sess, err := s.ActiveRunSession(run.ID); err != nil {
+				return EmitErr(err.Error(), "")
+			} else if sess != nil {
+				return EmitErr("qa record disabled during autonomous session", "use `codedungeon qa run --phase 6 --cmd \"...\"`")
 			}
 			id, err := s.InsertVerificationRecord(db.VerificationRecord{
 				RunID:   run.ID,

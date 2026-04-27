@@ -1,4 +1,4 @@
-=== MAIN QUEST COMPLETE (BOOTSTRAP) ===
+=== CODEDUNGEON READY_FOR_USER_REVIEW (BOOTSTRAP) ===
 
 Project: {{.Feature}}
 Mode: BOOTSTRAP (created from scratch)
@@ -16,7 +16,7 @@ PR Report:
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        {{.Status}}
+| Status        READY_FOR_USER_REVIEW
 | Workflow      main-quest
 | PR            #{{.PRNumber}} {{.PRURL}}
 | Branch        {{.Branch}}

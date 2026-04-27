@@ -1,4 +1,4 @@
--- codedungeon schema v8
+-- codedungeon schema v9
 -- SQLite with FTS5. Pure-Go driver (modernc.org/sqlite).
 -- All times are unix seconds (INTEGER).
 
@@ -132,6 +132,46 @@ CREATE TABLE IF NOT EXISTS report_evidence (
 
 CREATE INDEX IF NOT EXISTS idx_report_evidence_run ON report_evidence(run_id, created_at);
 
+CREATE TABLE IF NOT EXISTS run_sessions (
+    id              TEXT PRIMARY KEY,
+    run_id          INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    provider        TEXT    NOT NULL,
+    mode            TEXT    NOT NULL,
+    token_sha256    TEXT    NOT NULL,
+    status          TEXT    NOT NULL, -- RUNNING | READY_FOR_USER_REVIEW | COMPLETED | FAILED | ABORTED
+    started_at      INTEGER NOT NULL,
+    finished_at     INTEGER,
+    failure_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_sessions_run ON run_sessions(run_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_run_sessions_status ON run_sessions(status);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT,
+    event      TEXT    NOT NULL,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS pr_review_posts (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id             INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    review_evidence_id INTEGER REFERENCES review_evidence(id) ON DELETE SET NULL,
+    pr_number          TEXT    NOT NULL,
+    comment_id         TEXT    NOT NULL,
+    comment_url        TEXT    NOT NULL,
+    body_sha256        TEXT    NOT NULL,
+    posted_by          TEXT    NOT NULL,
+    created_at         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pr_review_posts_run ON pr_review_posts(run_id, created_at);
+
 -- FTS5 virtual tables (external content — mirror rowid of source table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_handoffs USING fts5(
     summary, decisions, traps, rendered_md,
@@ -218,6 +258,6 @@ CREATE TABLE IF NOT EXISTS installed_artifacts (
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '8');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '9');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_reasoning_effort', '');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_fast_effort', '');

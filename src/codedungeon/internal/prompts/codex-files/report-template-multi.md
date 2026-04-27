@@ -1,4 +1,4 @@
-=== CODEDUNGEON COMPLETE ===
+=== CODEDUNGEON READY_FOR_USER_REVIEW ===
 
 Feature: {{.Feature}}
 Mode: {{.Mode}}
@@ -18,7 +18,7 @@ PR Reports:
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        {{.Verdict}}
+| Status        READY_FOR_USER_REVIEW
 | Workflow      main-quest
 | PR            #{{.PRNumber}} {{.PRURL}}
 | Branch        {{.Branch}}
@@ -43,7 +43,7 @@ PR
 {{.PRURL}}
 
 Next
-{{.NextAction}}
+Human review and merge PR #{{.PRNumber}} when satisfied.
 {{- end }}
 
 Test Results:
@@ -68,5 +68,5 @@ Pipeline phases:
 
 Next steps:
   1. Review the PRs
-  2. Merge in order: {{.ExecutionOrder}}
-  3. Deploy
+  2. Human merges in order when satisfied: {{.ExecutionOrder}}
+  3. Deploy after human merge

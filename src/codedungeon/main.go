@@ -53,6 +53,7 @@ func main() {
 	root.AddCommand(cmd.RulesCmd())
 	root.AddCommand(cmd.HooksCmd())
 	root.AddCommand(cmd.SetupCmd())
+	root.AddCommand(cmd.RunCmd())
 
 	root.RunE = func(c *cobra.Command, args []string) error {
 		cwd, _ := os.Getwd()

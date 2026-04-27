@@ -77,6 +77,9 @@ func repoDiscoverCmd() *cobra.Command {
 					defer s.Close()
 					run, _ := s.CurrentRun()
 					if run != nil {
+						if err := requireAutonomousCustody(s, run.ID, "repo map persistence"); err != nil {
+							return err
+						}
 						b, _ := json.Marshal(result.RepoMap)
 						_ = s.SetRunJSON(run.ID, "repo_map", b)
 						_ = s.UpdateRunConfig(run.ID, "project_mode", result.ProjectMode)

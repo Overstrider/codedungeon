@@ -223,13 +223,13 @@ Wait for the agent to complete. Parse its output for the required fields.
 
 ### Step 4: Report
 
-Emit the standard final summary. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, and the final verdict is `APPROVED`:
+Emit the standard final summary. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, and the final verdict is `APPROVED`. Do not merge; the user performs final review and merge:
 
 ```
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      side-quest
 | PR            #<number> <url>
 | Branch        <branch>

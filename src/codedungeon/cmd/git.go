@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -136,21 +138,65 @@ func gitVerifyStatus(repo, branch string) (map[string]any, error) {
 	}
 	unpushed, _, _ := run(repo, "git", "log", fmt.Sprintf("origin/%s..%s", branch, branch), "--oneline")
 	prNum, _, _ := run(repo, "gh", "pr", "list", "--head", branch, "--json", "number", "-q", ".[0].number")
-	reviewCount := "0"
+	prOpen := false
 	if prNum != "" {
-		marker := provider.Detect().ReviewCommentMarker()
-		reviewCount, _, _ = run(repo, "gh", "pr", "view", prNum, "--comments", "--json", "comments", "-q",
-			fmt.Sprintf(`[.comments[] | select(.body | test("%s"))] | length`, marker))
+		state, _, _ := run(repo, "gh", "pr", "view", prNum, "--json", "state", "-q", ".state")
+		prOpen = strings.TrimSpace(state) == "OPEN"
 	}
-	pass := prNum != "" && reviewCount != "0" && strings.TrimSpace(unpushed) == ""
+	reviewOK, reviewDetail := recordedReviewCommentOK(repo, prNum)
+	pass := prNum != "" && prOpen && reviewOK && strings.TrimSpace(unpushed) == ""
 	return map[string]any{
-		"ok":               pass,
-		"branch":           branch,
-		"protected":        false,
-		"unpushed_commits": strings.Count(unpushed, "\n") + boolToInt(unpushed != ""),
-		"pr_number":        prNum,
-		"adv_review_count": reviewCount,
+		"ok":                      pass,
+		"branch":                  branch,
+		"protected":               false,
+		"unpushed_commits":        strings.Count(unpushed, "\n") + boolToInt(unpushed != ""),
+		"pr_number":               prNum,
+		"pr_open":                 prOpen,
+		"recorded_review_comment": reviewOK,
+		"review_comment_detail":   reviewDetail,
+		"legacy_marker_ignored":   provider.Detect().ReviewCommentMarker(),
 	}, nil
+}
+
+func recordedReviewCommentOK(repo, prNum string) (bool, string) {
+	if prNum == "" {
+		return false, "missing PR"
+	}
+	s, err := OpenDB(&cobra.Command{})
+	if err != nil {
+		return false, err.Error()
+	}
+	defer s.Close()
+	runRow, err := s.CurrentRun()
+	if err != nil || runRow == nil {
+		return false, "missing active run"
+	}
+	post, err := s.LatestPRReviewPost(runRow.ID)
+	if err != nil {
+		return false, err.Error()
+	}
+	if post == nil {
+		return false, "missing codedungeon review post evidence"
+	}
+	if post.PRNumber != prNum {
+		return false, "review post PR mismatch"
+	}
+	repoName, errb, err := run(repo, "gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
+	if err != nil {
+		return false, "gh repo view failed: " + errb
+	}
+	body, errb, err := run(repo, "gh", "api", fmt.Sprintf("/repos/%s/issues/comments/%s", strings.TrimSpace(repoName), post.CommentID), "--jq", ".body")
+	if err != nil {
+		return false, "gh api comment failed: " + errb
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(body)))
+	if hex.EncodeToString(sum[:]) != post.BodySHA256 {
+		return false, "review comment body hash mismatch"
+	}
+	if !strings.Contains(body, provider.Detect().ReviewCommentMarker()) {
+		return false, "review comment missing provider marker"
+	}
+	return true, post.CommentURL
 }
 
 func gitDiffCmd() *cobra.Command {

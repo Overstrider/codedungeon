@@ -19,7 +19,7 @@ Compatibility aliases remain available:
 - `$side-quest` is the same workflow as `$codedungeon --lite`.
 - `$one-shot` is the same workflow as `$codedungeon --oneshot`.
 
-Use the project-local CLI for deterministic checks: `./.codex/bin/codedungeon`.
+Use the project-local CLI for autonomous workflow execution: `./.codex/bin/codedungeon`.
 
 ## Router Contract
 
@@ -69,14 +69,15 @@ Validation:
    CODEDUNGEON_MODE_SELECTED: <mode> - <reason>
    ```
 
-6. For `full`, `lite`, and `oneshot`, verify the required GitHub PR environment before dispatch:
+6. For `full`, `lite`, and `oneshot`, do not execute workflow steps in the parent Codex session. Dispatch to the autonomous runner:
 
    ```bash
-   git remote get-url origin
-   gh auth status
+   ./.codex/bin/codedungeon run --full --prompt "<prompt>"
+   ./.codex/bin/codedungeon run --lite --prompt "<prompt>"
+   ./.codex/bin/codedungeon run --oneshot --prompt "<prompt>"
    ```
 
-   If either command fails, stop before editing and report that CodeDungeon requires GitHub PR workflow support. Full dispatch initializes runs with `phase init --feature <prompt> --branch feat/<slug> --mode FRESH --project-mode SINGLE`.
+   The runner verifies GitHub PR support, creates the run/session, launches the provider child, records custody evidence, and returns `READY_FOR_USER_REVIEW`.
 
 ## Auto Selection
 
@@ -90,14 +91,14 @@ Select `oneshot` for small direct changes where task splitting would be overhead
 
 ## Dispatch
 
-After selecting the mode, follow the target workflow exactly:
+After selecting the mode, call the target autonomous runner exactly:
 
-- `full`: run the `main-quest` workflow with the prompt.
-- `lite`: run the `side-quest` workflow with the prompt or selected plan.
-- `oneshot`: run the `one-shot` workflow with the prompt.
+- `full`: `./.codex/bin/codedungeon run --full --prompt "<prompt>"`.
+- `lite`: `./.codex/bin/codedungeon run --lite --prompt "<prompt>"`.
+- `oneshot`: `./.codex/bin/codedungeon run --oneshot --prompt "<prompt>"`.
 - `rules`: run Project Rules Discovery inline from this router contract.
 
-Code-writing dispatches must end through a GitHub PR. There is no local-only completion path.
+Code-writing dispatches must end through an open GitHub PR ready for human review. CodeDungeon must not merge PRs.
 
 Do not remove or rewrite the compatibility aliases. `$codedungeon` is the promoted surface, while `$main-quest`, `$side-quest`, and `$one-shot` stay supported.
 

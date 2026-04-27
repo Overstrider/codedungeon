@@ -19,11 +19,17 @@ PROJECT_RULES_READ: yes|no
 
 Use for small, well-scoped changes that still need branch, commit, PR, and adversarial review.
 
+This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+
+```bash
+./.codex/bin/codedungeon run --oneshot --prompt "<prompt>"
+```
+
 ## Evidence Gates
 
 - Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
-- Do not write final reports manually. COMPLETE can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
-- Record every concrete build/check/test command with `./.codex/bin/codedungeon qa record --phase 6 --cmd "<cmd>" --status PASS|FAIL --log <path>`.
+- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
+- Execute every concrete build/check/test command with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
 
 Workflow:
@@ -34,9 +40,10 @@ Workflow:
 - Run focused verification.
 - Commit, push, and reuse the current branch PR when it exists; otherwise create one.
 - Run `$code-review` against the PR.
+- Post review evidence with `./.codex/bin/codedungeon review post`; arbitrary marker comments do not satisfy `git verify`.
 - If review requests changes, fix directly and rerun review up to 9 cycles.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
-- Return the standard CodeDungeon PR Report. `COMPLETE` requires pushed branch, PR URL, adversarial review comment, and `APPROVED` verdict.
+- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict. Do not merge; the user performs final review and merge.
 
 Return:
 - CodeDungeon PR Report block:
@@ -45,7 +52,7 @@ Return:
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      one-shot
 | PR            #<number> <url>
 | Branch        <branch>

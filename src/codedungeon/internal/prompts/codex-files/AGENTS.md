@@ -23,7 +23,7 @@ Default workflow:
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.
 - Preserve the `agent_type`, `model`, and `reasoning_effort` emitted by `spawn-prompt <phase>` when using Codex subagents.
 - Do not write review reports manually. Generate review evidence with `./.codex/bin/codedungeon review run` from `review-manifest.json` and persona output files.
-- Do not write final reports manually. Record verification with `./.codex/bin/codedungeon qa record`, then use `./.codex/bin/codedungeon report render`; COMPLETE can only come from `codedungeon report render`.
+- Do not write final reports manually. Execute verification with `./.codex/bin/codedungeon qa run`, post review evidence with `./.codex/bin/codedungeon review post`, then use `./.codex/bin/codedungeon report render`; READY_FOR_USER_REVIEW can only come from `codedungeon report render`.
 - Close completed phases with `./.codex/bin/codedungeon phase done`.
 - Treat `.codedungeon/commands/` as reference playbooks, not Codex CLI slash commands.
 - Keep provider-specific instructions in Codex files; do not copy Claude-only syntax into Codex prompts.

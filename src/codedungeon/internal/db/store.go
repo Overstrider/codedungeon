@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "8"
+const SchemaVersion = "9"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -698,6 +698,134 @@ func (s *Store) LatestReportEvidence(runID int64) (*ReportEvidence, error) {
 	return &e, nil
 }
 
+// ===== Autonomous run custody =====
+
+type RunSession struct {
+	ID             string `json:"id"`
+	RunID          int64  `json:"run_id"`
+	Provider       string `json:"provider"`
+	Mode           string `json:"mode"`
+	TokenSHA256    string `json:"-"`
+	Status         string `json:"status"`
+	StartedAt      int64  `json:"started_at"`
+	FinishedAt     int64  `json:"finished_at,omitempty"`
+	FailureMessage string `json:"failure_message,omitempty"`
+}
+
+func (s *Store) InsertRunSession(sess RunSession) error {
+	_, err := s.DB.Exec(`
+        INSERT INTO run_sessions
+          (id, run_id, provider, mode, token_sha256, status, started_at, finished_at, failure_message)
+        VALUES (?,?,?,?,?,?,?,?,?)`,
+		sess.ID, sess.RunID, sess.Provider, sess.Mode, sess.TokenSHA256,
+		sess.Status, time.Now().Unix(), nullInt(sess.FinishedAt), nullStr(sess.FailureMessage))
+	return err
+}
+
+func (s *Store) UpdateRunSessionStatus(id, status, failure string) error {
+	finished := any(nil)
+	if status != "RUNNING" {
+		finished = time.Now().Unix()
+	}
+	_, err := s.DB.Exec(`
+        UPDATE run_sessions SET status=?, finished_at=?, failure_message=? WHERE id=?`,
+		status, finished, nullStr(failure), id)
+	return err
+}
+
+func (s *Store) LatestRunSession(runID int64) (*RunSession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, provider, mode, token_sha256, status,
+               started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM run_sessions WHERE run_id=? ORDER BY started_at DESC LIMIT 1`, runID)
+	var sess RunSession
+	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
+		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &sess, nil
+}
+
+func (s *Store) ActiveRunSession(runID int64) (*RunSession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, provider, mode, token_sha256, status,
+               started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM run_sessions WHERE run_id=? AND status='RUNNING'
+        ORDER BY started_at DESC LIMIT 1`, runID)
+	var sess RunSession
+	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
+		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &sess, nil
+}
+
+type RunEvent struct {
+	ID        int64  `json:"id"`
+	RunID     int64  `json:"run_id"`
+	SessionID string `json:"session_id,omitempty"`
+	Event     string `json:"event"`
+	Detail    string `json:"detail,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+func (s *Store) InsertRunEvent(e RunEvent) (int64, error) {
+	res, err := s.DB.Exec(`
+        INSERT INTO run_events(run_id, session_id, event, detail, created_at)
+        VALUES (?,?,?,?,?)`, e.RunID, nullStr(e.SessionID), e.Event, nullStr(e.Detail), time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+type PRReviewPost struct {
+	ID               int64  `json:"id"`
+	RunID            int64  `json:"run_id"`
+	ReviewEvidenceID int64  `json:"review_evidence_id,omitempty"`
+	PRNumber         string `json:"pr_number"`
+	CommentID        string `json:"comment_id"`
+	CommentURL       string `json:"comment_url"`
+	BodySHA256       string `json:"body_sha256"`
+	PostedBy         string `json:"posted_by"`
+	CreatedAt        int64  `json:"created_at"`
+}
+
+func (s *Store) InsertPRReviewPost(p PRReviewPost) (int64, error) {
+	res, err := s.DB.Exec(`
+        INSERT INTO pr_review_posts
+          (run_id, review_evidence_id, pr_number, comment_id, comment_url, body_sha256, posted_by, created_at)
+        VALUES (?,?,?,?,?,?,?,?)`,
+		p.RunID, nullInt(p.ReviewEvidenceID), p.PRNumber, p.CommentID, p.CommentURL,
+		p.BodySHA256, p.PostedBy, time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) LatestPRReviewPost(runID int64) (*PRReviewPost, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, COALESCE(review_evidence_id,0), pr_number, comment_id,
+               comment_url, body_sha256, posted_by, created_at
+        FROM pr_review_posts WHERE run_id=? ORDER BY created_at DESC, id DESC LIMIT 1`, runID)
+	var p PRReviewPost
+	if err := row.Scan(&p.ID, &p.RunID, &p.ReviewEvidenceID, &p.PRNumber, &p.CommentID,
+		&p.CommentURL, &p.BodySHA256, &p.PostedBy, &p.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
 // ===== Tasks =====
 
 type Task struct {
@@ -934,6 +1062,13 @@ func nullRaw(r json.RawMessage) any {
 		return nil
 	}
 	return string(r)
+}
+
+func nullInt(v int64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }
 
 // SplitArtifacts is used by flag parsing (comma/newline tolerant).

@@ -69,6 +69,9 @@ func reportRenderCmd() *cobra.Command {
 			if run == nil {
 				return EmitErr("no active run", "")
 			}
+			if err := requireAutonomousCustody(s, run.ID, "report render"); err != nil {
+				return err
+			}
 
 			if err := validateReportGates(s, run, false, true); err != nil {
 				return EmitErr("report-gate: "+err.Error(), "")

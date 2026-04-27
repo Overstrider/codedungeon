@@ -39,7 +39,7 @@ Exits 1 if protected → loop STOPs.
 
 Skipping any makes the run invalid.
 
-Verification Gate is also non-negotiable. `APPROVED does not replace verification`: specialist review and adversarial review are judgment gates; they do not prove the code compiles, tests pass, or container images build. Before marking a task `[x]`, before commit/push, and before emitting `Status COMPLETE`, run concrete build/check/test commands and keep the commands plus results for the final report.
+Verification Gate is also non-negotiable. `APPROVED does not replace verification`: specialist review and adversarial review are judgment gates; they do not prove the code compiles, tests pass, or container images build. Before marking a task `[x]`, before commit/push, and before emitting `Status READY_FOR_USER_REVIEW`, run concrete build/check/test commands and keep the commands plus results for the final report.
 
 ```bash
 codedungeon qa detect-framework --path "$REPO_DIR" > /tmp/codedungeon-fw.json
@@ -62,7 +62,7 @@ if git diff --name-only main...HEAD | grep -E '(^|/)(Dockerfile|Containerfile)$|
 fi
 ```
 
-If `Dockerfile` or `Containerfile` changed and `podman build` cannot run because the tool or daemon is unavailable, return `Status BLOCKED` with the blocker in `Verification`. Do not silently downgrade to review-only completion. For `Status COMPLETE`, the final report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` and include `Verification: <blocker>`.
+If `Dockerfile` or `Containerfile` changed and `podman build` cannot run because the tool or daemon is unavailable, return `Status BLOCKED` with the blocker in `Verification`. Do not silently downgrade to review-only completion. For `Status READY_FOR_USER_REVIEW`, the final report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` and include `Verification: <blocker>`.
 
 ## Parameters
 
@@ -288,13 +288,13 @@ Agents respond to `actionable==true` findings only (design_decisions are disclos
 
 ## Required final report
 
-Emit this exact format at every terminal path. `Status COMPLETE` is valid only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. `APPROVED does not replace verification`.
+Emit this exact format at every terminal path. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. Do not merge; the user performs final review and merge. `APPROVED does not replace verification`.
 
 ```
 +------------------------------------------------+
 | CodeDungeon PR Report                          |
 +------------------------------------------------+
-| Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
 | Workflow      codedungeon-loop
 | PR            #{number} {url}
 | Branch        {branch}

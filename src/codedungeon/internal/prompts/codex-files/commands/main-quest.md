@@ -28,9 +28,12 @@ If either command fails, stop before editing and report `Status BLOCKED`. There 
 ## Evidence Gates
 
 - Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
-- Do not write final reports manually. COMPLETE can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
-- Record every concrete build/check/test command with `./.codex/bin/codedungeon qa record --phase 6 --cmd "<cmd>" --status PASS|FAIL --log <path>`.
+- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
+- Execute every concrete build/check/test command with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+- This workflow may execute steps only when `CODEDUNGEON_SESSION_TOKEN` is set. Otherwise run `./.codex/bin/codedungeon run --full --prompt "<prompt>"`.
+- Post review evidence with `./.codex/bin/codedungeon review post`; arbitrary marker comments do not satisfy `git verify`.
+- Do not merge PRs. The user performs final review and merge.
 
 Steps:
 - Run `./.codex/bin/codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/<slug>" --mode FRESH --project-mode SINGLE` if no active run exists.

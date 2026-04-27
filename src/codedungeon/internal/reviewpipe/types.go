@@ -38,8 +38,8 @@ type Finding struct {
 	Confidence string `json:"confidence,omitempty"` // high | medium | low
 
 	// Post-classifier
-	Actionable              bool   `json:"actionable"`
-	DesignDecision          bool   `json:"design_decision"`
+	Actionable               bool   `json:"actionable"`
+	DesignDecision           bool   `json:"design_decision"`
 	ClassifierEvidenceSource string `json:"classifier_evidence_source,omitempty"`
 	ClassifierEvidenceQuote  string `json:"classifier_evidence_quote,omitempty"`
 	ClassifierRationale      string `json:"classifier_rationale,omitempty"`
@@ -50,14 +50,22 @@ type Finding struct {
 
 // PersonaFile is the top-level JSON each persona writes to findings-<persona>.json.
 type PersonaFile struct {
-	Persona  string    `json:"persona"`
-	Findings []Finding `json:"findings"`
+	Persona             string    `json:"persona"`
+	Model               string    `json:"model,omitempty"`
+	Provider            string    `json:"provider,omitempty"`
+	SessionID           string    `json:"session_id,omitempty"`
+	BaseSHA             string    `json:"base_sha,omitempty"`
+	HeadSHA             string    `json:"head_sha,omitempty"`
+	ReviewedFiles       int       `json:"reviewed_files,omitempty"`
+	Summary             string    `json:"summary,omitempty"`
+	NoFindingsRationale string    `json:"no_findings_rationale,omitempty"`
+	Findings            []Finding `json:"findings"`
 }
 
 // ValidatorResult is what oracle-reviewer-validator writes per validator-<idx>.json.
 type ValidatorResult struct {
-	FindingID  string `json:"id,omitempty"`    // matches Finding.ID
-	Idx        int    `json:"idx,omitempty"`   // fallback when ID missing
+	FindingID  string `json:"id,omitempty"`  // matches Finding.ID
+	Idx        int    `json:"idx,omitempty"` // fallback when ID missing
 	Confirmed  bool   `json:"confirmed"`
 	Confidence string `json:"confidence"` // high | medium | low
 	Rationale  string `json:"rationale,omitempty"`
@@ -65,13 +73,13 @@ type ValidatorResult struct {
 
 // ClassifierResult is what sage-reviewer-classifier writes per classifier-<idx>.json.
 type ClassifierResult struct {
-	FindingID       string `json:"id,omitempty"`
-	Idx             int    `json:"idx,omitempty"`
-	Classification  string `json:"classification"`   // "actionable" | "design_decision"
-	Confidence      string `json:"confidence"`       // high | medium | low
-	EvidenceSource  string `json:"evidence_source,omitempty"`
-	EvidenceQuote   string `json:"evidence_quote,omitempty"`
-	Rationale       string `json:"rationale,omitempty"`
+	FindingID      string `json:"id,omitempty"`
+	Idx            int    `json:"idx,omitempty"`
+	Classification string `json:"classification"` // "actionable" | "design_decision"
+	Confidence     string `json:"confidence"`     // high | medium | low
+	EvidenceSource string `json:"evidence_source,omitempty"`
+	EvidenceQuote  string `json:"evidence_quote,omitempty"`
+	Rationale      string `json:"rationale,omitempty"`
 }
 
 // Tally is the counts JSON embedded in review.json and the PR comment marker.
@@ -88,13 +96,13 @@ type Tally struct {
 
 // ReviewJSON is the final review.json body.
 type ReviewJSON struct {
-	Verdict          string    `json:"verdict"` // APPROVED | CHANGES_REQUESTED
-	Tally            Tally     `json:"tally"`
-	Findings         []Finding `json:"findings"`
-	PersonasRun      []string  `json:"personas_run"`
-	ValidatorModel   string    `json:"validator_model"`
-	ClassifierModel  string    `json:"classifier_model"`
-	StackSpecialist  string    `json:"stack_specialist,omitempty"`
+	Verdict         string    `json:"verdict"` // APPROVED | CHANGES_REQUESTED
+	Tally           Tally     `json:"tally"`
+	Findings        []Finding `json:"findings"`
+	PersonasRun     []string  `json:"personas_run"`
+	ValidatorModel  string    `json:"validator_model"`
+	ClassifierModel string    `json:"classifier_model"`
+	StackSpecialist string    `json:"stack_specialist,omitempty"`
 }
 
 // sevRank returns a numeric rank where 0=P0, 1=P1, 2=P2, -1=unknown.

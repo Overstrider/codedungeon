@@ -76,6 +76,127 @@ func TestReviewRunApprovesEmptyFindingsWithCompleteManifestEvidence(t *testing.T
 	}
 }
 
+func TestReviewRunRejectsEmptyPersonaWithoutRationale(t *testing.T) {
+	root := setupGatedRun(t)
+	dir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	writeReviewManifest(t, dir, []string{"saboteur"})
+	body, err := json.Marshal(map[string]any{
+		"persona":  "saboteur",
+		"findings": []map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "findings-saboteur.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := ReviewCmd()
+	cmd.SetArgs([]string{"run", "--dir", dir})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("review run accepted zero findings without rationale")
+	}
+	if !strings.Contains(err.Error(), "no_findings_rationale") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAutonomousSessionBlocksPhaseMutationWithoutToken(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "oneshot",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"done", "0", "--summary", "blocked", "--promise", "PHASE_0_COMPLETE"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("phase mutation succeeded without autonomous session token")
+	}
+	if !strings.Contains(err.Error(), "autonomous-session-required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAutonomousSessionAllowsPhaseMutationWithToken(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "oneshot",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	t.Setenv(envSessionID, "session-1")
+	t.Setenv(envSessionToken, "secret")
+
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"done", "0", "--summary", "ok", "--promise", "PHASE_0_COMPLETE"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("phase mutation rejected valid autonomous token: %v", err)
+	}
+}
+
+func TestQARecordDisabledDuringAutonomousSession(t *testing.T) {
+	root := setupGatedRun(t)
+	logPath := filepath.Join(root, ".codedungeon", "logs", "pass.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "oneshot",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"record", "--phase", "6", "--cmd", "go test ./...", "--status", "PASS", "--log", logPath})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("qa record succeeded during autonomous session")
+	}
+	if !strings.Contains(err.Error(), "qa record disabled") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPhaseDoneFiveRejectsApprovedVerdictWithoutReviewEvidence(t *testing.T) {
 	setupGatedRun(t)
 
@@ -272,10 +393,15 @@ func writeReviewManifest(t *testing.T, dir string, personas []string) {
 
 func writePersonaFindings(t *testing.T, dir, persona string, findings []map[string]any) {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"persona":  persona,
 		"findings": findings,
-	})
+	}
+	if len(findings) == 0 {
+		payload["reviewed_files"] = 1
+		payload["no_findings_rationale"] = "persona reviewed the diff and found no actionable issues"
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

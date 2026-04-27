@@ -157,6 +157,20 @@ $root = (& git rev-parse --show-toplevel 2>$null)
 if ([string]::IsNullOrWhiteSpace($root)) { $root = (Get-Location).Path }
 $bin = Join-Path $root "%s"
 if (!(Test-Path $bin) -and (Test-Path "$bin.exe")) { $bin = "$bin.exe" }
+if ($payload -match 'gh\s+pr\s+merge|git\s+merge\b|git\s+push\s+origin\s+main\b|codedungeon\.db|\.codedungeon[/\\]reviews') {
+  $active = $false
+  try {
+    $statusRaw = (& $bin run status 2>$null)
+    if (-not [string]::IsNullOrWhiteSpace($statusRaw)) {
+      $status = ($statusRaw | ConvertFrom-Json)
+      if ($status.session -and $status.session.status -eq "RUNNING") { $active = $true }
+    }
+  } catch {}
+  if ($active) {
+    Write-Error "codedungeon autonomous session is active; direct merge/review/db mutation commands are blocked"
+    exit 2
+  }
+}
 & $bin rules gate --mode $Mode --event $eventName --message $payload
 exit $LASTEXITCODE
 `, mode, binaryRel)

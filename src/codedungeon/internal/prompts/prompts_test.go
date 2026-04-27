@@ -478,9 +478,13 @@ func TestPRProducingWorkflowsRequireReviewedPRReport(t *testing.T) {
 			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
 		}
 		body := string(raw)
+		statusField := "Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED"
+		if strings.Contains(body, "READY_FOR_USER_REVIEW") {
+			statusField = "Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED"
+		}
 		for _, required := range []string{
 			"CodeDungeon PR Report",
-			"Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED",
+			statusField,
 			"PR            #",
 			"Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN",
 			"Cycles        ",
@@ -492,8 +496,12 @@ func TestPRProducingWorkflowsRequireReviewedPRReport(t *testing.T) {
 				t.Fatalf("%s:%s missing required PR report field %q", tc.provider, tc.rel, required)
 			}
 		}
-		if !strings.Contains(body, "COMPLETE") || !strings.Contains(body, "APPROVED") {
-			t.Fatalf("%s:%s should tie completion to approved review", tc.provider, tc.rel)
+		finalStatus := "COMPLETE"
+		if strings.Contains(body, "READY_FOR_USER_REVIEW") {
+			finalStatus = "READY_FOR_USER_REVIEW"
+		}
+		if !strings.Contains(body, finalStatus) || !strings.Contains(body, "APPROVED") {
+			t.Fatalf("%s:%s should tie final status to approved review", tc.provider, tc.rel)
 		}
 	}
 }
@@ -549,7 +557,7 @@ func TestImplementationWorkflowsRequireVerificationGateBeforeComplete(t *testing
 			"Containerfile",
 			"podman build",
 			"APPROVED does not replace verification",
-			"Status COMPLETE",
+			"Status READY_FOR_USER_REVIEW",
 			"Verification: PASS",
 			"Status BLOCKED",
 		} {
@@ -606,9 +614,9 @@ func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
 			"Do not write final reports manually",
 			"codedungeon review run",
 			"review-manifest.json",
-			"codedungeon qa record",
+			"codedungeon qa run",
 			"codedungeon report render",
-			"COMPLETE can only come from `codedungeon report render`",
+			"READY_FOR_USER_REVIEW can only come from `codedungeon report render`",
 		} {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s missing deterministic gate instruction %q:\n%s", rel, required, body)
@@ -678,12 +686,13 @@ func TestCodexFullWorkflowDocumentsFeatureInitAndGitHubPrereqs(t *testing.T) {
 		if strings.Contains(body, "phase init` if") || strings.Contains(body, "phase init if") {
 			t.Fatalf("%s documents phase init without --feature:\n%s", rel, body)
 		}
-		for _, required := range []string{
-			"phase init --feature",
-			"gh auth status",
-			"git remote get-url origin",
-			"GitHub PR",
-		} {
+		required := []string{"GitHub PR"}
+		if strings.Contains(rel, "codedungeon") {
+			required = append(required, "codedungeon run --full", "autonomous runner")
+		} else {
+			required = append(required, "phase init --feature", "gh auth status", "git remote get-url origin")
+		}
+		for _, required := range required {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s missing GitHub/phase-init instruction %q:\n%s", rel, required, body)
 			}

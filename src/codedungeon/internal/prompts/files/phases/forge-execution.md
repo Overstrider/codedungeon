@@ -96,14 +96,14 @@ For each repo in execution order:
    - NEVER report completion without providing ALL of these fields in your final report
 
    ## Required Report Format
-   Your FINAL message must include the standard CodeDungeon PR Report. `Status COMPLETE` is valid
-   only when the PR exists, the branch is pushed, an adversarial review comment exists on the PR,
+   Your FINAL message must include the standard CodeDungeon PR Report. `Status READY_FOR_USER_REVIEW` is valid
+   only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment,
    and the final verdict is APPROVED.
 
    +------------------------------------------------+
    | CodeDungeon PR Report                          |
    +------------------------------------------------+
-   | Status        COMPLETE|BLOCKED|MAX_CYCLES_REACHED
+   | Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
    | Workflow      codedungeon-loop
    | PR            #{number} {url}
    | Branch        {branch}
