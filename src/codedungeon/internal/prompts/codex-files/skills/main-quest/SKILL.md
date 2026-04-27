@@ -1,4 +1,7 @@
 ---
+name: main-quest
+description: Run the full codedungeon phase workflow for complex or multi-repo Codex CLI implementation work.
+---
 
 ## Project Rules Gate
 
@@ -11,9 +14,6 @@ PROJECT_RULES_STATUS: approved|missing|draft|stale
 PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
 PROJECT_RULES_READ: yes|no
 ```
-name: main-quest
-description: Run the full codedungeon phase workflow for complex or multi-repo Codex CLI implementation work.
----
 
 # main-quest
 

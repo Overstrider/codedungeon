@@ -1,4 +1,7 @@
 ---
+name: side-quest
+description: Run a compact codedungeon workflow for simple single-repo Codex CLI tasks that need light task splitting.
+---
 
 ## Project Rules Gate
 
@@ -11,9 +14,6 @@ PROJECT_RULES_STATUS: approved|missing|draft|stale
 PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
 PROJECT_RULES_READ: yes|no
 ```
-name: side-quest
-description: Run a compact codedungeon workflow for simple single-repo Codex CLI tasks that need light task splitting.
----
 
 # side-quest
 

@@ -1,4 +1,7 @@
 ---
+name: one-shot
+description: "Run a minimal CodeDungeon workflow for one small Codex task: plan, implement, create PR, and run review without task splitting."
+---
 
 ## Project Rules Gate
 
@@ -11,9 +14,6 @@ PROJECT_RULES_STATUS: approved|missing|draft|stale
 PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
 PROJECT_RULES_READ: yes|no
 ```
-name: one-shot
-description: Run a minimal CodeDungeon workflow for one small Codex task: plan, implement, create PR, and run review without task splitting.
----
 
 # one-shot
 

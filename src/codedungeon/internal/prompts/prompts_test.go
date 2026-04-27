@@ -230,6 +230,49 @@ func TestCodexCommandSkillsArePrimaryWorkflowSurface(t *testing.T) {
 	}
 }
 
+func TestCodexSkillsStartWithValidFrontmatter(t *testing.T) {
+	arts, err := ArtifactsFor("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	for _, a := range arts {
+		if a.Kind != "skill" || !strings.HasSuffix(a.RelPath, "/SKILL.md") {
+			continue
+		}
+		count++
+		body := string(a.Content)
+		if !strings.HasPrefix(body, "---\n") && !strings.HasPrefix(body, "---\r\n") {
+			t.Fatalf("%s must start with YAML frontmatter", a.RelPath)
+		}
+		normalized := strings.ReplaceAll(body, "\r\n", "\n")
+		rest := strings.TrimPrefix(normalized, "---\n")
+		end := strings.Index(rest, "\n---\n")
+		if end < 0 {
+			t.Fatalf("%s missing closing YAML frontmatter fence", a.RelPath)
+		}
+		frontmatter := rest[:end]
+		if !strings.Contains(frontmatter, "\nname: ") && !strings.HasPrefix(frontmatter, "name: ") {
+			t.Fatalf("%s frontmatter missing name field:\n%s", a.RelPath, frontmatter)
+		}
+		if !strings.Contains(frontmatter, "\ndescription: ") && !strings.HasPrefix(frontmatter, "description: ") {
+			t.Fatalf("%s frontmatter missing description field:\n%s", a.RelPath, frontmatter)
+		}
+		if strings.Contains(frontmatter, "## ") || strings.Contains(frontmatter, "```") {
+			t.Fatalf("%s frontmatter contains markdown body content:\n%s", a.RelPath, frontmatter)
+		}
+		for _, line := range strings.Split(frontmatter, "\n") {
+			value, ok := strings.CutPrefix(line, "description: ")
+			if ok && !strings.HasPrefix(value, `"`) && strings.Contains(value, ": ") {
+				t.Fatalf("%s frontmatter description with colon-space must be quoted:\n%s", a.RelPath, line)
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatal("expected codex skill artifacts")
+	}
+}
+
 func TestUnifiedRouterPromptsDeclareModesAndAliases(t *testing.T) {
 	for _, tc := range []struct {
 		provider string

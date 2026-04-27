@@ -1,4 +1,7 @@
 ---
+name: code-review
+description: Run a standalone codedungeon-style adversarial review in Codex CLI.
+---
 
 ## Project Rules Gate
 
@@ -11,9 +14,6 @@ PROJECT_RULES_STATUS: approved|missing|draft|stale
 PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
 PROJECT_RULES_READ: yes|no
 ```
-name: code-review
-description: Run a standalone codedungeon-style adversarial review in Codex CLI.
----
 
 # code-review
 
