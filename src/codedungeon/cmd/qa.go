@@ -368,20 +368,109 @@ func qaDetectFrameworkCmd() *cobra.Command {
 			if path == "" {
 				path = "."
 			}
-			info, _ := manifest.Detect(path)
-			fw, cfg, cmd := detectTestFramework(path, info.Lang)
-			return EmitJSON(map[string]any{
-				"ok":        true,
-				"path":      path,
-				"lang":      info.Lang,
-				"framework": fw,
-				"config":    cfg,
-				"run_cmd":   cmd,
-			})
+			result := detectProjectTestFramework(path)
+			result.OK = true
+			result.Path = path
+			return EmitJSON(result)
 		},
 	}
 	c.Flags().String("path", ".", "project dir to inspect")
 	return c
+}
+
+type testFrameworkComponent struct {
+	Path      string `json:"path"`
+	Lang      string `json:"lang"`
+	Framework string `json:"framework"`
+	Config    string `json:"config"`
+	RunCmd    string `json:"run_cmd"`
+}
+
+type testFrameworkResult struct {
+	OK         bool                     `json:"ok"`
+	Path       string                   `json:"path"`
+	Lang       string                   `json:"lang"`
+	Framework  string                   `json:"framework"`
+	Config     string                   `json:"config"`
+	RunCmd     string                   `json:"run_cmd"`
+	Components []testFrameworkComponent `json:"components,omitempty"`
+	RunCmds    []string                 `json:"run_cmds,omitempty"`
+}
+
+func detectProjectTestFramework(path string) testFrameworkResult {
+	info, _ := manifest.Detect(path)
+	fw, cfg, cmd := detectTestFramework(path, info.Lang)
+	if info.Lang != "unknown" {
+		return testFrameworkResult{
+			Lang:      info.Lang,
+			Framework: fw,
+			Config:    cfg,
+			RunCmd:    cmd,
+		}
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return testFrameworkResult{Lang: info.Lang, Framework: "unknown"}
+	}
+	var components []testFrameworkComponent
+	var runCmds []string
+	var summaryCmds []string
+	for _, entry := range entries {
+		if !entry.IsDir() || shouldSkipFrameworkDir(entry.Name()) {
+			continue
+		}
+		child := filepath.Join(path, entry.Name())
+		childInfo, _ := manifest.Detect(child)
+		if childInfo.Lang == "unknown" {
+			continue
+		}
+		childFW, childCfg, childCmd := detectTestFramework(child, childInfo.Lang)
+		rel := entry.Name()
+		displayCmd := childCmd
+		if childCmd != "" {
+			displayCmd = "cd " + rel + " && " + childCmd
+			runCmds = append(runCmds, displayCmd)
+			summaryCmds = append(summaryCmds, "("+displayCmd+")")
+		}
+		components = append(components, testFrameworkComponent{
+			Path:      rel,
+			Lang:      childInfo.Lang,
+			Framework: childFW,
+			Config:    childCfg,
+			RunCmd:    displayCmd,
+		})
+	}
+	if len(components) > 1 {
+		return testFrameworkResult{
+			Lang:       "multi",
+			Framework:  "monorepo",
+			RunCmd:     strings.Join(summaryCmds, " && "),
+			Components: components,
+			RunCmds:    runCmds,
+		}
+	}
+	if len(components) == 1 {
+		c := components[0]
+		return testFrameworkResult{
+			Lang:       c.Lang,
+			Framework:  c.Framework,
+			Config:     c.Config,
+			RunCmd:     c.RunCmd,
+			Components: components,
+			RunCmds:    runCmds,
+		}
+	}
+	return testFrameworkResult{Lang: "unknown", Framework: "unknown"}
+}
+
+func shouldSkipFrameworkDir(name string) bool {
+	switch name {
+	case ".git", ".codedungeon", ".codex", ".claude", ".agents", "node_modules", "target", "dist", "build", ".next", "coverage", ".cache":
+		return true
+	default:
+		return false
+	}
 }
 
 // detectTestFramework returns (framework, config_file, run_command) for the lang.

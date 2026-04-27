@@ -135,6 +135,78 @@ func TestQARecordPersistsVerificationLedger(t *testing.T) {
 	}
 }
 
+func TestPhaseSixGateUsesLatestVerificationRecordPerCommand(t *testing.T) {
+	root := setupGatedRun(t)
+	failLog := filepath.Join(root, ".codedungeon", "logs", "fail.log")
+	passLog := filepath.Join(root, ".codedungeon", "logs", "pass.log")
+	if err := os.MkdirAll(filepath.Dir(failLog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(failLog, []byte("old failure"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passLog, []byte("later pass"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertVerificationRecord(db.VerificationRecord{RunID: run.ID, Phase: "6", Command: "go test ./...", Status: "FAIL", LogPath: failLog}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertVerificationRecord(db.VerificationRecord{RunID: run.ID, Phase: "6", Command: "go test ./...", Status: "PASS", LogPath: passLog}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"done", "6", "--summary", "verified", "--promise", "PHASE_6_COMPLETE"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("phase done 6 rejected later PASS over old FAIL: %v", err)
+	}
+}
+
+func TestPhaseSixGateRejectsLatestFailurePerCommand(t *testing.T) {
+	root := setupGatedRun(t)
+	passLog := filepath.Join(root, ".codedungeon", "logs", "pass.log")
+	failLog := filepath.Join(root, ".codedungeon", "logs", "fail.log")
+	if err := os.MkdirAll(filepath.Dir(passLog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passLog, []byte("old pass"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(failLog, []byte("later failure"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertVerificationRecord(db.VerificationRecord{RunID: run.ID, Phase: "6", Command: "go test ./...", Status: "PASS", LogPath: passLog}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertVerificationRecord(db.VerificationRecord{RunID: run.ID, Phase: "6", Command: "go test ./...", Status: "FAIL", LogPath: failLog}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"done", "6", "--summary", "verified", "--promise", "PHASE_6_COMPLETE"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("phase done 6 accepted latest FAIL")
+	}
+	if !strings.Contains(err.Error(), "verification command failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestReportRenderFailsBeforeCompletionGates(t *testing.T) {
 	setupGatedRun(t)
 

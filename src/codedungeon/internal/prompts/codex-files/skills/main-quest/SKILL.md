@@ -19,6 +19,17 @@ PROJECT_RULES_READ: yes|no
 
 Use for complex features, multi-repo changes, or work that needs the full phase lifecycle.
 
+## GitHub PR Prerequisites
+
+CodeDungeon code-writing workflows require GitHub and the GitHub CLI. Before initializing or editing, verify:
+
+```bash
+git remote get-url origin
+gh auth status
+```
+
+If either command fails, stop before editing and report `Status BLOCKED`. There is no local-only completion path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
+
 ## Evidence Gates
 
 - Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
@@ -27,7 +38,7 @@ Use for complex features, multi-repo changes, or work that needs the full phase 
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
 
 Steps:
-- Ensure a codedungeon run exists with `./.codex/bin/codedungeon phase init` when needed.
+- Ensure a codedungeon run exists with `./.codex/bin/codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/<slug>" --mode FRESH --project-mode SINGLE` when needed.
 - Execute phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`, `7`.
 - For each phase, inspect state with `./.codex/bin/codedungeon phase info <phase>`.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose phase context.

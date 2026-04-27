@@ -64,6 +64,15 @@ Validation:
    CODEDUNGEON_MODE_SELECTED: <mode> - <reason>
    ```
 
+6. For `full`, `lite`, and `oneshot`, verify the required GitHub PR environment before dispatch:
+
+   ```bash
+   git remote get-url origin
+   gh auth status
+   ```
+
+   If either command fails, stop before editing and report that CodeDungeon requires GitHub PR workflow support. Full dispatch initializes runs with `phase init --feature <prompt> --branch feat/<slug> --mode FRESH --project-mode SINGLE`.
+
 ## Auto Selection
 
 When no mode flag is provided, behave as `--auto`.
@@ -82,6 +91,8 @@ After selecting the mode, follow the target workflow exactly:
 - `lite`: run the `side-quest` workflow with the prompt or selected plan.
 - `oneshot`: run the `one-shot` workflow with the prompt.
 - `rules`: run Project Rules Discovery inline from this router contract.
+
+Code-writing dispatches must end through a GitHub PR. There is no local-only completion path.
 
 Editable reference playbooks live in `.codedungeon/commands/`:
 

@@ -370,7 +370,7 @@ func validatePhase6Gate(c *cobra.Command) error {
 	if len(records) == 0 {
 		return EmitErr("phase-6-gate: verification ledger is required", "record commands with `codedungeon qa record --phase 6 ...`")
 	}
-	for _, record := range records {
+	for _, record := range latestVerificationRecords(records) {
 		if record.Status != "PASS" {
 			return EmitErr("phase-6-gate: verification command failed: "+record.Command, record.LogPath)
 		}

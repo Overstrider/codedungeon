@@ -53,6 +53,7 @@ If in doubt: **continue**.
 
 - `codedungeon` bootstrapped in project (run `codedungeon bootstrap --reasoning <id> --fast <id>` once).
 - `.claude/` contains agents + skills, and `.codedungeon/` contains editable commands + phases (installed by setup/bootstrap).
+- GitHub `origin` remote exists.
 - `gh` CLI installed + authenticated.
 - `/codedungeon-loop` and `/codedungeon-test-loop` available.
 
@@ -85,6 +86,9 @@ if [ ! -x .claude/bin/codedungeon ] || [ ! -f .codedungeon/codedungeon.db ]; the
     --reasoning claude-opus-4-7 --fast claude-sonnet-4-6
 fi
 CD=./.claude/bin/codedungeon
+
+git remote get-url origin >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a GitHub origin remote"; exit 2; }
+gh auth status >/dev/null || { echo "Status BLOCKED: CodeDungeon requires authenticated gh"; exit 2; }
 
 # Check for existing run with same feature (resume).
 EXISTING_FEATURE=$($CD phase config feature 2>/dev/null || echo "")

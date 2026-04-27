@@ -639,23 +639,53 @@ func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
 }
 
 func TestReportTemplatesRenderPRReportFields(t *testing.T) {
-	for _, name := range []string{"report-template-multi", "report-template-bootstrap"} {
-		body, err := GetFor("claude", name)
+	for _, provider := range []string{"claude", "codex"} {
+		for _, name := range []string{"report-template-multi", "report-template-bootstrap"} {
+			body, err := GetFor(provider, name)
+			if err != nil {
+				t.Fatalf("read %s:%s: %v", provider, name, err)
+			}
+			for _, required := range []string{
+				"CodeDungeon PR Report",
+				"Status",
+				"Workflow",
+				"PR",
+				"Review",
+				"Cycles",
+				"Work Done",
+				"Next",
+			} {
+				if !strings.Contains(body, required) {
+					t.Fatalf("%s:%s missing %q", provider, name, required)
+				}
+			}
+		}
+	}
+}
+
+func TestCodexFullWorkflowDocumentsFeatureInitAndGitHubPrereqs(t *testing.T) {
+	for _, rel := range []string{
+		"commands/main-quest.md",
+		"skills/main-quest/SKILL.md",
+		"commands/codedungeon.md",
+		"skills/codedungeon/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		if strings.Contains(body, "phase init` if") || strings.Contains(body, "phase init if") {
+			t.Fatalf("%s documents phase init without --feature:\n%s", rel, body)
 		}
 		for _, required := range []string{
-			"CodeDungeon PR Report",
-			"Status",
-			"Workflow",
-			"PR",
-			"Review",
-			"Cycles",
-			"Work Done",
-			"Next",
+			"phase init --feature",
+			"gh auth status",
+			"git remote get-url origin",
+			"GitHub PR",
 		} {
 			if !strings.Contains(body, required) {
-				t.Fatalf("%s missing %q", name, required)
+				t.Fatalf("%s missing GitHub/phase-init instruction %q:\n%s", rel, required, body)
 			}
 		}
 	}

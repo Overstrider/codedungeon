@@ -79,6 +79,68 @@ func TestProjectRulesLifecycleApproveCompactStatusAndLint(t *testing.T) {
 	}
 }
 
+func TestProjectRulesSourceDigestIgnoresGeneratedRuntimeArtifacts(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "README.md"), "# Demo\n")
+	writeFile(t, filepath.Join(root, ".git", "info", "exclude"), "examples/v2/\n")
+	writeFile(t, filepath.Join(root, ".codedungeon", "project-rules.md"), strings.Join([]string{
+		"# Project Rules",
+		"",
+		"Status: DRAFT",
+		"",
+		"## Sources Reviewed",
+		"- README.md",
+		"",
+		"## Architecture And Boundaries",
+		"- Single repo.",
+		"",
+		"## Project Rules",
+		"- MUST run tests.",
+		"",
+		"## Commands And Verification",
+		"- VERIFY with go test ./...",
+		"",
+		"## Security And Data Rules",
+		"- MUST NOT commit secrets.",
+		"",
+		"## Agent Operating Rules",
+		"- ASK WHEN blocked.",
+		"",
+		"## Open Questions",
+		"- None.",
+		"",
+	}, "\n"))
+
+	if _, err := approveProjectRules(root, "tester"); err != nil {
+		t.Fatalf("approve failed: %v", err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatalf("compact failed: %v", err)
+	}
+
+	writeFile(t, filepath.Join(root, ".codedungeon", "README.md"), "generated runtime doc changed\n")
+	writeFile(t, filepath.Join(root, ".codex", "config.toml"), "[features]\nchanged = true\n")
+	writeFile(t, filepath.Join(root, ".agents", "skills", "demo", "SKILL.md"), "---\nname: demo\n---\nchanged\n")
+	writeFile(t, filepath.Join(root, "examples", "v2", "frontend", "package.json"), `{"dependencies":{"next":"15"}}`)
+
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != "approved" {
+		t.Fatalf("status after generated artifact changes = %+v, want approved", st)
+	}
+	for _, src := range st.Sources {
+		if strings.HasPrefix(src, ".codedungeon/") ||
+			strings.HasPrefix(src, ".codex/") ||
+			strings.HasPrefix(src, ".agents/") ||
+			strings.HasPrefix(src, "examples/v2/") {
+			t.Fatalf("generated source %q should not be in project rules digest: %+v", src, st.Sources)
+		}
+	}
+}
+
 func TestProjectRulesLintRejectsApprovedRulesWithOpenQuestions(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")

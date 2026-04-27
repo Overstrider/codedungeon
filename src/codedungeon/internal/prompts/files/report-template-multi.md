@@ -31,7 +31,7 @@ Summary
 
 Review
 - Adversarial comments: {{.AdvReviewCount}}
-- Last review marker: Claude Adversarial Code Review
+- Last review marker: {{$.ReviewMarker}}
 - Remaining findings: {{.RemainingFindings}}
 
 Work Done

@@ -405,6 +405,7 @@ func evaluateRulesGate(root string, opts gateOptions) gateResult {
 }
 
 func computeProjectRulesSourceDigest(root string) (string, []string, error) {
+	ignore := loadGitIgnore(root)
 	var sources []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -413,16 +414,15 @@ func computeProjectRulesSourceDigest(root string) (string, []string, error) {
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			switch rel {
-			case ".git", ".codedungeon/archive", "node_modules", "target", "dist", "build", ".next", "coverage", ".cache":
-				return filepath.SkipDir
+			if rel == "." {
+				return nil
 			}
-			if strings.HasPrefix(rel, ".git/") || strings.HasPrefix(rel, "node_modules/") {
+			if isGeneratedRulesPath(rel) || ignore.matches(rel, true) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if isProjectRulesSource(rel) {
+		if !isGeneratedRulesPath(rel) && !ignore.matches(rel, false) && isProjectRulesSource(rel) {
 			sources = append(sources, rel)
 		}
 		return nil
@@ -443,6 +443,66 @@ func computeProjectRulesSourceDigest(root string) (string, []string, error) {
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), sources, nil
+}
+
+func isGeneratedRulesPath(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for _, part := range parts {
+		switch part {
+		case ".git", ".codedungeon", ".codex", ".claude", ".agents", "node_modules", "target", "dist", "build", ".next", "coverage", ".cache":
+			return true
+		}
+	}
+	return false
+}
+
+type gitIgnorePatterns []string
+
+func loadGitIgnore(root string) gitIgnorePatterns {
+	var patterns []string
+	for _, name := range []string{".gitignore", filepath.Join(".git", "info", "exclude")} {
+		body, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		patterns = append(patterns, parseIgnorePatterns(string(body))...)
+	}
+	return patterns
+}
+
+func parseIgnorePatterns(body string) gitIgnorePatterns {
+	var patterns []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+			continue
+		}
+		patterns = append(patterns, filepath.ToSlash(strings.TrimPrefix(line, "/")))
+	}
+	return patterns
+}
+
+func (patterns gitIgnorePatterns) matches(rel string, isDir bool) bool {
+	rel = filepath.ToSlash(strings.TrimPrefix(rel, "./"))
+	for _, pattern := range patterns {
+		dirOnly := strings.HasSuffix(pattern, "/")
+		clean := strings.TrimSuffix(pattern, "/")
+		if clean == "" || (dirOnly && !isDir && !strings.HasPrefix(rel, clean+"/")) {
+			continue
+		}
+		if strings.Contains(clean, "/") {
+			if rel == clean || strings.HasPrefix(rel, clean+"/") {
+				return true
+			}
+			continue
+		}
+		for _, part := range strings.Split(rel, "/") {
+			if part == clean {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isProjectRulesSource(rel string) bool {

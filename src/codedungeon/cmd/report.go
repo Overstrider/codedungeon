@@ -102,6 +102,9 @@ func reportRenderCmd() *cobra.Command {
 				return EmitErr("template exec: "+err.Error(), "")
 			}
 			report := out.String()
+			if err := validateRenderedReportQuality(report); err != nil {
+				return EmitErr("report quality: "+err.Error(), "")
+			}
 			root := ResolveProjectRoot(".")
 			if err := writeReportMemoryFiles(root, run, repos, report); err != nil {
 				return EmitErr(err.Error(), "")
@@ -177,7 +180,7 @@ func validateVerificationRecords(records []db.VerificationRecord) error {
 	if len(records) == 0 {
 		return fmt.Errorf("verification ledger is required")
 	}
-	for _, record := range records {
+	for _, record := range latestVerificationRecords(records) {
 		if record.Status != "PASS" {
 			return fmt.Errorf("verification command failed: %s", record.Command)
 		}
@@ -187,6 +190,37 @@ func validateVerificationRecords(records []db.VerificationRecord) error {
 		}
 		if info.Size() == 0 {
 			return fmt.Errorf("verification log is empty: %s", record.LogPath)
+		}
+	}
+	return nil
+}
+
+func latestVerificationRecords(records []db.VerificationRecord) []db.VerificationRecord {
+	latest := map[string]db.VerificationRecord{}
+	var order []string
+	for _, record := range records {
+		if _, seen := latest[record.Command]; !seen {
+			order = append(order, record.Command)
+		}
+		latest[record.Command] = record
+	}
+	out := make([]db.VerificationRecord, 0, len(order))
+	for _, command := range order {
+		out = append(out, latest[command])
+	}
+	return out
+}
+
+func validateRenderedReportQuality(report string) error {
+	for _, required := range []string{
+		"CodeDungeon PR Report",
+		"| PR            #",
+		"| Review        ",
+		"Work Done",
+		"Verification:",
+	} {
+		if !strings.Contains(report, required) {
+			return fmt.Errorf("missing %s", required)
 		}
 	}
 	return nil
@@ -336,7 +370,7 @@ func summarizeVerificationRecords(s *db.Store, runID int64) string {
 		return "missing"
 	}
 	var parts []string
-	for _, r := range records {
+	for _, r := range latestVerificationRecords(records) {
 		parts = append(parts, fmt.Sprintf("%s: %s", r.Command, r.Status))
 	}
 	return strings.Join(parts, "; ")
@@ -404,6 +438,7 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 		"Mode":            run.Mode,
 		"ProjectMode":     run.ProjectMode,
 		"Branch":          run.Branch,
+		"ReviewMarker":    provider.Detect().ReviewCommentMarker(),
 		"DomainPlans":     strings.Join(domainPlans, ", "),
 		"QAPlans":         strings.Join(qaPlans, ", "),
 		"DomainPlanCount": fmt.Sprintf("%d", len(domainPlans)),

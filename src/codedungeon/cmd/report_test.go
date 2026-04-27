@@ -34,3 +34,34 @@ func TestWriteReportMemoryFilesStoresRunAndPRSummaries(t *testing.T) {
 		t.Fatalf("unexpected PR memory:\n%s", prBody)
 	}
 }
+
+func TestValidateRenderedReportQualityRejectsShallowReport(t *testing.T) {
+	err := validateRenderedReportQuality("# Bootstrap Report\n\n## Scope\n")
+	if err == nil {
+		t.Fatal("shallow report accepted")
+	}
+	if !strings.Contains(err.Error(), "CodeDungeon PR Report") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRenderedReportQualityAcceptsPRReport(t *testing.T) {
+	report := strings.Join([]string{
+		"+------------------------------------------------+",
+		"| CodeDungeon PR Report                          |",
+		"+------------------------------------------------+",
+		"| Status        APPROVED",
+		"| Workflow      main-quest",
+		"| PR            #123 https://github.com/acme/demo/pull/123",
+		"| Branch        feat/demo",
+		"| Review        APPROVED",
+		"| Cycles        1/9 | last mode: full",
+		"+------------------------------------------------+",
+		"",
+		"Work Done",
+		"- Verification: go test ./...: PASS",
+	}, "\n")
+	if err := validateRenderedReportQuality(report); err != nil {
+		t.Fatalf("valid PR report rejected: %v", err)
+	}
+}
