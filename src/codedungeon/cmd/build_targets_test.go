@@ -67,6 +67,54 @@ func TestInstallersAndDocsExposeProviderChoice(t *testing.T) {
 	}
 }
 
+func TestReleaseV2MetadataAndGuidance(t *testing.T) {
+	root := repoRoot(t)
+	files := map[string][]string{
+		"Makefile": {
+			"VERSION ?= v2.0.0",
+		},
+		"release/install.sh": {
+			`"version": "2.0.0"`,
+			"$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
+			"$codedungeon --rules",
+			"/codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
+			"/codedungeon --rules",
+		},
+		"release/install.ps1": {
+			`"version": "2.0.0"`,
+			"`$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
+			"`$codedungeon --rules",
+			"/codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
+			"/codedungeon --rules",
+		},
+		"README.md": {
+			"Repository maintenance is main-only",
+			"installed CodeDungeon workflows remain PR-centered",
+			"Project Rules discovery",
+		},
+		"release/README.md": {
+			"v2.0.0",
+			"Run Project Rules discovery before the first real task",
+		},
+		"release/QUICKSTART.md": {
+			"v2.0.0",
+			"Run Project Rules discovery before the first real task",
+		},
+	}
+	for file, wants := range files {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		text := string(body)
+		for _, want := range wants {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing %q", file, want)
+			}
+		}
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	if cwd, err := os.Getwd(); err == nil {

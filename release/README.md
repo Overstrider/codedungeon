@@ -1,4 +1,4 @@
-# codedungeon release
+# codedungeon v2.0.0 release
 
 Precompiled provider-specific binaries for Codex CLI and Claude Code.
 
@@ -64,6 +64,8 @@ The provider is built into the binary. Normal use should not depend on `CODEDUNG
 Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, reports, PR memory, and Project Rules files. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
 The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+
+Run Project Rules discovery before the first real task: `$codedungeon --rules` for Codex or `/codedungeon --rules` for Claude Code. The workflow drafts `.codedungeon/project-rules.md`, waits for user confirmation, then generates approved compact rules for subsequent planning, execution, review, and reporting.
 
 Compatibility aliases remain installed: `$one-shot`, `$side-quest`, `$main-quest` for Codex and `/one-shot`, `/side-quest`, `/main-quest` for Claude Code. Standalone review remains `$code-review` or `/code-review`.
 

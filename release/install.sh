@@ -80,7 +80,7 @@ if [[ "$PROVIDER" == "claude" ]]; then
     cat > "$PLUG/.claude-plugin/plugin.json" <<'JSON'
 {
   "name": "codedungeon",
-  "version": "0.8.0",
+  "version": "2.0.0",
   "description": "Deterministic Go CLI for project pipelines: phase state, review, repo discovery, QA, code-review, task decomposition. SQLite FTS5 backend, embedded prompts.",
   "author": { "name": "loldinis" }
 }
@@ -108,11 +108,13 @@ echo "  1. cd into any git project"
 echo "  2. $BIN_CMD setup"
 if [[ "$PROVIDER" == "codex" ]]; then
     echo "  3. Codex workflow router becomes available:"
-    echo "     \$codedungeon --full|--lite|--oneshot <prompt>"
+    echo "     \$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
+    echo "     Recommended first run: \$codedungeon --rules"
     echo "     Compatibility aliases: \$main-quest, \$side-quest, \$one-shot"
 else
     echo "  3. Claude Code workflow router becomes available:"
-    echo "     /codedungeon --full|--lite|--oneshot <prompt>"
+    echo "     /codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
+    echo "     Recommended first run: /codedungeon --rules"
     echo "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 fi
 echo ""

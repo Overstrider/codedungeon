@@ -9,6 +9,8 @@ This repository is maintained directly on `main`.
 - Git worktrees are prohibited.
 - If an agent is not on `main`, it must stop before editing.
 
+These rules are for maintaining this repository. They do not change the installed CodeDungeon product workflows, which remain PR-centered for user projects and may create or reuse feature branches before review.
+
 ## Required Completion Flow
 
 Every completed change must finish with:

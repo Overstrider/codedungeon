@@ -1,4 +1,4 @@
-VERSION ?= v0.8.0
+VERSION ?= v2.0.0
 SRC     := ./src/codedungeon
 RELEASE := ./release
 BIN     := $(RELEASE)/bin

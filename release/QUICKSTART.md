@@ -1,4 +1,4 @@
-# codedungeon Quickstart
+# codedungeon v2.0.0 Quickstart
 
 Use the provider-specific binary:
 
@@ -51,7 +51,7 @@ codedungeon-claude setup
 
 Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global Claude plugin.
 
-Recommended next step after setup:
+Run Project Rules discovery before the first real task:
 
 ```text
 $codedungeon --rules

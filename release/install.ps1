@@ -60,7 +60,7 @@ if ($Provider -eq 'claude') {
     @'
 {
   "name": "codedungeon",
-  "version": "0.8.0",
+  "version": "2.0.0",
   "description": "Deterministic Go CLI for project pipelines: phase state, review, repo discovery, QA, code-review, task decomposition. SQLite FTS5 backend, embedded prompts.",
   "author": { "name": "loldinis" }
 }
@@ -78,11 +78,13 @@ Write-Host "  1. cd into any git project"
 Write-Host "  2. codedungeon-$Provider setup"
 if ($Provider -eq 'codex') {
     Write-Host "  3. Codex workflow router becomes available:"
-    Write-Host "     `$codedungeon --full|--lite|--oneshot <prompt>"
+    Write-Host "     `$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
+    Write-Host "     Recommended first run: `$codedungeon --rules"
     Write-Host "     Compatibility aliases: `$main-quest, `$side-quest, `$one-shot"
 } else {
     Write-Host "  3. Claude Code workflow router becomes available:"
-    Write-Host "     /codedungeon --full|--lite|--oneshot <prompt>"
+    Write-Host "     /codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
+    Write-Host "     Recommended first run: /codedungeon --rules"
     Write-Host "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
 }
 

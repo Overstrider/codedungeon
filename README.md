@@ -87,7 +87,9 @@ Each provider binary embeds its default provider via Go ldflags. Normal users sh
 
 ## Maintainer Rules
 
-Repository maintenance is `main` only. Agents must not create branches or git worktrees. Every finished change must update relevant docs (`README.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/*`), update installers only when install behavior changes, run validation, build release artifacts, commit on `main`, and push `main` to `origin`.
+Repository maintenance is main-only. Agents must not create branches or git worktrees. Every finished change must update relevant docs (`README.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/*`), update installers only when install behavior changes, run validation, build release artifacts, commit on `main`, and push `main` to `origin`.
+
+That maintainer policy applies to this repository. The installed CodeDungeon workflows remain PR-centered for user projects: they create or reuse feature branches, push them, open or reuse GitHub PRs, run adversarial review, and require concrete verification before reporting `COMPLETE`.
 
 See [`docs/MAINTAINER_POLICY.md`](docs/MAINTAINER_POLICY.md) for the full completion checklist.
 
