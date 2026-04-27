@@ -81,8 +81,7 @@ Missing skill is non-blocking. Log + continue.
 ## Step 0.2: Discover repos (auto-detect single/multi/bootstrap)
 
 ```bash
-codedungeon db init > /dev/null
-codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/$(slug)" --mode FRESH --project-mode SINGLE  # placeholder; discover overrides project_mode
+# A run already exists under autonomous custody. Do not call phase init here.
 codedungeon repo discover --write-claude-md --persist > /tmp/discover.json
 cat /tmp/discover.json
 ```
@@ -103,7 +102,7 @@ From user's answer, build a 1-entry REPO_MAP JSON file, write it to a temp file,
 cat > /tmp/repo-map.json <<'EOF'
 [{"name":".","path":".","lang":"rust","framework":"actix","stack":"Rust + Actix","specialist":"rust-specialist","domain_planner":"planner"}]
 EOF
-codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/$(slug)" --mode FRESH --project-mode BOOTSTRAP --repo-map /tmp/repo-map.json
+# Keep /tmp/repo-map.json as bootstrap planning input. Do not re-run phase init.
 
 # Initialize git if empty:
 cd "$(pwd)" && test -d .git || (git init && git commit --allow-empty -m "chore: initial commit")

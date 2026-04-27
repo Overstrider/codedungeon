@@ -43,6 +43,8 @@ Return ONLY valid JSON. Schema:
 ```json
 {
   "persona": "spec_enforcer",
+  "reviewed_files": 7,
+  "no_findings_rationale": "Required when findings is empty: concrete summary of the checked requirements and why no actionable spec deviation exists",
   "spec_sources_consulted": [
     {"type": "task_file", "path": ".codedungeon/tasks/feature-x/backend/task-03-auth.md"},
     {"type": "issue", "number": 42, "title": "Add OAuth flow"},

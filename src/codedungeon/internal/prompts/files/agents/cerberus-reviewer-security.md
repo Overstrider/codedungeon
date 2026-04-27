@@ -91,6 +91,8 @@ Return ONLY valid JSON. Schema:
 ```json
 {
   "persona": "security_auditor",
+  "reviewed_files": 7,
+  "no_findings_rationale": "Required when findings is empty: concrete summary of the reviewed trust boundaries and why no actionable security issue exists",
   "findings": [
     {
       "severity": "P0" | "P1" | "P2",

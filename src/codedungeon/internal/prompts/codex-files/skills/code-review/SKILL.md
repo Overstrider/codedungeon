@@ -22,7 +22,8 @@ Use for reviewing the current branch or an implementation diff.
 Deterministic evidence:
 - Do not write review reports manually.
 - Write `review-manifest.json` with personas, base/head SHA, PR number, and timestamp.
-- Ensure each persona writes its own output, including `findings-saboteur.json`, before aggregation.
+- Ensure each persona writes its own JSON output, including `findings-saboteur.json`, before aggregation.
+- Persona JSON with no findings must include `reviewed_files > 0` and `no_findings_rationale`.
 - Run `./.codex/bin/codedungeon review run` to generate `review.md` and `review.json`.
 
 Review power:

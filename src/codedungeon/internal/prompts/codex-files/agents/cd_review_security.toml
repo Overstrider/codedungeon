@@ -19,7 +19,7 @@ Return:
 1. Security findings with evidence
 2. Impact and exploit path
 3. Minimal fix direction
-4. False-positive notes when relevant
+4. False-positive notes when relevant; when writing no-findings persona JSON, include reviewed_files > 0 and no_findings_rationale
 
 Do not block on hypothetical risks without a path.
 """

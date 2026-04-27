@@ -84,6 +84,9 @@ func runStartE(c *cobra.Command, _ []string) error {
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
+	if err := prepareRunForMode(s, runID, mode); err != nil {
+		return EmitErr(err.Error(), "")
+	}
 	token, err := randomHex(32)
 	if err != nil {
 		return EmitErr(err.Error(), "")
@@ -140,6 +143,21 @@ func addRunStartFlags(c *cobra.Command) {
 	c.Flags().Bool("rules", false, "run Project Rules discovery")
 	c.Flags().String("prompt", "", "workflow prompt")
 	c.Flags().Bool("dry-run", false, "create and show runner plan without launching provider")
+}
+
+func prepareRunForMode(s *db.Store, runID int64, mode string) error {
+	switch mode {
+	case "lite", "oneshot":
+		for _, phase := range db.CanonicalPhases() {
+			if phase == "7" {
+				break
+			}
+			if err := s.SetPhaseStatus(runID, phase, "SKIPPED", fmt.Sprintf("%s compact workflow; final gates use QA, review, PR, and report evidence", mode), nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func runStatusCmd() *cobra.Command {
@@ -307,6 +325,7 @@ Load and follow %s. The parent agent is no longer in control of workflow steps.
 
 Required custody:
 - Use only the project-local codedungeon binary for workflow evidence.
+- A run and custody session already exist. Do not run phase init or create another run.
 - Do not manually write review reports, final reports, persona evidence, or DB rows.
 - Do not merge pull requests.
 - Finish with the PR open for human review and merge.

@@ -94,6 +94,15 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			if _, err := os.Stat(dir); err != nil {
 				return EmitErr("findings dir not found: "+dir, "create it or pass --dir")
 			}
+			store, _ := OpenDB(c) // best-effort; Render falls back to embedded when nil.
+			if store != nil {
+				defer store.Close()
+				if run, rErr := store.CurrentRun(); rErr == nil && run != nil {
+					if err := requireAutonomousCustody(store, run.ID, "review run"); err != nil {
+						return err
+					}
+				}
+			}
 			manifest, manifestPath, err := loadAndValidateReviewManifest(dir)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -153,15 +162,6 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			// ---- Step 9: render (DB-aware: user template overrides embedded) ----
 			tally := reviewpipe.BuildTally(merged, dropped, suppressed)
 			verdict := reviewpipe.Verdict(tally)
-			store, _ := OpenDB(c) // best-effort; Render falls back to embedded when nil
-			if store != nil {
-				defer store.Close()
-				if run, rErr := store.CurrentRun(); rErr == nil && run != nil {
-					if err := requireAutonomousCustody(store, run.ID, "review run"); err != nil {
-						return err
-					}
-				}
-			}
 			validatorLabel := validatorModel
 			if len(validators) == 0 {
 				validatorLabel = "SKIPPED"
@@ -320,18 +320,6 @@ func reviewPostCmd() *cobra.Command {
 		Short: "Post generated review.md to the GitHub PR and record comment custody",
 		RunE: func(c *cobra.Command, _ []string) error {
 			dir, _ := c.Flags().GetString("dir")
-			if dir == "" {
-				dir = projectPath(currentProjectRoot(), filepath.Join(provider.Detect().ReviewsDir(), "adv-review"))
-			}
-			bodyBytes, err := os.ReadFile(filepath.Join(dir, "review.md"))
-			if err != nil {
-				return EmitErr("read review.md: "+err.Error(), "")
-			}
-			body := string(bodyBytes)
-			marker := provider.Detect().ReviewCommentMarker()
-			if !strings.Contains(body, marker) {
-				body = "## " + marker + "\n\n" + body
-			}
 			s, err := OpenDB(c)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -353,6 +341,21 @@ func reviewPostCmd() *cobra.Command {
 			}
 			if err := validateReviewEvidence(evidence); err != nil {
 				return EmitErr("review post gate: "+err.Error(), "")
+			}
+			if evidence.ReviewDir == "" {
+				return EmitErr("review post gate: review evidence missing directory", "")
+			}
+			if dir != "" && !samePath(dir, evidence.ReviewDir) {
+				return EmitErr("review post gate: --dir does not match latest review evidence", evidence.ReviewDir)
+			}
+			bodyBytes, err := os.ReadFile(filepath.Join(evidence.ReviewDir, "review.md"))
+			if err != nil {
+				return EmitErr("read review.md: "+err.Error(), "")
+			}
+			body := string(bodyBytes)
+			marker := provider.Detect().ReviewCommentMarker()
+			if !strings.Contains(body, marker) {
+				body = "## " + marker + "\n\n" + body
 			}
 			repoName, errb, err := run(".", "gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
 			if err != nil {
@@ -403,6 +406,18 @@ func reviewPostCmd() *cobra.Command {
 	}
 	c.Flags().String("dir", "", "review dir (default .codedungeon/reviews/adv-review)")
 	return c
+}
+
+func samePath(a, b string) bool {
+	aa, errA := filepath.Abs(filepath.Clean(a))
+	bb, errB := filepath.Abs(filepath.Clean(b))
+	if errA == nil {
+		a = aa
+	}
+	if errB == nil {
+		b = bb
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 func reviewContextPathsCmd() *cobra.Command {

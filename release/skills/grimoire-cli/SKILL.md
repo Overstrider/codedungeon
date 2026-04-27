@@ -67,24 +67,10 @@ codedungeon bootstrap
 # 1) Start an autonomous pipeline
 codedungeon run --full --prompt "add X"
 
-# 2) Discover repos (auto-populates REPO_MAP, upserts CLAUDE.md)
-codedungeon repo discover --write-claude-md --persist
-
-# 3) Per-phase agent
-codedungeon phase next
-codedungeon phase config feature
-codedungeon prompts get caveman-ultra
-# ... do work (LLM judgment) ...
-codedungeon phase done 5 \
-  --verdict APPROVED \
-  --summary "..." --decisions "..." --artifacts "..." \
-  --next "..." --promise "PHASE_5_COMPLETE: ..."
-
-# 4) Orchestrator
-codedungeon phase render-state
-
-# 5) Final leaves the PR open for human review/merge
-codedungeon report render
+# 2) Observe or recover only; the autonomous child owns repo discovery,
+# phases, QA evidence, review posting, and final report rendering.
+codedungeon run status
+codedungeon run unlock --reason "stale/crashed session"  # only for a confirmed stale session
 ```
 
 ## Design rule

@@ -75,13 +75,15 @@ CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI.
 2. The branch is pushed.
 3. A GitHub PR exists or is reused.
 4. Adversarial review personas write outputs such as `findings-saboteur.json`, `review-manifest.json` records personas/base/head/PR/timestamp, and `codedungeon review run` generates `review.md` and `review.json`.
-5. Code review is posted to the PR with `codedungeon review post`, which records comment id, URL, author, and body hash.
+5. Code review is posted to the PR with `codedungeon review post`, which posts the latest validated review evidence directory and records comment id, URL, author, and body hash.
 6. The final review verdict is `APPROVED`.
 7. `codedungeon report render` generates the final report from DB evidence and leaves the PR open for human review.
 
 If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, never `READY_FOR_USER_REVIEW`.
 
 Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon review run`, `codedungeon review post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon report render`.
+
+`--lite` and `--oneshot` are compact workflows: the runner marks the pre-report phase ledger as skipped, then enforces readiness through QA, review, PR, and report evidence. `--full` keeps the full ordered phase lifecycle.
 
 `APPROVED` does not replace verification. For Rust work, the verification gate includes `cargo check` and `cargo test`. If `Dockerfile` or `Containerfile` changes, the workflow must run `podman build` or return `BLOCKED` with the environment blocker. If a command is recorded multiple times in the Phase 6 ledger, the latest record for that exact command wins.
 

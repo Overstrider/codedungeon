@@ -766,6 +766,23 @@ func (s *Store) ActiveRunSession(runID int64) (*RunSession, error) {
 	return &sess, nil
 }
 
+func (s *Store) ActiveAnyRunSession() (*RunSession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, run_id, provider, mode, token_sha256, status,
+               started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM run_sessions WHERE status='RUNNING'
+        ORDER BY started_at DESC LIMIT 1`)
+	var sess RunSession
+	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
+		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &sess, nil
+}
+
 type RunEvent struct {
 	ID        int64  `json:"id"`
 	RunID     int64  `json:"run_id"`

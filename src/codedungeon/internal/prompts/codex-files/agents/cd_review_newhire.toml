@@ -19,7 +19,7 @@ Return:
 1. Findings with file/line evidence
 2. Why a new contributor would likely fail
 3. Minimal fix direction
-4. No findings if no concrete risk exists
+4. No findings if no concrete risk exists; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
 
 Do not report general readability preferences.
 """

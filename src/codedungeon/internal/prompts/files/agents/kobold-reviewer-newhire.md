@@ -41,6 +41,8 @@ Return ONLY valid JSON. Schema:
 ```json
 {
   "persona": "newhire",
+  "reviewed_files": 7,
+  "no_findings_rationale": "Required when findings is empty: concrete summary of the reviewed diff and why no actionable maintainability risk exists",
   "findings": [
     {
       "severity": "P0" | "P1" | "P2",

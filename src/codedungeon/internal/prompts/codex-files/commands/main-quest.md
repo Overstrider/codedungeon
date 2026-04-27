@@ -36,7 +36,7 @@ If either command fails, stop before editing and report `Status BLOCKED`. There 
 - Do not merge PRs. The user performs final review and merge.
 
 Steps:
-- Run `./.codex/bin/codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/<slug>" --mode FRESH --project-mode SINGLE` if no active run exists.
+- Use the existing run created by `codedungeon run`; do not call `phase init` or create a second run.
 - Execute phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`, `7`.
 - For each phase, use `./.codex/bin/codedungeon spawn-prompt <phase>` and the matching Codex subagent when useful.
 - If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.

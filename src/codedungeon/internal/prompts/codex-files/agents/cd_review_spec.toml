@@ -19,7 +19,7 @@ Return:
 1. Requirement coverage summary
 2. Spec deviations with evidence
 3. Required follow-up work
-4. No findings if implementation matches the spec
+4. No findings if implementation matches the spec; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
 
 Do not review style unless it violates the spec.
 """

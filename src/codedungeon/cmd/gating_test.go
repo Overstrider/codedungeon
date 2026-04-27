@@ -102,6 +102,98 @@ func TestReviewRunRejectsEmptyPersonaWithoutRationale(t *testing.T) {
 	}
 }
 
+func TestReviewRunChecksCustodyBeforeWritingArtifacts(t *testing.T) {
+	root := setupGatedRun(t)
+	dir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	writeReviewManifest(t, dir, []string{"saboteur"})
+	writePersonaFindings(t, dir, "saboteur", []map[string]any{{
+		"severity":       "P1",
+		"file":           "main.go",
+		"line_start":     1,
+		"line_end":       1,
+		"title":          "test finding",
+		"evidence_quote": "package main",
+	}})
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "oneshot",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := ReviewCmd()
+	cmd.SetArgs([]string{"run", "--only", "dedupe", "--dir", dir})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("review run succeeded without autonomous session token")
+	}
+	if !strings.Contains(err.Error(), "autonomous-session-required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "findings-merged.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("review run wrote findings-merged.json before custody check: %v", statErr)
+	}
+}
+
+func TestReviewPostRejectsDirMismatchBeforeGitHub(t *testing.T) {
+	root := setupGatedRun(t)
+	evidenceDir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	otherDir := filepath.Join(root, ".codedungeon", "reviews", "other")
+	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "review.md"), []byte("## Codex Adversarial Code Review\n\nApproved."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewJSONPath := filepath.Join(evidenceDir, "review.json")
+	if err := os.WriteFile(reviewJSONPath, []byte(`{"verdict":"APPROVED","tally":{"actionable":{"p0":0,"p1":0,"p2":0},"design_decisions":0,"dropped":0},"findings":[],"personas_run":["saboteur"],"validator_model":"SKIPPED","classifier_model":"SKIPPED"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            run.ID,
+		ReviewDir:        evidenceDir,
+		ReviewJSONPath:   reviewJSONPath,
+		ManifestPath:     filepath.Join(evidenceDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := ReviewCmd()
+	cmd.SetArgs([]string{"post", "--dir", otherDir})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("review post accepted a directory different from latest review evidence")
+	}
+	if !strings.Contains(err.Error(), "--dir does not match latest review evidence") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAutonomousSessionBlocksPhaseMutationWithoutToken(t *testing.T) {
 	root := setupGatedRun(t)
 	s := openTestStore(t, root)
@@ -157,6 +249,36 @@ func TestAutonomousSessionAllowsPhaseMutationWithToken(t *testing.T) {
 	cmd.SetArgs([]string{"done", "0", "--summary", "ok", "--promise", "PHASE_0_COMPLETE"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("phase mutation rejected valid autonomous token: %v", err)
+	}
+}
+
+func TestPhaseInitBlockedDuringActiveAutonomousSession(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "full",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"init", "--feature", "other", "--branch", "feat/other", "--project-mode", "SINGLE"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("phase init created a second run during an active autonomous session")
+	}
+	if !strings.Contains(err.Error(), "autonomous session already owns run state") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -339,6 +461,48 @@ func TestReportRenderFailsBeforeCompletionGates(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "report-gate") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompactRunModesSkipPreReportPhaseLedger(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	id, err := s.CreateRun(&db.Run{Feature: "small fix", Branch: "feat/small-fix", Mode: "ONESHOT", ProjectMode: "SINGLE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareRunForMode(s, id, "oneshot"); err != nil {
+		t.Fatal(err)
+	}
+	phases, err := s.AllPhases(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	for _, phase := range phases {
+		if phase.Phase == "7" {
+			continue
+		}
+		if phase.Status != "SKIPPED" {
+			t.Fatalf("phase %s status = %s, want SKIPPED", phase.Phase, phase.Status)
+		}
+	}
+	if root == "" {
+		t.Fatal("setup did not return root")
+	}
+}
+
+func TestProjectRulesHookCoversMergeBypassPatterns(t *testing.T) {
+	script := projectRulesHookScript(".codex/bin/codedungeon", "enforce")
+	for _, required := range []string{
+		"HEAD:main",
+		"/pulls/",
+		"refs/heads/main",
+		"codedungeon(\\.exe)?\\s+review\\s+(run|post)",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("hook script missing %q:\n%s", required, script)
+		}
 	}
 }
 

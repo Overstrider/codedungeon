@@ -16,6 +16,12 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 
 Thin state-machine orchestrator. Dispatches isolated phase agents; reads only `pipeline-state.md` + handoffs. All deterministic mechanics (state, handoffs, repo discover, review pipeline, plan parsing, QA, report) live in `codedungeon`.
 
+This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+
+```bash
+./.claude/bin/codedungeon run --full --prompt "<prompt>"
+```
+
 **FULLY AUTONOMOUS** once invoked. No approval gates.
 
 ## CAVEMAN:ULTRA mode (forced)
@@ -90,17 +96,8 @@ CD=./.claude/bin/codedungeon
 git remote get-url origin >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a GitHub origin remote"; exit 2; }
 gh auth status >/dev/null || { echo "Status BLOCKED: CodeDungeon requires authenticated gh"; exit 2; }
 
-# Check for existing run with same feature (resume).
-EXISTING_FEATURE=$($CD phase config feature 2>/dev/null || echo "")
-if [ "$EXISTING_FEATURE" = "$FEATURE_PROMPT" ]; then
-  # RESUME — skip phase init, pick up at first non-DONE.
-  NEXT=$($CD phase next | jq -r .next_phase)
-else
-  # FRESH — new run (cleanup old if different feature).
-  $CD cleanup --tasks --plans --reviews 2>/dev/null || true
-  $CD phase init --feature "$FEATURE_PROMPT" --branch "feat/$(slug "$FEATURE_PROMPT")" --mode FRESH --project-mode SINGLE
-  NEXT="0"
-fi
+# A run and custody session already exist. Do not run phase init or create another run.
+NEXT=$($CD phase next | jq -r .next_phase)
 ```
 
 ### Step 2: Dispatch loop

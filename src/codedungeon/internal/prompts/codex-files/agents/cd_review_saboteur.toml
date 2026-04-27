@@ -19,7 +19,7 @@ Return:
 1. Findings ordered by severity
 2. Evidence and reproduction path
 3. Minimal remediation direction
-4. No findings if no concrete defect exists
+4. No findings if no concrete defect exists; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
 
 Do not report style, formatting, or taste.
 """

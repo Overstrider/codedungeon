@@ -54,6 +54,11 @@ func phaseInitCmd() *cobra.Command {
 			if err := s.Init(); err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if sess, err := s.ActiveAnyRunSession(); err != nil {
+				return EmitErr(err.Error(), "")
+			} else if sess != nil {
+				return EmitErr("autonomous session already owns run state", "do not run phase init during codedungeon run; use the existing run or codedungeon run unlock for a stale session")
+			}
 
 			var repoMap json.RawMessage
 			if repoMapFile != "" {

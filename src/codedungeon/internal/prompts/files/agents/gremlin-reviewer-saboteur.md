@@ -36,6 +36,8 @@ Return ONLY valid JSON. No prose wrapping, no markdown. Schema:
 ```json
 {
   "persona": "saboteur",
+  "reviewed_files": 7,
+  "no_findings_rationale": "Required when findings is empty: concrete summary of the reviewed diff and why no actionable defect exists",
   "findings": [
     {
       "severity": "P0" | "P1" | "P2",

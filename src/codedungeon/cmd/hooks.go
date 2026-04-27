@@ -157,7 +157,11 @@ $root = (& git rev-parse --show-toplevel 2>$null)
 if ([string]::IsNullOrWhiteSpace($root)) { $root = (Get-Location).Path }
 $bin = Join-Path $root "%s"
 if (!(Test-Path $bin) -and (Test-Path "$bin.exe")) { $bin = "$bin.exe" }
-if ($payload -match 'gh\s+pr\s+merge|git\s+merge\b|git\s+push\s+origin\s+main\b|codedungeon\.db|\.codedungeon[/\\]reviews') {
+$mergePattern = 'gh\s+pr\s+merge|gh\s+api\b[^\r\n]*(/pulls/[^\s/]+/merge|/merge\b)|git(?:\s+-C\s+\S+)?\s+merge\b'
+$mainPushPattern = 'git(?:\s+-C\s+\S+)?\s+push\b[^\r\n]*(origin\s+(main|HEAD:main|[^\s:]+:main)|origin[^\r\n]*refs/heads/main)'
+$allowedReviewCommand = $payload -match 'codedungeon(\.exe)?\s+review\s+(run|post)\b'
+$reviewPathMutation = ($payload -match '\.codedungeon[/\\]reviews') -and (-not $allowedReviewCommand)
+if ($payload -match $mergePattern -or $payload -match $mainPushPattern -or $payload -match 'codedungeon\.db' -or $reviewPathMutation) {
   $active = $false
   try {
     $statusRaw = (& $bin run status 2>$null)

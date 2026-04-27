@@ -671,7 +671,7 @@ func TestReportTemplatesRenderPRReportFields(t *testing.T) {
 	}
 }
 
-func TestCodexFullWorkflowDocumentsFeatureInitAndGitHubPrereqs(t *testing.T) {
+func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T) {
 	for _, rel := range []string{
 		"commands/main-quest.md",
 		"skills/main-quest/SKILL.md",
@@ -690,11 +690,11 @@ func TestCodexFullWorkflowDocumentsFeatureInitAndGitHubPrereqs(t *testing.T) {
 		if strings.Contains(rel, "codedungeon") {
 			required = append(required, "codedungeon run --full", "autonomous runner")
 		} else {
-			required = append(required, "phase init --feature", "gh auth status", "git remote get-url origin")
+			required = append(required, "existing run created by `codedungeon run`", "gh auth status", "git remote get-url origin", "do not call `phase init`")
 		}
 		for _, required := range required {
 			if !strings.Contains(body, required) {
-				t.Fatalf("%s missing GitHub/phase-init instruction %q:\n%s", rel, required, body)
+				t.Fatalf("%s missing GitHub/autonomous-runner instruction %q:\n%s", rel, required, body)
 			}
 		}
 	}

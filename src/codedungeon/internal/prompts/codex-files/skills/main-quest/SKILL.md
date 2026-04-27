@@ -44,7 +44,7 @@ If either command fails, stop before editing and report `Status BLOCKED`. There 
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
 
 Steps:
-- Ensure a codedungeon run exists with `./.codex/bin/codedungeon phase init --feature "$FEATURE_PROMPT" --branch "feat/<slug>" --mode FRESH --project-mode SINGLE` when needed.
+- Use the existing run created by `codedungeon run`; do not call `phase init` or create a second run.
 - Execute phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`, `7`.
 - For each phase, inspect state with `./.codex/bin/codedungeon phase info <phase>`.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose phase context.

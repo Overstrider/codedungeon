@@ -198,13 +198,10 @@ This runs classify (including stack findings) + render + verdict in one shot. Ou
 ## Step 10: Post to GitHub PR
 
 ```bash
-gh pr comment "$PR_NUM" --body "$(cat "$REPO_DIR/.codedungeon/reviews/adv-review/review.md")
-
----
-*Automated adversarial review — mode: ${REVIEW_MODE}, cycle: ${REVIEW_CYCLE}*"
+codedungeon review post --dir "$REPO_DIR/.codedungeon/reviews/adv-review"
 ```
 
-The title line `## Claude Adversarial Code Review` is LOAD-BEARING — `forge-execution.md` greps for it.
+The posted comment must be created by `codedungeon review post`; direct `gh pr comment` marker comments do not satisfy `git verify`.
 
 ## Step 11: Report verdict
 
