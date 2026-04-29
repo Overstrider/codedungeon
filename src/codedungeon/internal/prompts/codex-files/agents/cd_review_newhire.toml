@@ -16,10 +16,35 @@ Checks:
 - comments are requested only when code cannot be made clearer
 
 Return:
-1. Findings with file/line evidence
-2. Why a new contributor would likely fail
-3. Minimal fix direction
-4. No findings if no concrete risk exists; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
+Write ONLY strict JSON to the requested output path:
+{
+  "persona": "newhire",
+  "verdict": "APPROVED|CHANGES_REQUESTED",
+  "model": "model-name",
+  "provider": "codex",
+  "session_id": "session-or-run-id",
+  "reviewed_files": 1,
+  "reviewed_scope": ["path or diff section"],
+  "approval_rationale": "required when findings is empty; detailed, concrete, not generic",
+  "risks_considered": ["risk one", "risk two"],
+  "verification_checked": ["command or evidence checked"],
+  "project_rules": {"status": "PROJECT_RULES_STATUS", "digest": "PROJECT_RULES_DIGEST", "read": "yes"},
+  "findings": [
+    {
+      "severity": "P0|P1|P2",
+      "file": "path",
+      "line_start": 1,
+      "line_end": 1,
+      "title": "short risk",
+      "evidence_quote": "verbatim source or log excerpt",
+      "suggested_fix": "minimal direction",
+      "category": "stable-category",
+      "why_it_matters": "future bug or onboarding failure"
+    }
+  ]
+}
+If there are no concrete risks, use an empty findings array, verdict APPROVED, reviewed_files > 0, reviewed_scope, a substantive approval_rationale, and at least two risks_considered.
+If there are findings, use verdict CHANGES_REQUESTED.
 
 Do not report general readability preferences.
 """

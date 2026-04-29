@@ -2,13 +2,17 @@ package cmd
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -27,6 +31,7 @@ func RunCmd() *cobra.Command {
 	c.AddCommand(runStartCmd())
 	c.AddCommand(runStatusCmd())
 	c.AddCommand(runUnlockCmd())
+	c.AddCommand(runFinalizeCmd())
 	return c
 }
 
@@ -56,6 +61,14 @@ func runStartE(c *cobra.Command, _ []string) error {
 	fmt.Printf("CODEDUNGEON_MODE_SELECTED: %s - %s\n", mode, modeReason(mode, prompt))
 
 	root := currentProjectRoot()
+	var rulesStatus projectRulesStatus
+	if mode != "rules" {
+		var err error
+		rulesStatus, err = enforceRunProjectRules(root, mode)
+		if err != nil {
+			return err
+		}
+	}
 	if mode != "rules" {
 		if err := verifyGitHubPREnvironment(root); err != nil {
 			return err
@@ -70,22 +83,25 @@ func runStartE(c *cobra.Command, _ []string) error {
 	if err := s.Init(); err != nil {
 		return EmitErr(err.Error(), "")
 	}
+	if active, err := s.ActiveAnyRunSession(); err != nil {
+		return EmitErr(err.Error(), "")
+	} else if active != nil {
+		return EmitErr("autonomous session already running",
+			fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+	}
 
 	branch := ""
 	if mode != "rules" {
 		branch = "feat/" + slugifyFeature(prompt)
 	}
-	runID, err := s.CreateRun(&db.Run{
-		Feature:     prompt,
-		Branch:      branch,
-		Mode:        strings.ToUpper(mode),
-		ProjectMode: "SINGLE",
-	})
+	runID, branch, resumed, err := resolveRunForStart(s, prompt, mode, branch)
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	if err := prepareRunForMode(s, runID, mode); err != nil {
-		return EmitErr(err.Error(), "")
+	if !resumed {
+		if err := prepareRunForMode(s, runID, mode); err != nil {
+			return EmitErr(err.Error(), "")
+		}
 	}
 	token, err := randomHex(32)
 	if err != nil {
@@ -106,29 +122,41 @@ func runStartE(c *cobra.Command, _ []string) error {
 		return EmitErr(err.Error(), "")
 	}
 	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_started", Detail: mode})
+	runnerAgentID, _ := recordRunnerAgentStart(s, runID, sessionID, mode)
 
 	childPrompt := autonomousChildPrompt(mode, prompt, branch)
+	if mode != "rules" {
+		childPrompt += "\n\nProject Rules envelope:\n" + runProjectRulesEnvelope(rulesStatus)
+	}
 	if dryRun {
 		_ = s.UpdateRunSessionStatus(sessionID, "ABORTED", "dry-run")
-		return EmitJSON(map[string]any{"ok": true, "dry_run": true, "run_id": runID, "session_id": sessionID, "mode": mode, "branch": branch, "prompt": childPrompt})
+		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "ABORTED", "dry-run")
+		return EmitJSON(map[string]any{"ok": true, "dry_run": true, "run_id": runID, "session_id": sessionID, "mode": mode, "branch": branch, "resumed": resumed, "project_rules": rulesStatus, "prompt": childPrompt})
 	}
 
 	if err := executeProviderChild(root, mode, childPrompt, runID, sessionID, token); err != nil {
 		_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
 		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_failed", Detail: err.Error()})
+		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
+		_ = abortOpenAgentRuns(s, runID, sessionID, runnerAgentID, "runner child failed before returning control", err.Error())
 		return EmitErr("codedungeon runner failed: "+err.Error(), "")
 	}
 	if mode == "rules" {
 		_ = s.UpdateRunSessionStatus(sessionID, "COMPLETED", "")
 		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_completed", Detail: mode})
+		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "rules workflow completed")
 		return EmitJSON(map[string]any{"ok": true, "run_id": runID, "session_id": sessionID, "status": "COMPLETED"})
 	}
-	report, err := renderFinalReport(root, runID, sessionID, token)
+	runRow, _ := s.GetRun(runID)
+	report, err := finalizeRun(root, s, runRow, sessionID, token, runnerAgentID)
 	if err != nil {
 		_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
 		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
+		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
+		_ = abortOpenAgentRuns(s, runID, sessionID, 0, "runner failed before clean finalization", err.Error())
 		return EmitErr("codedungeon final report failed: "+err.Error(), "")
 	}
+	_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "final report rendered")
 	_ = s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", "")
 	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "ready_for_user_review", Detail: branch})
 	fmt.Print(report)
@@ -143,6 +171,70 @@ func addRunStartFlags(c *cobra.Command) {
 	c.Flags().Bool("rules", false, "run Project Rules discovery")
 	c.Flags().String("prompt", "", "workflow prompt")
 	c.Flags().Bool("dry-run", false, "create and show runner plan without launching provider")
+}
+
+func enforceRunProjectRules(root, mode string) (projectRulesStatus, error) {
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		return st, EmitErr("project-rules-gate: "+err.Error(), "")
+	}
+	if st.Status == "" {
+		st.Status = "missing"
+	}
+	switch mode {
+	case "full", "lite":
+		if st.Status != "approved" {
+			return st, EmitErr("project-rules-gate: PROJECT_RULES_STATUS "+st.Status,
+				"run `$codedungeon --rules` and approve rules before full/lite workflows")
+		}
+	case "oneshot":
+		if st.Status != "approved" {
+			fmt.Printf("PROJECT_RULES_WARNING: PROJECT_RULES_STATUS %s; oneshot continues with explicit envelope\n", st.Status)
+		}
+	}
+	return st, nil
+}
+
+func runProjectRulesEnvelope(st projectRulesStatus) string {
+	digest := st.RulesDigest
+	if digest == "" {
+		digest = "none"
+	}
+	return fmt.Sprintf("PROJECT_RULES_STATUS: %s\nPROJECT_RULES_DIGEST: %s\nPROJECT_RULES_READ: yes\n",
+		st.Status, digest)
+}
+
+func resolveRunForStart(s *db.Store, prompt, mode, branch string) (int64, string, bool, error) {
+	if mode != "rules" {
+		existing, err := s.FindRunByFeatureMode(prompt, strings.ToUpper(mode))
+		if err != nil {
+			return 0, "", false, err
+		}
+		if existing != nil {
+			latest, err := s.LatestRunSession(existing.ID)
+			if err != nil {
+				return 0, "", false, err
+			}
+			if latest != nil {
+				switch latest.Status {
+				case "RUNNING":
+					return 0, "", false, fmt.Errorf("autonomous session already running; run `codedungeon run unlock --reason \"...\"` before retrying session %s", latest.ID)
+				case "FAILED", "ABORTED":
+					if existing.Branch != "" {
+						branch = existing.Branch
+					}
+					return existing.ID, branch, true, nil
+				}
+			}
+		}
+	}
+	runID, err := s.CreateRun(&db.Run{
+		Feature:     prompt,
+		Branch:      branch,
+		Mode:        strings.ToUpper(mode),
+		ProjectMode: "SINGLE",
+	})
+	return runID, branch, false, err
 }
 
 func prepareRunForMode(s *db.Store, runID int64, mode string) error {
@@ -182,6 +274,58 @@ func runStatusCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 			return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess})
+		},
+	}
+}
+
+func runFinalizeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "finalize",
+		Short: "Close final gates, render report, and clean stale agent telemetry",
+		RunE: func(c *cobra.Command, _ []string) error {
+			root := currentProjectRoot()
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			if err := s.Init(); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			run, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if run == nil {
+				return EmitErr("no active run", "")
+			}
+			sessionID := ""
+			token := ""
+			if sess, err := s.ActiveRunSession(run.ID); err != nil {
+				return EmitErr(err.Error(), "")
+			} else if sess != nil {
+				if err := requireAutonomousCustody(s, run.ID, "run finalize"); err != nil {
+					return err
+				}
+				sessionID = sess.ID
+				token = os.Getenv(envSessionToken)
+			}
+			report, err := finalizeRun(root, s, run, sessionID, token, 0)
+			if err != nil {
+				_ = abortOpenAgentRuns(s, run.ID, sessionID, 0, "finalize failed before READY_FOR_USER_REVIEW", err.Error())
+				return EmitErr("run finalize failed: "+err.Error(), "")
+			}
+			if sessionID != "" {
+				if err := completeOpenRunnerAgents(s, run.ID, sessionID, 0, "final report rendered"); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				if err := s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", ""); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "ready_for_user_review", Detail: run.Branch})
+			}
+			fmt.Print(report)
+			return nil
 		},
 	}
 }
@@ -327,14 +471,511 @@ Required custody:
 - Use only the project-local codedungeon binary for workflow evidence.
 - A run and custody session already exist. Do not run phase init or create another run.
 - Do not manually write review reports, final reports, persona evidence, or DB rows.
+- Code review is isolated. Run the standalone module with ./.codex/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post; do not use legacy review run as final approval evidence.
 - Do not merge pull requests.
 - Finish with the PR open for human review and merge.
+
+Agent telemetry:
+- Record every subagent, persona, validator, classifier, worker, or phase delegation.
+- Before spawning it, run: ./.codex/bin/codedungeon trace agent-start --phase "<phase>" --role "<role>" --agent-type "<agent_type>" --agent-name "<name>" --model "<model>" --reasoning-effort "<effort>" --task "<artifact-or-task>" --input-summary "<short summary>".
+- Save the returned agent_run_id. After the agent returns, run: ./.codex/bin/codedungeon trace agent-end --id "<agent_run_id>" --status COMPLETED|FAILED|ABORTED --summary "<short result>" --artifact "<primary artifact>" --error "<failure message if any>".
+- Telemetry is informational and does not replace phase, QA, review, PR, or report gates.
 
 Workflow mode: %s
 Target branch: %s
 User prompt:
 %s
 `, skill, mode, branch, prompt)
+}
+
+type finalizablePhase struct {
+	phase     string
+	summary   string
+	artifacts []string
+	promise   string
+}
+
+type finalizationPlan struct {
+	phases     []finalizablePhase
+	report     string
+	repos      []reportRepo
+	reportPath string
+}
+
+func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string, excludeAgentID int64) (string, error) {
+	if run == nil {
+		return "", fmt.Errorf("no active run")
+	}
+	plan, err := prepareFinalization(root, s, run, sessionID, token, excludeAgentID)
+	if err != nil {
+		return "", err
+	}
+	if err := commitFinalization(root, s, run, sessionID, excludeAgentID, plan); err != nil {
+		return "", err
+	}
+	return plan.report, nil
+}
+
+func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token string, excludeAgentID int64) (*finalizationPlan, error) {
+	var planned []finalizablePhase
+	var virtualPhases []db.Phase
+	if err := withFinalReportEnv(root, run.ID, sessionID, token, func() error {
+		var err error
+		planned, virtualPhases, err = planFinalizablePhases(s, run)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	agents, err := s.AgentRuns(run.ID)
+	if err != nil {
+		return nil, err
+	}
+	virtualAgents := virtualFinalizationAgents(agents, sessionID, excludeAgentID)
+	if err := withFinalReportEnv(root, run.ID, sessionID, token, func() error {
+		return validateReportGatesWithPhases(s, run, virtualPhases, false, true)
+	}); err != nil {
+		return nil, fmt.Errorf("report-gate: %w", err)
+	}
+	var report string
+	var repos []reportRepo
+	if err := withFinalReportEnv(root, run.ID, sessionID, token, func() error {
+		var err error
+		report, repos, err = buildReportSnapshot(s, run, false, virtualPhases, virtualAgents)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return &finalizationPlan{
+		phases:     planned,
+		report:     report,
+		repos:      repos,
+		reportPath: filepath.Join(root, codedungeonDir, "reports", fmt.Sprintf("run-%d.md", run.ID)),
+	}, nil
+}
+
+func planFinalizablePhases(s *db.Store, run *db.Run) ([]finalizablePhase, []db.Phase, error) {
+	phases, err := s.AllPhases(run.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := phasesBeforeFiveComplete(phases); err != nil {
+		return nil, nil, err
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return nil, nil, err
+	}
+	if err := validateBranchPushed(run.Branch); err != nil {
+		return nil, nil, fmt.Errorf("phase-5-gate: %w", err)
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateVerificationRecords(records); err != nil {
+		return nil, nil, err
+	}
+
+	var planned []finalizablePhase
+	if phaseNeedsFinalization(phases, "5") {
+		planned = append(planned, finalizablePhase{
+			phase:     "5",
+			summary:   "Implementation and adversarial review completed with APPROVED verdict.",
+			artifacts: []string{reviewEvidence.ReviewJSONPath, reviewEvidence.ReviewDir},
+			promise:   "PHASE_5_COMPLETE: implementation and review evidence are approved.",
+		})
+	}
+	if phaseNeedsFinalization(phases, "5.5") {
+		planned = append(planned, finalizablePhase{
+			phase:     "5.5",
+			summary:   "Review evidence consolidated and approved.",
+			artifacts: []string{reviewEvidence.ReviewJSONPath},
+			promise:   "PHASE_55_COMPLETE: review evidence is recorded.",
+		})
+	}
+	if phaseNeedsFinalization(phases, "5.6") {
+		planned = append(planned, finalizablePhase{
+			phase:     "5.6",
+			summary:   "Review fix loop converged with approved final evidence.",
+			artifacts: []string{reviewEvidence.ReviewJSONPath},
+			promise:   "PHASE_56_COMPLETE: no blocking review findings remain.",
+		})
+	}
+	if phaseNeedsFinalization(phases, "6") {
+		planned = append(planned, finalizablePhase{
+			phase:     "6",
+			summary:   "Verification ledger is PASS.",
+			artifacts: latestVerificationLogPaths(records),
+			promise:   "PHASE_6_COMPLETE: verification ledger is PASS.",
+		})
+	}
+	return planned, applyVirtualFinalizedPhases(phases, planned), nil
+}
+
+func phasesBeforeFiveComplete(phases []db.Phase) error {
+	for _, phase := range phases {
+		if phase.Phase == "5" {
+			return nil
+		}
+		if phase.Status != "DONE" && phase.Status != "SKIPPED" {
+			return fmt.Errorf("phase %s is %s", phase.Phase, phase.Status)
+		}
+	}
+	return fmt.Errorf("phase 5 not found")
+}
+
+func phaseNeedsFinalization(phases []db.Phase, phase string) bool {
+	for _, current := range phases {
+		if current.Phase != phase {
+			continue
+		}
+		return current.Status != "DONE" && current.Status != "SKIPPED"
+	}
+	return false
+}
+
+func applyVirtualFinalizedPhases(phases []db.Phase, planned []finalizablePhase) []db.Phase {
+	out := make([]db.Phase, len(phases))
+	copy(out, phases)
+	plannedByPhase := map[string]finalizablePhase{}
+	for _, phase := range planned {
+		plannedByPhase[phase.phase] = phase
+	}
+	for i := range out {
+		plannedPhase, ok := plannedByPhase[out[i].Phase]
+		if !ok {
+			continue
+		}
+		out[i].Status = "DONE"
+		out[i].Notes = plannedPhase.summary
+		out[i].Artifacts = append([]string(nil), plannedPhase.artifacts...)
+	}
+	return out
+}
+
+func virtualFinalizationAgents(agents []db.AgentRun, sessionID string, excludeAgentID int64) []db.AgentRun {
+	out := make([]db.AgentRun, len(agents))
+	copy(out, agents)
+	for i := range out {
+		if out[i].Status != "RUNNING" {
+			continue
+		}
+		if sessionID != "" && out[i].SessionID != sessionID {
+			continue
+		}
+		switch out[i].Role {
+		case "autonomous-runner":
+			out[i].Status = "COMPLETED"
+			out[i].OutputSummary = "final report rendered"
+		default:
+			if out[i].ID == excludeAgentID {
+				continue
+			}
+			out[i].Status = "ABORTED"
+			out[i].OutputSummary = "stale agent closed during finalization"
+			out[i].ErrorMessage = "final gates are being evaluated"
+		}
+	}
+	return out
+}
+
+func commitFinalization(root string, s *db.Store, run *db.Run, sessionID string, excludeAgentID int64, plan *finalizationPlan) error {
+	if err := abortOpenAgentRuns(s, run.ID, sessionID, excludeAgentID, "stale agent closed during finalization", "final gates are being evaluated"); err != nil {
+		return err
+	}
+	if err := writeReportMemoryFiles(root, run, plan.repos, plan.report); err != nil {
+		return err
+	}
+	phase7Handoff, err := prepareFinalReportPhaseHandoff(root, s, run.ID, plan.reportPath)
+	if err != nil {
+		return err
+	}
+	return commitFinalizationState(s, run.ID, plan, phase7Handoff)
+}
+
+func withFinalReportEnv(root string, runID int64, sessionID, token string, fn func() error) error {
+	oldWD, wdErr := os.Getwd()
+	if wdErr == nil {
+		if err := os.Chdir(root); err != nil {
+			return err
+		}
+		defer func() { _ = os.Chdir(oldWD) }()
+	}
+	oldRunID, oldSessionID, oldToken := os.Getenv(envRunID), os.Getenv(envSessionID), os.Getenv(envSessionToken)
+	_ = os.Setenv(envRunID, fmt.Sprintf("%d", runID))
+	_ = os.Setenv(envSessionID, sessionID)
+	_ = os.Setenv(envSessionToken, token)
+	defer func() {
+		restoreEnv(envRunID, oldRunID)
+		restoreEnv(envSessionID, oldSessionID)
+		restoreEnv(envSessionToken, oldToken)
+	}()
+	return fn()
+}
+
+func autoDonePhase(s *db.Store, runID int64, phase, summary string, artifacts []string, promise string) error {
+	current, err := s.GetPhase(runID, phase)
+	if err != nil {
+		return err
+	}
+	if current == nil || current.Status == "DONE" || current.Status == "SKIPPED" {
+		return nil
+	}
+	if err := s.SetPhaseStatus(runID, phase, "DONE", summary, artifacts); err != nil {
+		return err
+	}
+	handoff := &db.Handoff{
+		RunID:     runID,
+		Phase:     phase,
+		Summary:   summary,
+		Artifacts: artifacts,
+		NextInput: "codedungeon run finalize",
+		Promise:   promise,
+	}
+	handoff.RenderedMD = renderHandoff(handoff, "DONE")
+	return s.UpsertHandoff(handoff)
+}
+
+func markFinalReportPhaseDone(s *db.Store, runID int64, reportPath string) error {
+	return markFinalReportPhaseDoneAtRoot(currentProjectRoot(), s, runID, reportPath)
+}
+
+func markFinalReportPhaseDoneAtRoot(root string, s *db.Store, runID int64, reportPath string) error {
+	handoff, err := prepareFinalReportPhaseHandoff(root, s, runID, reportPath)
+	if err != nil || handoff == nil {
+		return err
+	}
+	if err := s.SetPhaseStatus(runID, "7", "DONE", handoff.Summary, handoff.Artifacts); err != nil {
+		return err
+	}
+	return s.UpsertHandoff(handoff)
+}
+
+func prepareFinalReportPhaseHandoff(root string, s *db.Store, runID int64, reportPath string) (*db.Handoff, error) {
+	current, err := s.GetPhase(runID, "7")
+	if err != nil {
+		return nil, err
+	}
+	if current == nil || current.Status == "DONE" || current.Status == "SKIPPED" {
+		return nil, nil
+	}
+	summary := "Final report rendered with READY_FOR_USER_REVIEW."
+	artifacts := []string{reportPath}
+	handoff := &db.Handoff{
+		RunID:     runID,
+		Phase:     "7",
+		Summary:   summary,
+		Artifacts: artifacts,
+		NextInput: "human review and merge",
+		Promise:   "PHASE_7_COMPLETE: READY_FOR_USER_REVIEW report rendered.",
+	}
+	handoff.RenderedMD = renderHandoff(handoff, "DONE")
+	outPath := projectPath(root, filepath.Join(provider.Detect().StateDir(), "phase-7-output.md"))
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(outPath, []byte(handoff.RenderedMD), 0o644); err != nil {
+		return nil, err
+	}
+	return handoff, nil
+}
+
+func commitFinalizationState(s *db.Store, runID int64, plan *finalizationPlan, phase7Handoff *db.Handoff) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	sum := sha256.Sum256([]byte(plan.report))
+	if _, err := tx.Exec(`
+        INSERT INTO report_evidence(run_id, report_path, sha256, created_at)
+        VALUES (?,?,?,?)`, runID, plan.reportPath, hex.EncodeToString(sum[:]), time.Now().Unix()); err != nil {
+		return err
+	}
+	for _, phase := range plan.phases {
+		if err := setPhaseStatusTx(tx, runID, phase.phase, "DONE", phase.summary, phase.artifacts); err != nil {
+			return err
+		}
+		handoff := &db.Handoff{
+			RunID:     runID,
+			Phase:     phase.phase,
+			Summary:   phase.summary,
+			Artifacts: phase.artifacts,
+			NextInput: "codedungeon run finalize",
+			Promise:   phase.promise,
+		}
+		handoff.RenderedMD = renderHandoff(handoff, "DONE")
+		if err := upsertHandoffTx(tx, handoff); err != nil {
+			return err
+		}
+	}
+	if phase7Handoff != nil {
+		if err := setPhaseStatusTx(tx, runID, "7", "DONE", phase7Handoff.Summary, phase7Handoff.Artifacts); err != nil {
+			return err
+		}
+		if err := upsertHandoffTx(tx, phase7Handoff); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func setPhaseStatusTx(tx *sql.Tx, runID int64, phase, status, notes string, artifacts []string) error {
+	var artJSON string
+	if len(artifacts) > 0 {
+		b, _ := json.Marshal(artifacts)
+		artJSON = string(b)
+	}
+	_, err := tx.Exec(`UPDATE phases SET status=?, notes=?, artifacts=?, finished_at=? WHERE run_id=? AND phase=?`,
+		status, nullableString(notes), nullableString(artJSON), time.Now().Unix(), runID, phase)
+	return err
+}
+
+func upsertHandoffTx(tx *sql.Tx, h *db.Handoff) error {
+	dec, _ := json.Marshal(h.Decisions)
+	art, _ := json.Marshal(h.Artifacts)
+	tr, _ := json.Marshal(h.Traps)
+	oq, _ := json.Marshal(h.OpenQuestions)
+	_, err := tx.Exec(`
+        INSERT INTO handoffs(run_id, phase, summary, decisions, artifacts, traps, open_questions, next_input, promise, rendered_md, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(run_id, phase) DO UPDATE SET
+          summary=excluded.summary,
+          decisions=excluded.decisions,
+          artifacts=excluded.artifacts,
+          traps=excluded.traps,
+          open_questions=excluded.open_questions,
+          next_input=excluded.next_input,
+          promise=excluded.promise,
+          rendered_md=excluded.rendered_md,
+          created_at=excluded.created_at`,
+		h.RunID, h.Phase, nullableString(h.Summary), string(dec), string(art), string(tr), string(oq),
+		nullableString(h.NextInput), nullableString(h.Promise), h.RenderedMD, time.Now().Unix())
+	return err
+}
+
+func nullableString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func latestVerificationLogPaths(records []db.VerificationRecord) []string {
+	var out []string
+	for _, record := range latestVerificationRecords(records) {
+		if record.LogPath != "" {
+			out = append(out, record.LogPath)
+		}
+	}
+	return out
+}
+
+func abortOpenAgentRuns(s *db.Store, runID int64, sessionID string, excludeAgentID int64, summary, errorMessage string) error {
+	agents, err := s.AgentRuns(runID)
+	if err != nil {
+		return err
+	}
+	for _, agent := range agents {
+		if agent.Status != "RUNNING" || agent.ID == excludeAgentID {
+			continue
+		}
+		if agent.Role == "autonomous-runner" {
+			continue
+		}
+		if sessionID != "" && agent.SessionID != sessionID {
+			continue
+		}
+		if err := s.FinishAgentRun(agent.ID, "ABORTED", summary, agent.ArtifactPath, errorMessage); err != nil {
+			return err
+		}
+		_, _ = s.InsertAgentEvent(db.AgentEvent{
+			RunID:      runID,
+			AgentRunID: agent.ID,
+			SessionID:  agent.SessionID,
+			Phase:      agent.Phase,
+			Event:      "agent_aborted",
+			Detail:     firstNonEmpty(errorMessage, summary),
+		})
+	}
+	return nil
+}
+
+func completeOpenRunnerAgents(s *db.Store, runID int64, sessionID string, excludeAgentID int64, summary string) error {
+	agents, err := s.AgentRuns(runID)
+	if err != nil {
+		return err
+	}
+	for _, agent := range agents {
+		if agent.Status != "RUNNING" || agent.ID == excludeAgentID || agent.Role != "autonomous-runner" {
+			continue
+		}
+		if sessionID != "" && agent.SessionID != sessionID {
+			continue
+		}
+		if err := s.FinishAgentRun(agent.ID, "COMPLETED", summary, agent.ArtifactPath, ""); err != nil {
+			return err
+		}
+		_, _ = s.InsertAgentEvent(db.AgentEvent{
+			RunID:      runID,
+			AgentRunID: agent.ID,
+			SessionID:  agent.SessionID,
+			Phase:      agent.Phase,
+			Event:      "agent_completed",
+			Detail:     summary,
+		})
+	}
+	return nil
+}
+
+func recordRunnerAgentStart(s *db.Store, runID int64, sessionID, mode string) (int64, error) {
+	id, err := s.StartAgentRun(db.AgentRun{
+		RunID:        runID,
+		SessionID:    sessionID,
+		Role:         "autonomous-runner",
+		AgentType:    "codedungeon-runner",
+		AgentName:    "codedungeon run --" + mode,
+		InputSummary: "autonomous child custody session",
+	})
+	if err != nil {
+		return 0, err
+	}
+	_, _ = s.InsertAgentEvent(db.AgentEvent{
+		RunID:      runID,
+		AgentRunID: id,
+		SessionID:  sessionID,
+		Event:      "agent_started",
+		Detail:     "autonomous-runner " + mode,
+	})
+	return id, nil
+}
+
+func recordRunnerAgentEnd(s *db.Store, runID, agentID int64, sessionID, status, summary string) error {
+	if agentID == 0 {
+		return nil
+	}
+	if err := s.FinishAgentRun(agentID, status, summary, "", summaryForError(status, summary)); err != nil {
+		return err
+	}
+	_, _ = s.InsertAgentEvent(db.AgentEvent{
+		RunID:      runID,
+		AgentRunID: agentID,
+		SessionID:  sessionID,
+		Event:      "agent_" + strings.ToLower(status),
+		Detail:     summary,
+	})
+	return nil
+}
+
+func summaryForError(status, summary string) string {
+	if status == "FAILED" || status == "ABORTED" {
+		return summary
+	}
+	return ""
 }
 
 func executeProviderChild(root, mode, prompt string, runID int64, sessionID, token string) error {
@@ -377,20 +1018,47 @@ func executeProviderChild(root, mode, prompt string, runID int64, sessionID, tok
 }
 
 func renderFinalReport(root string, runID int64, sessionID, token string) (string, error) {
-	exe, err := os.Executable()
+	oldWD, wdErr := os.Getwd()
+	if wdErr == nil {
+		if err := os.Chdir(root); err != nil {
+			return "", err
+		}
+		defer func() { _ = os.Chdir(oldWD) }()
+	}
+	s, err := db.Open(filepath.Join(root, provider.Detect().DBPath()))
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(exe, "report", "render")
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(),
-		envRunID+"="+fmt.Sprintf("%d", runID),
-		envSessionID+"="+sessionID,
-		envSessionToken+"="+token,
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	defer s.Close()
+	if err := s.Init(); err != nil {
+		return "", err
 	}
-	return string(out), nil
+	run, err := s.CurrentRun()
+	if err != nil {
+		return "", err
+	}
+	if run == nil || run.ID != runID {
+		return "", fmt.Errorf("active run mismatch while rendering final report")
+	}
+	oldRunID, oldSessionID, oldToken := os.Getenv(envRunID), os.Getenv(envSessionID), os.Getenv(envSessionToken)
+	_ = os.Setenv(envRunID, fmt.Sprintf("%d", runID))
+	_ = os.Setenv(envSessionID, sessionID)
+	_ = os.Setenv(envSessionToken, token)
+	defer func() {
+		restoreEnv(envRunID, oldRunID)
+		restoreEnv(envSessionID, oldSessionID)
+		restoreEnv(envSessionToken, oldToken)
+	}()
+	if err := requireAutonomousCustody(s, run.ID, "report render"); err != nil {
+		return "", err
+	}
+	return renderReport(s, run, false)
+}
+
+func restoreEnv(key, value string) {
+	if value == "" {
+		_ = os.Unsetenv(key)
+		return
+	}
+	_ = os.Setenv(key, value)
 }

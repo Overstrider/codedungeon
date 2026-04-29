@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,42 @@ type reviewManifest struct {
 	HeadSHA          string   `json:"head_sha"`
 	PRNumber         string   `json:"pr_number"`
 	Timestamp        string   `json:"timestamp"`
+}
+
+func (m *reviewManifest) UnmarshalJSON(body []byte) error {
+	var raw struct {
+		PersonasExpected []string        `json:"personas_expected"`
+		BaseSHA          string          `json:"base_sha"`
+		HeadSHA          string          `json:"head_sha"`
+		PRNumber         json.RawMessage `json:"pr_number"`
+		Timestamp        string          `json:"timestamp"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return err
+	}
+	m.PersonasExpected = raw.PersonasExpected
+	m.BaseSHA = raw.BaseSHA
+	m.HeadSHA = raw.HeadSHA
+	m.Timestamp = raw.Timestamp
+	if len(raw.PRNumber) == 0 || string(raw.PRNumber) == "null" {
+		m.PRNumber = ""
+		return nil
+	}
+	var asString string
+	if err := json.Unmarshal(raw.PRNumber, &asString); err == nil {
+		m.PRNumber = strings.TrimSpace(asString)
+		return nil
+	}
+	var asNumber json.Number
+	if err := json.Unmarshal(raw.PRNumber, &asNumber); err == nil {
+		m.PRNumber = asNumber.String()
+		return nil
+	}
+	var asFloat float64
+	if err := json.Unmarshal(raw.PRNumber, &asFloat); err == nil {
+		m.PRNumber = strconv.FormatFloat(asFloat, 'f', -1, 64)
+	}
+	return nil
 }
 
 // persistFindings writes each finding into the findings table of the active
@@ -94,7 +131,10 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			if _, err := os.Stat(dir); err != nil {
 				return EmitErr("findings dir not found: "+dir, "create it or pass --dir")
 			}
-			store, _ := OpenDB(c) // best-effort; Render falls back to embedded when nil.
+			store, openErr := OpenDB(c) // best-effort; Render falls back to embedded when no project DB exists.
+			if openErr != nil && isMigrationRequired(openErr) {
+				return EmitErr(openErr.Error(), "run: codedungeon migrate")
+			}
 			if store != nil {
 				defer store.Close()
 				if run, rErr := store.CurrentRun(); rErr == nil && run != nil {
@@ -119,6 +159,9 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			merged := reviewpipe.DedupeAndPromote(personaFindings)
 			merged, suppressed := reviewpipe.ApplyNitCap(merged, nitCap)
 			merged = reviewpipe.AssignIDs(merged)
+			if finalReviewRun(only) && len(merged) == 0 {
+				return EmitErr("legacy review run cannot approve empty findings; use standalone code-review with final adjudication", "run `codedungeon code-review --url <url> --project-context <path> --task-context <path>`")
+			}
 			writeJSON(filepath.Join(dir, "findings-merged.json"), merged)
 			if only == "dedupe" {
 				return EmitJSON(map[string]any{"ok": true, "step": "dedupe", "count": len(merged), "suppressed_nits": suppressed})
@@ -128,6 +171,11 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			validators, err := reviewpipe.LoadValidators(dir)
 			if err != nil {
 				return EmitErr(err.Error(), "")
+			}
+			if finalReviewRun(only) {
+				if err := requireValidatorEvidence(merged, validators); err != nil {
+					return EmitErr(err.Error(), "")
+				}
 			}
 			merged, dropped := reviewpipe.ApplyValidators(merged, validators)
 			writeJSON(filepath.Join(dir, "findings-validated.json"), merged)
@@ -140,6 +188,11 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if finalReviewRun(only) {
+				if err := requireClassifierEvidence(merged, classifiers); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+			}
 			merged = reviewpipe.ApplyClassifiers(merged, classifiers)
 			writeJSON(filepath.Join(dir, "findings-classified.json"), merged)
 			if only == "classify" {
@@ -150,6 +203,11 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			stack, err := reviewpipe.LoadStackFindings(dir)
 			if err != nil {
 				return EmitErr(err.Error(), "")
+			}
+			if finalReviewRun(only) && strings.TrimSpace(stackSpec) != "" {
+				if err := requireStackEvidence(dir, stack); err != nil {
+					return EmitErr(err.Error(), "")
+				}
 			}
 			if len(stack) > 0 {
 				// Stack findings are NEW — also classify them (classifier-stack-*.json).
@@ -162,14 +220,8 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			// ---- Step 9: render (DB-aware: user template overrides embedded) ----
 			tally := reviewpipe.BuildTally(merged, dropped, suppressed)
 			verdict := reviewpipe.Verdict(tally)
-			validatorLabel := validatorModel
-			if len(validators) == 0 {
-				validatorLabel = "SKIPPED"
-			}
-			classifierLabel := classifierModel
-			if len(classifiers) == 0 {
-				classifierLabel = "SKIPPED"
-			}
+			validatorLabel := reviewStageMetadataLabel(validatorModel, len(validators))
+			classifierLabel := reviewStageMetadataLabel(classifierModel, len(classifiers))
 			md, rj, err := reviewpipe.Render(store, merged, tally, verdict, personas, validatorLabel, classifierLabel, stackSpec)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -206,6 +258,98 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 	c.Flags().String("stack-specialist", "", "e.g. rust-specialist (optional)")
 	c.Flags().Int("cycle", 0, "adversarial review cycle (0 = auto-detect as MAX(cycle)+1)")
 	return c
+}
+
+func finalReviewRun(only string) bool {
+	return strings.TrimSpace(only) == ""
+}
+
+const noFindingsReviewStageLabel = "not_applicable_no_findings"
+
+func reviewStageMetadataLabel(configured string, evidenceCount int) string {
+	if evidenceCount == 0 {
+		return noFindingsReviewStageLabel
+	}
+	return strings.TrimSpace(configured)
+}
+
+func requireValidatorEvidence(findings []reviewpipe.Finding, validators []reviewpipe.ValidatorResult) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	byID := map[string]bool{}
+	byIdx := map[int]bool{}
+	for _, v := range validators {
+		if v.FindingID != "" {
+			byID[v.FindingID] = true
+		}
+		if v.Idx > 0 {
+			byIdx[v.Idx] = true
+		}
+		if strings.TrimSpace(v.Confidence) == "" {
+			return fmt.Errorf("validator evidence missing confidence")
+		}
+	}
+	for i, f := range findings {
+		if f.ID != "" && byID[f.ID] {
+			continue
+		}
+		if byIdx[i+1] {
+			continue
+		}
+		return fmt.Errorf("missing validator evidence for finding %s", firstNonEmpty(f.ID, fmt.Sprintf("#%d", i+1)))
+	}
+	return nil
+}
+
+func requireClassifierEvidence(findings []reviewpipe.Finding, classifiers []reviewpipe.ClassifierResult) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	byID := map[string]bool{}
+	byIdx := map[int]bool{}
+	for _, c := range classifiers {
+		if c.FindingID != "" {
+			byID[c.FindingID] = true
+		}
+		if c.Idx > 0 {
+			byIdx[c.Idx] = true
+		}
+		if strings.TrimSpace(c.Classification) == "" || strings.TrimSpace(c.Confidence) == "" {
+			return fmt.Errorf("classifier evidence missing classification or confidence")
+		}
+	}
+	for i, f := range findings {
+		if f.ID != "" && byID[f.ID] {
+			continue
+		}
+		if byIdx[i+1] {
+			continue
+		}
+		return fmt.Errorf("missing classifier evidence for finding %s", firstNonEmpty(f.ID, fmt.Sprintf("#%d", i+1)))
+	}
+	return nil
+}
+
+func requireStackEvidence(dir string, stack []reviewpipe.Finding) error {
+	path := filepath.Join(dir, "findings-stack.json")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("missing stack-specialist evidence: findings-stack.json")
+		}
+		return fmt.Errorf("read stack-specialist evidence: %w", err)
+	}
+	if len(stack) == 0 {
+		return nil
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "classifier-stack-*.json"))
+	if err != nil {
+		return err
+	}
+	if len(paths) < len(stack) {
+		return fmt.Errorf("missing stack classifier evidence: have %d, want %d", len(paths), len(stack))
+	}
+	return nil
 }
 
 func loadAndValidateReviewManifest(dir string) (reviewManifest, string, error) {
@@ -246,13 +390,17 @@ func validateManifestPersonas(dir string, expected, loaded []string) error {
 	}
 	loadedSet := map[string]bool{}
 	for _, p := range loaded {
-		loadedSet[p] = true
+		loadedSet[reviewpipe.CanonicalPersona(p)] = true
 	}
 	for _, persona := range expected {
+		persona = reviewpipe.CanonicalPersona(persona)
 		if !loadedSet[persona] {
 			return fmt.Errorf("missing persona output: findings-%s.json", persona)
 		}
-		path := filepath.Join(dir, "findings-"+persona+".json")
+		path, ok := reviewpipe.PersonaFindingsPath(dir, persona)
+		if !ok {
+			return fmt.Errorf("missing persona output: findings-%s.json", persona)
+		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
@@ -303,7 +451,7 @@ func uniqueSorted(in []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, v := range in {
-		v = strings.TrimSpace(v)
+		v = reviewpipe.CanonicalPersona(v)
 		if v == "" || seen[v] {
 			continue
 		}

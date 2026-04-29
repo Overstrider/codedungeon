@@ -17,14 +17,19 @@ PROJECT_RULES_READ: yes|no
 
 # code-review
 
-Use for reviewing the current branch or an implementation diff.
+Use for standalone adversarial review of a URL/PR/diff with explicit project and task context.
 
 Deterministic evidence:
 - Do not write review reports manually.
-- Write `review-manifest.json` with personas, base/head SHA, PR number, and timestamp.
-- Ensure each persona writes its own JSON output, including `findings-saboteur.json`, before aggregation.
-- Persona JSON with no findings must include `reviewed_files > 0` and `no_findings_rationale`.
-- Run `./.codex/bin/codedungeon review run` to generate `review.md` and `review.json`.
+- Run the standalone module: `./.codex/bin/codedungeon code-review --url <PR URL> --project-context <path-or-text> --task-context <path-or-text> --out .codedungeon/code-review --post`.
+- The module owns persona execution, final adjudication, concise rendering, posting, and integrity evidence.
+- PR comments are concise final adjudication only; persona outputs are evidence artifacts, not report sections.
+- A review with no findings is valid only when every persona provides a substantive approval and the final adjudicator explicitly declares `APPROVED`.
+- Empty template reviews, `_None._`-only reviews, missing adjudicator decisions, or legacy `review run` output are invalid.
+
+Telemetry:
+- The standalone module records review evidence and integrity; telemetry never replaces the review gate.
+- If you spawn any supplemental reviewer, validator, classifier, or specialist outside the module, record it with `./.codex/bin/codedungeon trace agent-start` before spawn and `./.codex/bin/codedungeon trace agent-end` after it returns.
 
 Review power:
 - Cycles 1-3: full adversarial mode.
@@ -39,4 +44,4 @@ Review order:
 
 If a workflow claims completion without concrete build/check/test evidence, report `missing verification` as BLOCKING. The report must name the absent command class. For Rust changes, expect `cargo check` and `cargo test`. For changed `Dockerfile` or `Containerfile`, expect `podman build` or a documented environment blocker. `APPROVED does not replace verification`.
 
-Output findings first, ordered by severity. Include file and line references. If there are no actionable findings, say so directly.
+Output findings first, ordered by severity. Include file and line references. If no issue exists, include a concise no-finding summary and final adjudicator rationale. Never publish per-persona approvals in the PR comment.

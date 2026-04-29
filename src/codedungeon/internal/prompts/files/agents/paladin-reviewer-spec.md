@@ -42,7 +42,7 @@ Return ONLY valid JSON. Schema:
 
 ```json
 {
-  "persona": "spec_enforcer",
+  "persona": "spec",
   "reviewed_files": 7,
   "no_findings_rationale": "Required when findings is empty: concrete summary of the checked requirements and why no actionable spec deviation exists",
   "spec_sources_consulted": [

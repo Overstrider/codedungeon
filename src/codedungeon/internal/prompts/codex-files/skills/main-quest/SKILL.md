@@ -38,21 +38,27 @@ If either command fails, stop before editing and report `Status BLOCKED`. There 
 
 ## Evidence Gates
 
-- Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
-- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
-- Execute every concrete build/check/test command with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
+- Do not write review reports manually. Code review is a standalone module: run `./.codex/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`. Legacy `review run` cannot approve empty findings and is not final approval evidence.
+- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
+- Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+
+## Agent Telemetry
+
+- Before every phase agent, worker, reviewer, validator, classifier, or other subagent spawn, run `./.codex/bin/codedungeon trace agent-start --phase "<phase>" --role "<role>" --agent-type "<agent_type>" --agent-name "<name>" --model "<model>" --reasoning-effort "<effort>" --task "<artifact-or-task>" --input-summary "<summary>"`.
+- Save the returned `agent_run_id`; after the subagent returns, run `./.codex/bin/codedungeon trace agent-end --id "<agent_run_id>" --status COMPLETED|FAILED|ABORTED --summary "<result>" --artifact "<primary artifact>" --error "<failure if any>"`.
+- Telemetry is informational and must not replace phase, QA, review, PR, or report evidence gates.
 
 Steps:
 - Use the existing run created by `codedungeon run`; do not call `phase init` or create a second run.
-- Execute phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`, `7`.
+- Execute pre-final phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`. Do not execute Phase `7` manually; `codedungeon run finalize` closes Phase 7 after gates pass.
 - For each phase, inspect state with `./.codex/bin/codedungeon phase info <phase>`.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose phase context.
 - If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
-- When spawning a Codex subagent, pass the `agent_type`, `model`, and `reasoning_effort` emitted by `spawn-prompt <phase>`.
+- When spawning a Codex subagent, pass the emitted `agent_type`; record `model` and `reasoning_effort` in telemetry/prompt context, but do not force model overrides when Codex rejects that combination.
 - Use Codex subagents from `.codex/agents` only when delegation is explicitly useful; do not rely on agent TOML files to choose model or effort.
-- Close each phase with `./.codex/bin/codedungeon phase done`.
-- Post review evidence with `./.codex/bin/codedungeon review post`; arbitrary marker comments do not satisfy `git verify`.
+- Close phases through `6` with `./.codex/bin/codedungeon phase done`.
+- Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Do not merge the PR. The runner final status is `READY_FOR_USER_REVIEW`; the user performs final review and merge.
 
 Do not treat `.codedungeon/commands` as an executable command system. Those files are editable reference playbooks.

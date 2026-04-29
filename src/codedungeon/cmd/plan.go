@@ -26,17 +26,17 @@ func PlanCmd() *cobra.Command {
 
 // PlanMeta is the JSON produced by `plan meta`.
 type PlanMeta struct {
-	OK           bool   `json:"ok"`
-	Path         string `json:"path"`
-	Feature      string `json:"feature,omitempty"`
-	Repo         string `json:"repo,omitempty"`
-	Lang         string `json:"lang,omitempty"`
-	Pending      int    `json:"pending"`
-	Done         int    `json:"done"`
-	Blocked      int    `json:"blocked"`
-	TotalTasks   int    `json:"total_tasks"`
-	NextTaskNum  int    `json:"next_task_num"`
-	MaxTaskNum   int    `json:"max_task_num"`
+	OK          bool   `json:"ok"`
+	Path        string `json:"path"`
+	Feature     string `json:"feature,omitempty"`
+	Repo        string `json:"repo,omitempty"`
+	Lang        string `json:"lang,omitempty"`
+	Pending     int    `json:"pending"`
+	Done        int    `json:"done"`
+	Blocked     int    `json:"blocked"`
+	TotalTasks  int    `json:"total_tasks"`
+	NextTaskNum int    `json:"next_task_num"`
+	MaxTaskNum  int    `json:"max_task_num"`
 }
 
 func planMetaCmd() *cobra.Command {
@@ -140,7 +140,10 @@ func planAppendFixTasksCmd() *cobra.Command {
 			}
 
 			// Best-effort DB persistence for FTS5 search.
-			store, _ := OpenDB(c)
+			store, openErr := OpenDB(c)
+			if openErr != nil && isMigrationRequired(openErr) {
+				return EmitErr(openErr.Error(), "run: codedungeon migrate")
+			}
 			if store != nil {
 				defer store.Close()
 			}
@@ -189,12 +192,12 @@ func planAppendFixTasksCmd() *cobra.Command {
 				// Persist to DB (best-effort).
 				if store != nil && runID != 0 {
 					_ = store.UpsertTask(db.Task{
-						RunID:  runID,
-						Repo:   meta.Repo,
-						TaskID: fmt.Sprintf("TASK-%03d", num),
-						Kind:   "fix",
-						Status: "pending",
-						Title:  fmt.Sprintf("Fix (cycle %d): %s", cycle, f.Title),
+						RunID:   runID,
+						Repo:    meta.Repo,
+						TaskID:  fmt.Sprintf("TASK-%03d", num),
+						Kind:    "fix",
+						Status:  "pending",
+						Title:   fmt.Sprintf("Fix (cycle %d): %s", cycle, f.Title),
 						Content: buf.String(),
 					})
 				}
@@ -215,12 +218,12 @@ func planAppendFixTasksCmd() *cobra.Command {
 				}
 			}
 			return EmitJSON(map[string]any{
-				"ok":          true,
-				"created":     created,
-				"count":       len(created),
-				"next_num":    num,
-				"cycle":       cycle,
-				"plan_path":   to,
+				"ok":        true,
+				"created":   created,
+				"count":     len(created),
+				"next_num":  num,
+				"cycle":     cycle,
+				"plan_path": to,
 			})
 		},
 	}

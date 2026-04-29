@@ -193,8 +193,8 @@ func recordedReviewCommentOK(repo, prNum string) (bool, string) {
 	if hex.EncodeToString(sum[:]) != post.BodySHA256 {
 		return false, "review comment body hash mismatch"
 	}
-	if !strings.Contains(body, provider.Detect().ReviewCommentMarker()) {
-		return false, "review comment missing provider marker"
+	if !strings.Contains(body, "CodeDungeon Code Review") {
+		return false, "review comment missing standalone code-review marker"
 	}
 	return true, post.CommentURL
 }

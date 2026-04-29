@@ -16,10 +16,35 @@ Checks:
 - no hidden expansion beyond the approved plan
 
 Return:
-1. Requirement coverage summary
-2. Spec deviations with evidence
-3. Required follow-up work
-4. No findings if implementation matches the spec; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
+Write ONLY strict JSON to the requested output path:
+{
+  "persona": "spec",
+  "verdict": "APPROVED|CHANGES_REQUESTED",
+  "model": "model-name",
+  "provider": "codex",
+  "session_id": "session-or-run-id",
+  "reviewed_files": 1,
+  "reviewed_scope": ["path or diff section"],
+  "approval_rationale": "required when findings is empty; detailed, concrete, not generic",
+  "risks_considered": ["risk one", "risk two"],
+  "verification_checked": ["command or evidence checked"],
+  "project_rules": {"status": "PROJECT_RULES_STATUS", "digest": "PROJECT_RULES_DIGEST", "read": "yes"},
+  "findings": [
+    {
+      "severity": "P0|P1|P2",
+      "file": "path",
+      "line_start": 1,
+      "line_end": 1,
+      "title": "short spec deviation",
+      "evidence_quote": "verbatim source or log excerpt",
+      "suggested_fix": "minimal direction",
+      "category": "stable-category",
+      "spec_clause_quote": "plan or acceptance criterion"
+    }
+  ]
+}
+If implementation matches the spec, use an empty findings array, verdict APPROVED, reviewed_files > 0, reviewed_scope, a substantive approval_rationale, and at least two risks_considered.
+If there are findings, use verdict CHANGES_REQUESTED.
 
 Do not review style unless it violates the spec.
 """

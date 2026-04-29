@@ -72,47 +72,8 @@ func reportRenderCmd() *cobra.Command {
 			if err := requireAutonomousCustody(s, run.ID, "report render"); err != nil {
 				return err
 			}
-
-			if err := validateReportGates(s, run, false, true); err != nil {
-				return EmitErr("report-gate: "+err.Error(), "")
-			}
-
-			repos := aggregateRepos(s, run)
-			phases, _ := s.AllPhases(run.ID)
-			execOrder := buildExecutionOrder(repos)
-
-			// Auto-detect bootstrap mode unless flag overrides.
-			if run.ProjectMode == "BOOTSTRAP" {
-				bootstrap = true
-			}
-			tplName := "report-template-multi"
-			if bootstrap {
-				tplName = "report-template-bootstrap"
-			}
-			body, err := resolveReportTemplate(s, tplName)
+			report, err := renderReport(s, run, bootstrap)
 			if err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			tpl, err := template.New(tplName).Parse(body)
-			if err != nil {
-				return EmitErr("template parse: "+err.Error(), "")
-			}
-
-			data := buildReportData(run, repos, phases, execOrder)
-
-			var out bytes.Buffer
-			if err := tpl.Execute(&out, data); err != nil {
-				return EmitErr("template exec: "+err.Error(), "")
-			}
-			report := out.String()
-			if err := validateRenderedReportQuality(report); err != nil {
-				return EmitErr("report quality: "+err.Error(), "")
-			}
-			root := ResolveProjectRoot(".")
-			if err := writeReportMemoryFiles(root, run, repos, report); err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			if err := recordReportEvidence(s, root, run, report); err != nil {
 				return EmitErr(err.Error(), "")
 			}
 			fmt.Print(report)
@@ -123,11 +84,81 @@ func reportRenderCmd() *cobra.Command {
 	return c
 }
 
+func renderReport(s *db.Store, run *db.Run, bootstrap bool) (string, error) {
+	if err := validateReportGates(s, run, false, true); err != nil {
+		return "", fmt.Errorf("report-gate: %w", err)
+	}
+	report, repos, err := buildReportSnapshot(s, run, bootstrap, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	root := ResolveProjectRoot(".")
+	if err := writeReportMemoryFiles(root, run, repos, report); err != nil {
+		return "", err
+	}
+	if err := recordReportEvidence(s, root, run, report); err != nil {
+		return "", err
+	}
+	return report, nil
+}
+
+func buildReportSnapshot(s *db.Store, run *db.Run, bootstrap bool, phases []db.Phase, agents []db.AgentRun) (string, []reportRepo, error) {
+	repos := aggregateRepos(s, run)
+	if phases == nil {
+		var err error
+		phases, err = s.AllPhases(run.ID)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	if agents == nil {
+		var err error
+		agents, err = s.AgentRuns(run.ID)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	execOrder := buildExecutionOrder(repos)
+
+	// Auto-detect bootstrap mode unless flag overrides.
+	if run.ProjectMode == "BOOTSTRAP" {
+		bootstrap = true
+	}
+	tplName := "report-template-multi"
+	if bootstrap {
+		tplName = "report-template-bootstrap"
+	}
+	body, err := resolveReportTemplate(s, tplName)
+	if err != nil {
+		return "", nil, err
+	}
+	tpl, err := template.New(tplName).Parse(body)
+	if err != nil {
+		return "", nil, fmt.Errorf("template parse: %w", err)
+	}
+
+	data := buildReportData(run, repos, phases, execOrder, agents)
+
+	var out bytes.Buffer
+	if err := tpl.Execute(&out, data); err != nil {
+		return "", nil, fmt.Errorf("template exec: %w", err)
+	}
+	report := out.String()
+	if err := validateRenderedReportQuality(report); err != nil {
+		return "", nil, fmt.Errorf("report quality: %w", err)
+	}
+	return report, repos, nil
+}
+
 func validateReportGates(s *db.Store, run *db.Run, requireReportEvidence, requireGitVerify bool) error {
 	phases, err := s.AllPhases(run.ID)
 	if err != nil {
 		return err
 	}
+	return validateReportGatesWithPhases(s, run, phases, requireReportEvidence, requireGitVerify)
+}
+
+func validateReportGatesWithPhases(s *db.Store, run *db.Run, phases []db.Phase, requireReportEvidence, requireGitVerify bool) error {
 	for _, p := range phases {
 		if p.Phase == "7" {
 			break
@@ -180,10 +211,11 @@ func validateReportGates(s *db.Store, run *db.Run, requireReportEvidence, requir
 }
 
 func validateVerificationRecords(records []db.VerificationRecord) error {
-	if len(records) == 0 {
+	active := activeVerificationRecords(records)
+	if len(active) == 0 {
 		return fmt.Errorf("verification ledger is required")
 	}
-	for _, record := range latestVerificationRecords(records) {
+	for _, record := range latestVerificationRecords(active) {
 		if record.Status != "PASS" {
 			return fmt.Errorf("verification command failed: %s", record.Command)
 		}
@@ -202,6 +234,9 @@ func latestVerificationRecords(records []db.VerificationRecord) []db.Verificatio
 	latest := map[string]db.VerificationRecord{}
 	var order []string
 	for _, record := range records {
+		if record.SupersededAt != 0 {
+			continue
+		}
 		if _, seen := latest[record.Command]; !seen {
 			order = append(order, record.Command)
 		}
@@ -214,6 +249,16 @@ func latestVerificationRecords(records []db.VerificationRecord) []db.Verificatio
 	return out
 }
 
+func activeVerificationRecords(records []db.VerificationRecord) []db.VerificationRecord {
+	out := make([]db.VerificationRecord, 0, len(records))
+	for _, record := range records {
+		if record.SupersededAt == 0 {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
 func validateRenderedReportQuality(report string) error {
 	for _, required := range []string{
 		"CodeDungeon PR Report",
@@ -221,6 +266,9 @@ func validateRenderedReportQuality(report string) error {
 		"| Review        ",
 		"Work Done",
 		"Verification:",
+		"PROJECT_RULES_STATUS:",
+		"PROJECT_RULES_DIGEST:",
+		"PROJECT_RULES_READ:",
 	} {
 		if !strings.Contains(report, required) {
 			return fmt.Errorf("missing %s", required)
@@ -294,6 +342,11 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 			entries = []repoEntry{{Name: singleName}}
 		}
 	}
+	reviewEvidence, _ := s.LatestReviewEvidence(run.ID)
+	prPost, _ := s.LatestPRReviewPost(run.ID)
+	if len(entries) == 0 && reviewEvidence != nil {
+		entries = []repoEntry{{Name: fallback(inferGitRepoName("."), "project")}}
+	}
 
 	// PR numbers from phase-5 handoff artifacts.
 	prMap := map[string]string{}
@@ -327,6 +380,20 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 		} else if strings.Contains(strings.ToUpper(h.Summary), "MAX_CYCLES_REACHED") {
 			for _, e := range entries {
 				verdictMap[e.Name] = "MAX_CYCLES_REACHED"
+			}
+		}
+	}
+	if len(entries) == 1 && reviewEvidence != nil {
+		name := entries[0].Name
+		if prMap[name] == "" {
+			prMap[name] = reviewEvidence.PRNumber
+		}
+		if verdictMap[name] == "" {
+			verdictMap[name] = reviewEvidence.Verdict
+		}
+		if prURLMap[name] == "" && prPost != nil {
+			if prURL := extractPRURL(prPost.CommentURL); prURL != "" {
+				prURLMap[name] = prURL
 			}
 		}
 	}
@@ -373,7 +440,7 @@ func summarizeVerificationRecords(s *db.Store, runID int64) string {
 		return "missing"
 	}
 	var parts []string
-	for _, r := range latestVerificationRecords(records) {
+	for _, r := range latestVerificationRecords(activeVerificationRecords(records)) {
 		parts = append(parts, fmt.Sprintf("%s: %s", r.Command, r.Status))
 	}
 	return strings.Join(parts, "; ")
@@ -417,7 +484,7 @@ func fallback(v, def string) string {
 	return v
 }
 
-func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrder string) map[string]any {
+func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrder string, agents []db.AgentRun) map[string]any {
 	// Conventional plan paths.
 	var domainPlans, qaPlans []string
 	for _, r := range repos {
@@ -436,18 +503,23 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 	if len(repos) > 0 {
 		bs = repos[0]
 	}
+	rulesStatus, rulesDigest, rulesRead := reportProjectRulesEnvelope()
 	return map[string]any{
-		"Feature":         run.Feature,
-		"Mode":            run.Mode,
-		"ProjectMode":     run.ProjectMode,
-		"Branch":          run.Branch,
-		"ReviewMarker":    provider.Detect().ReviewCommentMarker(),
-		"DomainPlans":     strings.Join(domainPlans, ", "),
-		"QAPlans":         strings.Join(qaPlans, ", "),
-		"DomainPlanCount": fmt.Sprintf("%d", len(domainPlans)),
-		"ExecutionOrder":  execOrder,
-		"Repos":           repos,
-		"TestBugsFound":   testBugs,
+		"Feature":            run.Feature,
+		"Mode":               run.Mode,
+		"ProjectMode":        run.ProjectMode,
+		"Branch":             run.Branch,
+		"ReviewMarker":       provider.Detect().ReviewCommentMarker(),
+		"DomainPlans":        strings.Join(domainPlans, ", "),
+		"QAPlans":            strings.Join(qaPlans, ", "),
+		"DomainPlanCount":    fmt.Sprintf("%d", len(domainPlans)),
+		"ExecutionOrder":     execOrder,
+		"AgentTelemetry":     reportAgentTelemetryLine(agents),
+		"ProjectRulesStatus": rulesStatus,
+		"ProjectRulesDigest": digestOrNone(rulesDigest),
+		"ProjectRulesRead":   rulesRead,
+		"Repos":              repos,
+		"TestBugsFound":      testBugs,
 		// Bootstrap-specific fields.
 		"Stack":             bs.Stack,
 		"Lang":              bs.Lang,
@@ -464,4 +536,46 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 		"DevTasks":          0,
 		"TestTasks":         0,
 	}
+}
+
+func reportProjectRulesEnvelope() (status, digest, read string) {
+	st, err := computeProjectRulesStatus(currentProjectRoot())
+	if err != nil {
+		return "missing", "", "no"
+	}
+	if st.Status == "" {
+		st.Status = "missing"
+	}
+	return st.Status, st.RulesDigest, "yes"
+}
+
+func digestOrNone(digest string) string {
+	if digest == "" {
+		return "none"
+	}
+	return digest
+}
+
+func reportAgentTelemetryLine(agents []db.AgentRun) string {
+	if len(agents) == 0 {
+		return "WARN - no agent telemetry recorded"
+	}
+	counts := map[string]int{}
+	open := 0
+	for _, agent := range agents {
+		counts[agent.Status]++
+		if agent.Status == "RUNNING" {
+			open++
+		}
+	}
+	status := "WARN"
+	if open == 0 {
+		if counts["FAILED"] == 0 && counts["ABORTED"] == 0 {
+			status = "OK"
+		} else {
+			status = "OK_WITH_RETRIES"
+		}
+	}
+	return fmt.Sprintf("%s - %d agents recorded; open=%d completed=%d failed=%d aborted=%d",
+		status, len(agents), open, counts["COMPLETED"], counts["FAILED"], counts["ABORTED"])
 }

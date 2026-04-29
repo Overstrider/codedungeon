@@ -612,11 +612,12 @@ func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
 		for _, required := range []string{
 			"Do not write review reports manually",
 			"Do not write final reports manually",
-			"codedungeon review run",
-			"review-manifest.json",
-			"codedungeon qa run",
-			"codedungeon report render",
-			"READY_FOR_USER_REVIEW can only come from `codedungeon report render`",
+			"codedungeon code-review",
+			"standalone module",
+			"`review run`",
+			"codedungeon qa run --phase 6 --fresh",
+			"codedungeon run finalize",
+			"READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`",
 		} {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s missing deterministic gate instruction %q:\n%s", rel, required, body)
@@ -635,12 +636,35 @@ func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
 		body := string(raw)
 		for _, required := range []string{
 			"Do not write review reports manually",
-			"review-manifest.json",
-			"findings-saboteur.json",
-			"codedungeon review run",
+			"codedungeon code-review",
+			"standalone module",
+			"final adjudicator",
+			"concise no-finding summary",
+			"Never publish per-persona approvals",
+			"legacy `review run` output are invalid",
 		} {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s missing deterministic review instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+}
+
+func TestReviewPersonaPromptsUseCanonicalPersonaIDs(t *testing.T) {
+	for _, rel := range []string{
+		"agents/cerberus-reviewer-security.md",
+		"agents/paladin-reviewer-spec.md",
+		"agents/oracle-reviewer-validator.md",
+		"agents/sage-reviewer-classifier.md",
+	} {
+		raw, err := GetRawFor("claude", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, forbidden := range []string{"security_auditor", "spec_enforcer"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s still contains legacy persona id %q:\n%s", rel, forbidden, body)
 			}
 		}
 	}
@@ -661,11 +685,77 @@ func TestReportTemplatesRenderPRReportFields(t *testing.T) {
 				"Review",
 				"Cycles",
 				"Work Done",
+				"Telemetry",
+				"PROJECT_RULES_STATUS",
+				"PROJECT_RULES_DIGEST",
+				"PROJECT_RULES_READ",
 				"Next",
 			} {
 				if !strings.Contains(body, required) {
 					t.Fatalf("%s:%s missing %q", provider, name, required)
 				}
+			}
+		}
+	}
+}
+
+func TestCodexPromptsDocumentAgentTelemetryProtocol(t *testing.T) {
+	for _, rel := range []string{
+		"AGENTS.md",
+		"commands/main-quest.md",
+		"commands/code-review.md",
+		"skills/main-quest/SKILL.md",
+		"skills/code-review/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"codedungeon trace agent-start",
+			"codedungeon trace agent-end",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing telemetry instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+}
+
+func TestCodexReviewAgentsDeclareReviewpipeJSONFields(t *testing.T) {
+	for _, rel := range []string{
+		"agents/cd_review_saboteur.toml",
+		"agents/cd_review_newhire.toml",
+		"agents/cd_review_security.toml",
+		"agents/cd_review_spec.toml",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{"Write ONLY strict JSON", `"verdict"`, `"model"`, `"provider"`, `"session_id"`, `"reviewed_scope"`, `"approval_rationale"`, `"risks_considered"`, `"project_rules"`, `"findings"`, `"severity"`, `"file"`, `"line_start"`, `"line_end"`, `"evidence_quote"`} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing reviewpipe persona field %q:\n%s", rel, required, body)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		rel      string
+		required []string
+	}{
+		{"agents/cd_review_validator.toml", []string{`"confirmed"`, `"confidence"`}},
+		{"agents/cd_review_classifier.toml", []string{`"classification"`, `"confidence"`}},
+	} {
+		raw, err := GetRawFor("codex", tc.rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.rel, err)
+		}
+		body := string(raw)
+		for _, required := range append([]string{"Write ONLY strict JSON"}, tc.required...) {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing reviewpipe field %q:\n%s", tc.rel, required, body)
 			}
 		}
 	}

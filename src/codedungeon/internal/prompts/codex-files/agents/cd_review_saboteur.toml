@@ -16,10 +16,37 @@ Checks:
 - tests that would not catch the issue
 
 Return:
-1. Findings ordered by severity
-2. Evidence and reproduction path
-3. Minimal remediation direction
-4. No findings if no concrete defect exists; when writing persona JSON, include reviewed_files > 0 and no_findings_rationale
+Write ONLY strict JSON to the requested output path:
+{
+  "persona": "saboteur",
+  "verdict": "APPROVED|CHANGES_REQUESTED",
+  "model": "model-name",
+  "provider": "codex",
+  "session_id": "session-or-run-id",
+  "reviewed_files": 1,
+  "reviewed_scope": ["path or diff section"],
+  "approval_rationale": "required when findings is empty; detailed, concrete, not generic",
+  "risks_considered": ["risk one", "risk two"],
+  "verification_checked": ["command or evidence checked"],
+  "project_rules": {"status": "PROJECT_RULES_STATUS", "digest": "PROJECT_RULES_DIGEST", "read": "yes"},
+  "findings": [
+    {
+      "severity": "P0|P1|P2",
+      "file": "path",
+      "line_start": 1,
+      "line_end": 1,
+      "title": "short defect",
+      "evidence_quote": "verbatim source or log excerpt",
+      "suggested_fix": "minimal direction",
+      "failure_class": "stable-category",
+      "exploit_sketch": "reproduction path",
+      "steelman": "best defense",
+      "why_steelman_fails": "reason"
+    }
+  ]
+}
+If there are no concrete defects, use an empty findings array, verdict APPROVED, reviewed_files > 0, reviewed_scope, a substantive approval_rationale, and at least two risks_considered.
+If there are findings, use verdict CHANGES_REQUESTED.
 
 Do not report style, formatting, or taste.
 """

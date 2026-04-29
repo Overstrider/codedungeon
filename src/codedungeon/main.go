@@ -31,6 +31,13 @@ func main() {
 
 	root.PersistentFlags().Bool("human", false, "human-readable output (default: JSON)")
 	root.PersistentFlags().String("db", "", fmt.Sprintf("path to codedungeon.db (default: <project>/%s)", p.DBPath()))
+	root.Flags().Bool("code-review", false, "run standalone CodeDungeon code review")
+	root.Flags().String("url", "", "code-review target URL")
+	root.Flags().String("project-context", "", "code-review project context text or path")
+	root.Flags().String("task-context", "", "code-review task context text or path")
+	root.Flags().String("target-context", "", "code-review target context text or path")
+	root.Flags().String("out", "", "code-review output directory")
+	root.Flags().Bool("post", false, "post standalone code-review result")
 
 	root.AddCommand(versionCmd())
 	root.AddCommand(cmd.DBCmd())
@@ -40,6 +47,7 @@ func main() {
 	root.AddCommand(cmd.GitCmd())
 	root.AddCommand(cmd.RepoCmd())
 	root.AddCommand(cmd.BootstrapCmd())
+	root.AddCommand(cmd.CodeReviewCmd())
 	root.AddCommand(cmd.ReviewCmd())
 	root.AddCommand(cmd.PlanCmd())
 	root.AddCommand(cmd.QACmd())
@@ -54,8 +62,14 @@ func main() {
 	root.AddCommand(cmd.HooksCmd())
 	root.AddCommand(cmd.SetupCmd())
 	root.AddCommand(cmd.RunCmd())
+	root.AddCommand(cmd.TraceCmd())
+	root.AddCommand(cmd.ObserveCmd())
 
 	root.RunE = func(c *cobra.Command, args []string) error {
+		codeReview, _ := c.Flags().GetBool("code-review")
+		if codeReview {
+			return runTopLevelCodeReview(c)
+		}
 		cwd, _ := os.Getwd()
 		projectRoot := cmd.ResolveProjectRoot(cwd)
 		handled, err := cmd.HandleFirstRun(projectRoot)
@@ -72,6 +86,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[ERROR]", err)
 		os.Exit(1)
 	}
+}
+
+func runTopLevelCodeReview(root *cobra.Command) error {
+	args := []string{}
+	for _, name := range []string{"url", "project-context", "task-context", "target-context", "out"} {
+		value, _ := root.Flags().GetString(name)
+		if value != "" {
+			args = append(args, "--"+name, value)
+		}
+	}
+	post, _ := root.Flags().GetBool("post")
+	if post {
+		args = append(args, "--post")
+	}
+	review := cmd.CodeReviewCmd()
+	review.SetArgs(args)
+	return review.Execute()
 }
 
 func versionCmd() *cobra.Command {

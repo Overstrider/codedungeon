@@ -1,12 +1,12 @@
-# Phase 7: Push Verification + Final Report
+# Phase 7: Finalization
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
-**You are a phase agent.** This phase is almost fully deterministic — use `codedungeon` for everything. No plan/architect work here.
+**You are a phase agent.** Phase 7 is runner-owned and deterministic. Use `codedungeon run finalize`; do not write final reports manually, do not call `report render` directly, and do not call `phase done 7` yourself.
 
 ## Output mode
 
-Caveman:ultra block is embedded — fetch it:
+Caveman:ultra block is embedded - fetch it:
 
 ```bash
 codedungeon prompts get caveman-ultra
@@ -16,35 +16,13 @@ Propagate the block into any sub-agent prompt you spawn.
 
 ---
 
-## Step 1: Per-repo verification
-
-For each repo in the run's REPO_MAP:
+## Step 1: Finalize
 
 ```bash
-codedungeon git verify --repo "$REPO_DIR" --branch "$BRANCH_NAME"
+codedungeon run finalize > /tmp/throne-room-report.txt
 ```
 
-Expected `ok: true`. If any `ok: false`, record the failure and do **not**
-render the report until fixed (absolute guarantee: all commits pushed, PR
-exists and remains open, adversarial review posted through `codedungeon review post`).
-
-For every repo, final output must include a CodeDungeon PR Report block. `Status
-COMPLETE` is valid only when `codedungeon git verify` returns `ok: true` and
-the final review verdict is APPROVED.
-
-## Step 2: Render final report
-
-```bash
-# BOOTSTRAP mode:
-codedungeon report render --bootstrap > /tmp/throne-room-report.txt
-
-# SINGLE or MULTI mode:
-codedungeon report render > /tmp/throne-room-report.txt
-```
-
-Emit the contents to the user.
-
-The emitted final report must include, per repo:
+Emit the contents to the user. The emitted final report must include, per repo:
 
 ```text
 +------------------------------------------------+
@@ -78,35 +56,13 @@ Next
 <none or exact next human/agent action>
 ```
 
-## Step 3: Mark phase complete
-
-```bash
-codedungeon phase done 7 \
-  --verdict APPROVED \
-  --summary "push verified, final report emitted" \
-  --artifacts ".codedungeon/plan/pipeline-state.md" \
-  --promise "PHASE_7_COMPLETE: pipeline done"
-```
-
-This atomically updates the DB, writes `.codedungeon/state/phase-7-output.md`,
-and sets phase 7 = DONE in `pipeline-state.md`.
-
 ---
 
-## Tool discipline
+## Tool Discipline
 
-Allowed: `Bash` (for `codedungeon` + `git` + `gh` only), `Read` (state/handoff files).
-Forbidden: `Write`/`Edit` on any artifact — `codedungeon phase done` handles the
-handoff + state file atomically.
+Allowed: `Bash` for `codedungeon`, `git`, and `gh`; `Read` for state and handoff files.
+Forbidden: `Write`/`Edit` on final report artifacts. `codedungeon run finalize` handles DB state, report evidence, and Phase 7 handoff.
 
 ## Failure
 
-If `codedungeon git verify` returns `ok: false` for any repo, do NOT mark Phase 7
-DONE. Report the blocker (missing PR / missing review / unpushed commits) and
-FAIL:
-
-```bash
-codedungeon phase fail 7 --reason "repo X: missing adversarial review comment"
-```
-
-The orchestrator halts on FAIL.
+If `codedungeon run finalize` fails, report the exact blocker and do not mark phases, write report evidence, or synthesize READY_FOR_USER_REVIEW. Open non-runner telemetry may be marked ABORTED so stale delegated agents are visible to the next run.

@@ -16,10 +16,36 @@ Checks:
 - remediation that preserves intended workflow
 
 Return:
-1. Security findings with evidence
-2. Impact and exploit path
-3. Minimal fix direction
-4. False-positive notes when relevant; when writing no-findings persona JSON, include reviewed_files > 0 and no_findings_rationale
+Write ONLY strict JSON to the requested output path:
+{
+  "persona": "security",
+  "verdict": "APPROVED|CHANGES_REQUESTED",
+  "model": "model-name",
+  "provider": "codex",
+  "session_id": "session-or-run-id",
+  "reviewed_files": 1,
+  "reviewed_scope": ["path or diff section"],
+  "approval_rationale": "required when findings is empty; detailed, concrete, not generic",
+  "risks_considered": ["risk one", "risk two"],
+  "verification_checked": ["command or evidence checked"],
+  "project_rules": {"status": "PROJECT_RULES_STATUS", "digest": "PROJECT_RULES_DIGEST", "read": "yes"},
+  "findings": [
+    {
+      "severity": "P0|P1|P2",
+      "file": "path",
+      "line_start": 1,
+      "line_end": 1,
+      "title": "short security issue",
+      "evidence_quote": "verbatim source or log excerpt",
+      "suggested_fix": "minimal direction",
+      "category": "stable-category",
+      "attack_scenario": "concrete abuse path",
+      "why_it_matters": "impact"
+    }
+  ]
+}
+If there are no concrete security findings, use an empty findings array, verdict APPROVED, reviewed_files > 0, reviewed_scope, a substantive approval_rationale, and at least two risks_considered.
+If there are findings, use verdict CHANGES_REQUESTED.
 
 Do not block on hypothetical risks without a path.
 """

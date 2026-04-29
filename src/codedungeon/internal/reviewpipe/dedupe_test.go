@@ -9,11 +9,11 @@ func TestLineRangesOverlap(t *testing.T) {
 		a0, a1, b0, b1 int
 		want           bool
 	}{
-		{10, 20, 15, 25, true},   // classic overlap
-		{10, 20, 20, 25, true},   // touching on edge
-		{10, 20, 21, 30, false},  // gap
-		{10, 10, 10, 10, true},   // point equal
-		{20, 10, 12, 18, true},   // reversed order
+		{10, 20, 15, 25, true},  // classic overlap
+		{10, 20, 20, 25, true},  // touching on edge
+		{10, 20, 21, 30, false}, // gap
+		{10, 10, 10, 10, true},  // point equal
+		{20, 10, 12, 18, true},  // reversed order
 	}
 	for _, c := range cases {
 		got := lineRangesOverlap(c.a0, c.a1, c.b0, c.b1)
@@ -49,6 +49,26 @@ func TestDedupeAndPromote_TwoPersonasSameLine(t *testing.T) {
 	}
 	if len(out[0].FlaggedBy) != 2 {
 		t.Errorf("flagged_by want 2, got %d", len(out[0].FlaggedBy))
+	}
+}
+
+func TestDedupeAndPromote_TwoPersonasSameCategoryOverlap(t *testing.T) {
+	in := []Finding{
+		{Persona: "newhire", Severity: "P2", File: "chat.go", LineStart: 20, LineEnd: 30, Category: "stream-cancellation"},
+		{Persona: "security", Severity: "P2", File: "chat.go", LineStart: 28, LineEnd: 35, Category: "stream-cancellation"},
+	}
+	out := DedupeAndPromote(in)
+	if len(out) != 1 {
+		t.Fatalf("want 1 deduped category finding, got %d", len(out))
+	}
+	if out[0].Severity != "P1" {
+		t.Fatalf("severity not promoted: want P1, got %s", out[0].Severity)
+	}
+	if out[0].LineStart != 20 || out[0].LineEnd != 35 {
+		t.Fatalf("line range not widened: got %d-%d", out[0].LineStart, out[0].LineEnd)
+	}
+	if got := len(out[0].FlaggedBy); got != 2 {
+		t.Fatalf("flagged_by want 2, got %d", got)
 	}
 }
 

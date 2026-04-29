@@ -12,13 +12,18 @@ PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
 PROJECT_RULES_READ: yes|no
 ```
 
-Use for standalone adversarial review of the current branch.
+Use for standalone adversarial review of a URL/PR/diff with explicit project and task context.
 
 Deterministic evidence:
 - Do not write review reports manually.
-- Write `review-manifest.json` with personas, base/head SHA, PR number, and timestamp.
-- Ensure each persona writes its own output, including `findings-saboteur.json`, before aggregation.
-- Run `./.codex/bin/codedungeon review run` to generate `review.md` and `review.json`.
+- Run the standalone module: `./.codex/bin/codedungeon code-review --url <PR URL> --project-context <path-or-text> --task-context <path-or-text> --out .codedungeon/code-review --post`.
+- The module owns persona execution, final adjudication, rendering, posting, and integrity evidence.
+- A review with no findings is valid only when every persona provides a substantive approval and the final adjudicator explicitly declares `APPROVED`.
+- Empty template reviews, `_None._`-only reviews, missing adjudicator decisions, or legacy `review run` output are invalid.
+
+Telemetry:
+- The standalone module records review evidence and integrity; telemetry never replaces the review gate.
+- If you spawn any supplemental reviewer, validator, classifier, or specialist outside the module, record it with `./.codex/bin/codedungeon trace agent-start` before spawn and `./.codex/bin/codedungeon trace agent-end` after it returns.
 
 Review power:
 - Cycles 1-3: full adversarial mode.
@@ -36,4 +41,4 @@ If a workflow claims completion without concrete build/check/test evidence, repo
 Output:
 - Findings first, ordered by severity.
 - Include file and line references.
-- Include no finding if no actionable issue exists.
+- If no issue exists, include a concise no-finding summary and final adjudicator rationale. Never publish per-persona approvals in the PR comment.

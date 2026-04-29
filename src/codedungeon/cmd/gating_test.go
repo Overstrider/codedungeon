@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/provider"
 )
 
 func TestReviewRunRejectsEmptyFindingsDirectory(t *testing.T) {
@@ -47,7 +48,7 @@ func TestReviewRunRequiresAllManifestPersonas(t *testing.T) {
 	}
 }
 
-func TestReviewRunApprovesEmptyFindingsWithCompleteManifestEvidence(t *testing.T) {
+func TestReviewRunRejectsEmptyFindingsWithoutStandaloneAdjudication(t *testing.T) {
 	root := setupGatedRun(t)
 	dir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
 	writeReviewManifest(t, dir, []string{"saboteur", "newhire", "security", "spec"})
@@ -57,22 +58,93 @@ func TestReviewRunApprovesEmptyFindingsWithCompleteManifestEvidence(t *testing.T
 
 	cmd := ReviewCmd()
 	cmd.SetArgs([]string{"run", "--dir", dir})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("legacy review run approved empty findings without standalone adjudication")
+	}
+	if !strings.Contains(err.Error(), "standalone code-review") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReviewRunRequiresValidatorAndClassifierEvidenceForFinalRun(t *testing.T) {
+	root := setupGatedRun(t)
+	dir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	writeReviewManifest(t, dir, []string{"saboteur"})
+	writePersonaFindings(t, dir, "saboteur", []map[string]any{{
+		"severity":       "P1",
+		"file":           "main.go",
+		"line_start":     10,
+		"line_end":       10,
+		"title":          "missing cleanup",
+		"failure_class":  "cleanup",
+		"evidence_quote": "return err",
+	}})
+
+	partial := ReviewCmd()
+	partial.SetArgs([]string{"run", "--only", "dedupe", "--dir", dir})
+	if err := partial.Execute(); err != nil {
+		t.Fatalf("partial dedupe should not require validator/classifier evidence: %v", err)
 	}
 
-	s := openTestStore(t, root)
-	defer s.Close()
-	run, err := s.CurrentRun()
-	if err != nil {
-		t.Fatal(err)
+	final := ReviewCmd()
+	final.SetArgs([]string{"run", "--dir", dir})
+	err := final.Execute()
+	if err == nil {
+		t.Fatal("final review run succeeded without validator evidence")
 	}
-	evidence, err := s.LatestReviewEvidence(run.ID)
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(err.Error(), "missing validator evidence") {
+		t.Fatalf("unexpected validator error: %v", err)
 	}
-	if evidence == nil || evidence.Verdict != "APPROVED" || evidence.PRNumber != "123" {
-		t.Fatalf("review evidence not persisted: %+v", evidence)
+
+	writeJSONFile(t, filepath.Join(dir, "validator-001.json"), map[string]any{
+		"id":         "F001",
+		"confirmed":  true,
+		"confidence": "high",
+	})
+	final = ReviewCmd()
+	final.SetArgs([]string{"run", "--dir", dir})
+	err = final.Execute()
+	if err == nil {
+		t.Fatal("final review run succeeded without classifier evidence")
+	}
+	if !strings.Contains(err.Error(), "missing classifier evidence") {
+		t.Fatalf("unexpected classifier error: %v", err)
+	}
+}
+
+func TestReviewRunRequiresStackEvidenceWhenStackSpecialistDeclared(t *testing.T) {
+	root := setupGatedRun(t)
+	dir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	writeReviewManifest(t, dir, []string{"saboteur"})
+	writePersonaFindings(t, dir, "saboteur", []map[string]any{{
+		"severity":       "P1",
+		"file":           "main.go",
+		"line_start":     1,
+		"line_end":       1,
+		"title":          "stack specialist candidate",
+		"failure_class":  "stack",
+		"evidence_quote": strings.Repeat("substantive evidence keeps this test on the stack-specialist gate path. ", 2),
+	}})
+	writeJSONFile(t, filepath.Join(dir, "validator-001.json"), map[string]any{
+		"id":         "F001",
+		"confirmed":  true,
+		"confidence": "high",
+	})
+	writeJSONFile(t, filepath.Join(dir, "classifier-001.json"), map[string]any{
+		"id":             "F001",
+		"classification": "actionable",
+		"confidence":     "high",
+	})
+
+	cmd := ReviewCmd()
+	cmd.SetArgs([]string{"run", "--dir", dir, "--stack-specialist", "go-specialist"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("final review run succeeded without stack-specialist evidence")
+	}
+	if !strings.Contains(err.Error(), "missing stack-specialist evidence") {
+		t.Fatalf("unexpected stack evidence error: %v", err)
 	}
 }
 
@@ -155,13 +227,7 @@ func TestReviewPostRejectsDirMismatchBeforeGitHub(t *testing.T) {
 	if err := os.MkdirAll(otherDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(evidenceDir, "review.md"), []byte("## Codex Adversarial Code Review\n\nApproved."), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	reviewJSONPath := filepath.Join(evidenceDir, "review.json")
-	if err := os.WriteFile(reviewJSONPath, []byte(`{"verdict":"APPROVED","tally":{"actionable":{"p0":0,"p1":0,"p2":0},"design_decisions":0,"dropped":0},"findings":[],"personas_run":["saboteur"],"validator_model":"SKIPPED","classifier_model":"SKIPPED"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	result := writeStandaloneReviewResultFixture(t, evidenceDir)
 	s := openTestStore(t, root)
 	run, err := s.CurrentRun()
 	if err != nil {
@@ -170,7 +236,7 @@ func TestReviewPostRejectsDirMismatchBeforeGitHub(t *testing.T) {
 	if _, err := s.InsertReviewEvidence(db.ReviewEvidence{
 		RunID:            run.ID,
 		ReviewDir:        evidenceDir,
-		ReviewJSONPath:   reviewJSONPath,
+		ReviewJSONPath:   result.ReviewJSONPath,
 		ManifestPath:     filepath.Join(evidenceDir, "review-manifest.json"),
 		Verdict:          "APPROVED",
 		PRNumber:         "123",
@@ -190,6 +256,68 @@ func TestReviewPostRejectsDirMismatchBeforeGitHub(t *testing.T) {
 		t.Fatal("review post accepted a directory different from latest review evidence")
 	}
 	if !strings.Contains(err.Error(), "--dir does not match latest review evidence") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReviewEvidenceRejectsSkippedValidatorClassifierMetadata(t *testing.T) {
+	root := setupGatedRun(t)
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reviewDir, "review.md"), []byte("## "+provider.Detect().ReviewCommentMarker()+"\n\nApproved."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewJSONPath := filepath.Join(reviewDir, "review.json")
+	if err := os.WriteFile(reviewJSONPath, []byte(`{"verdict":"APPROVED","findings":[],"personas_run":["saboteur"],"validator_model":"SKIPPED","classifier_model":"SKIPPED"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := validateReviewEvidence(&db.ReviewEvidence{
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewJSONPath,
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	})
+	if err == nil {
+		t.Fatal("review evidence accepted SKIPPED validator/classifier metadata")
+	}
+	if !strings.Contains(err.Error(), "review-result.json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReviewEvidenceRejectsMismatchedProviderMarkdownMarker(t *testing.T) {
+	root := setupGatedRun(t)
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "adv-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := writeStandaloneReviewResultFixture(t, reviewDir)
+	wrongMarker := provider.Detect().ReviewCommentMarker()
+	if err := os.WriteFile(filepath.Join(reviewDir, "review.md"), []byte("## "+wrongMarker+"\n\nApproved."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := validateReviewEvidence(&db.ReviewEvidence{
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   result.ReviewJSONPath,
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	})
+	if err == nil {
+		t.Fatal("review evidence accepted a review.md marker from another provider")
+	}
+	if !strings.Contains(err.Error(), "standalone review section") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -570,6 +698,20 @@ func writePersonaFindings(t *testing.T, dir, persona string, findings []map[stri
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "findings-"+persona+".json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeJSONFile(t *testing.T, path string, payload any) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -90,7 +90,7 @@ Return ONLY valid JSON. Schema:
 
 ```json
 {
-  "persona": "security_auditor",
+  "persona": "security",
   "reviewed_files": 7,
   "no_findings_rationale": "Required when findings is empty: concrete summary of the reviewed trust boundaries and why no actionable security issue exists",
   "findings": [

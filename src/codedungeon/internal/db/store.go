@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "9"
+const SchemaVersion = "11"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -124,6 +124,11 @@ func (s *Store) Migrate() error {
 				return fmt.Errorf("prepare %s: %w", e.Name(), err)
 			}
 		}
+		if num == 11 {
+			if err := s.ensureVerificationRecordColumns(); err != nil {
+				return fmt.Errorf("prepare %s: %w", e.Name(), err)
+			}
+		}
 		body, err := migrationsFS.ReadFile("migrations/" + e.Name())
 		if err != nil {
 			return fmt.Errorf("read %s: %w", e.Name(), err)
@@ -162,6 +167,18 @@ func (s *Store) ensureArtifactPackColumns() error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) ensureVerificationRecordColumns() error {
+	cols, err := tableColumns(s.DB, "verification_records")
+	if err != nil {
+		return err
+	}
+	if cols["superseded_at"] {
+		return nil
+	}
+	_, err = s.DB.Exec(`ALTER TABLE verification_records ADD COLUMN superseded_at INTEGER`)
+	return err
 }
 
 func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
@@ -223,6 +240,18 @@ func (s *Store) CurrentRun() (*Run, error) {
         SELECT id, feature, COALESCE(branch,''), COALESCE(project_mode,''), COALESCE(mode,''),
                COALESCE(repo_map,''), COALESCE(env,''), created_at, updated_at
         FROM runs ORDER BY id DESC LIMIT 1`)
+	return scanRun(row)
+}
+
+func (s *Store) GetRun(id int64) (*Run, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, feature, COALESCE(branch,''), COALESCE(project_mode,''), COALESCE(mode,''),
+               COALESCE(repo_map,''), COALESCE(env,''), created_at, updated_at
+        FROM runs WHERE id=?`, id)
+	return scanRun(row)
+}
+
+func scanRun(row *sql.Row) (*Run, error) {
 	var r Run
 	var repoMap, env string
 	if err := row.Scan(&r.ID, &r.Feature, &r.Branch, &r.ProjectMode, &r.Mode, &repoMap, &env, &r.CreatedAt, &r.UpdatedAt); err != nil {
@@ -246,21 +275,15 @@ func (s *Store) FindRunByFeature(feature string) (*Run, error) {
         SELECT id, feature, COALESCE(branch,''), COALESCE(project_mode,''), COALESCE(mode,''),
                COALESCE(repo_map,''), COALESCE(env,''), created_at, updated_at
         FROM runs WHERE feature = ? ORDER BY id DESC LIMIT 1`, feature)
-	var r Run
-	var repoMap, env string
-	if err := row.Scan(&r.ID, &r.Feature, &r.Branch, &r.ProjectMode, &r.Mode, &repoMap, &env, &r.CreatedAt, &r.UpdatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if repoMap != "" {
-		r.RepoMap = json.RawMessage(repoMap)
-	}
-	if env != "" {
-		r.Env = json.RawMessage(env)
-	}
-	return &r, nil
+	return scanRun(row)
+}
+
+func (s *Store) FindRunByFeatureMode(feature, mode string) (*Run, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, feature, COALESCE(branch,''), COALESCE(project_mode,''), COALESCE(mode,''),
+               COALESCE(repo_map,''), COALESCE(env,''), created_at, updated_at
+        FROM runs WHERE feature = ? AND UPPER(COALESCE(mode,'')) = UPPER(?) ORDER BY id DESC LIMIT 1`, feature, mode)
+	return scanRun(row)
 }
 
 // CreateRun inserts a new run + seeds the 10 canonical phases as PENDING.
@@ -626,29 +649,38 @@ func (s *Store) LatestReviewEvidence(runID int64) (*ReviewEvidence, error) {
 }
 
 type VerificationRecord struct {
-	ID        int64
-	RunID     int64
-	Phase     string
-	Command   string
-	Status    string
-	LogPath   string
-	CreatedAt int64
+	ID           int64
+	RunID        int64
+	Phase        string
+	Command      string
+	Status       string
+	LogPath      string
+	CreatedAt    int64
+	SupersededAt int64
 }
 
 func (s *Store) InsertVerificationRecord(r VerificationRecord) (int64, error) {
 	res, err := s.DB.Exec(`
-        INSERT INTO verification_records(run_id, phase, command, status, log_path, created_at)
-        VALUES (?,?,?,?,?,?)`,
-		r.RunID, r.Phase, r.Command, r.Status, r.LogPath, time.Now().Unix())
+        INSERT INTO verification_records(run_id, phase, command, status, log_path, created_at, superseded_at)
+        VALUES (?,?,?,?,?,?,?)`,
+		r.RunID, r.Phase, r.Command, r.Status, r.LogPath, time.Now().Unix(), nullInt(r.SupersededAt))
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
+func (s *Store) SupersedeVerificationRecords(runID int64, phase string) error {
+	_, err := s.DB.Exec(`
+        UPDATE verification_records
+        SET superseded_at=?
+        WHERE run_id=? AND phase=? AND superseded_at IS NULL`, time.Now().Unix(), runID, phase)
+	return err
+}
+
 func (s *Store) VerificationRecords(runID int64, phase string) ([]VerificationRecord, error) {
 	rows, err := s.DB.Query(`
-        SELECT id, run_id, phase, command, status, log_path, created_at
+        SELECT id, run_id, phase, command, status, log_path, created_at, COALESCE(superseded_at,0)
         FROM verification_records WHERE run_id=? AND phase=?
         ORDER BY created_at, id`, runID, phase)
 	if err != nil {
@@ -658,7 +690,7 @@ func (s *Store) VerificationRecords(runID int64, phase string) ([]VerificationRe
 	var out []VerificationRecord
 	for rows.Next() {
 		var r VerificationRecord
-		if err := rows.Scan(&r.ID, &r.RunID, &r.Phase, &r.Command, &r.Status, &r.LogPath, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.RunID, &r.Phase, &r.Command, &r.Status, &r.LogPath, &r.CreatedAt, &r.SupersededAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -800,6 +832,164 @@ func (s *Store) InsertRunEvent(e RunEvent) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+func (s *Store) RunEvents(runID int64) ([]RunEvent, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, run_id, COALESCE(session_id,''), event, COALESCE(detail,''), created_at
+        FROM run_events
+        WHERE run_id=?
+        ORDER BY created_at, id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunEvent
+	for rows.Next() {
+		var e RunEvent
+		if err := rows.Scan(&e.ID, &e.RunID, &e.SessionID, &e.Event, &e.Detail, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ===== Agent telemetry =====
+
+type AgentRun struct {
+	ID              int64  `json:"id"`
+	RunID           int64  `json:"run_id"`
+	SessionID       string `json:"session_id,omitempty"`
+	Phase           string `json:"phase,omitempty"`
+	Role            string `json:"role"`
+	AgentType       string `json:"agent_type,omitempty"`
+	AgentName       string `json:"agent_name,omitempty"`
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	TaskPath        string `json:"task_path,omitempty"`
+	InputSummary    string `json:"input_summary,omitempty"`
+	Status          string `json:"status"`
+	OutputSummary   string `json:"output_summary,omitempty"`
+	ArtifactPath    string `json:"artifact_path,omitempty"`
+	ErrorMessage    string `json:"error_message,omitempty"`
+	StartedAt       int64  `json:"started_at"`
+	FinishedAt      int64  `json:"finished_at,omitempty"`
+}
+
+func (s *Store) StartAgentRun(a AgentRun) (int64, error) {
+	if a.Status == "" {
+		a.Status = "RUNNING"
+	}
+	res, err := s.DB.Exec(`
+        INSERT INTO agent_runs
+          (run_id, session_id, phase, role, agent_type, agent_name, model, reasoning_effort,
+           task_path, input_summary, status, started_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.RunID, nullStr(a.SessionID), nullStr(a.Phase), a.Role, nullStr(a.AgentType),
+		nullStr(a.AgentName), nullStr(a.Model), nullStr(a.ReasoningEffort),
+		nullStr(a.TaskPath), nullStr(a.InputSummary), a.Status, time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) FinishAgentRun(id int64, status, summary, artifactPath, errorMessage string) error {
+	if status == "" {
+		status = "COMPLETED"
+	}
+	finished := time.Now().Unix()
+	res, err := s.DB.Exec(`
+        UPDATE agent_runs
+        SET status=?, output_summary=?, artifact_path=?, error_message=?, finished_at=?
+        WHERE id=?`,
+		status, nullStr(summary), nullStr(artifactPath), nullStr(errorMessage), finished, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("agent run not found: %d", id)
+	}
+	return nil
+}
+
+func (s *Store) AgentRuns(runID int64) ([]AgentRun, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, run_id, COALESCE(session_id,''), COALESCE(phase,''), role,
+               COALESCE(agent_type,''), COALESCE(agent_name,''), COALESCE(model,''),
+               COALESCE(reasoning_effort,''), COALESCE(task_path,''), COALESCE(input_summary,''),
+               status, COALESCE(output_summary,''), COALESCE(artifact_path,''),
+               COALESCE(error_message,''), started_at, COALESCE(finished_at,0)
+        FROM agent_runs
+        WHERE run_id=?
+        ORDER BY started_at, id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AgentRun
+	for rows.Next() {
+		var a AgentRun
+		if err := rows.Scan(&a.ID, &a.RunID, &a.SessionID, &a.Phase, &a.Role,
+			&a.AgentType, &a.AgentName, &a.Model, &a.ReasoningEffort, &a.TaskPath,
+			&a.InputSummary, &a.Status, &a.OutputSummary, &a.ArtifactPath,
+			&a.ErrorMessage, &a.StartedAt, &a.FinishedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+type AgentEvent struct {
+	ID         int64  `json:"id"`
+	RunID      int64  `json:"run_id"`
+	AgentRunID int64  `json:"agent_run_id,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	Phase      string `json:"phase,omitempty"`
+	Event      string `json:"event"`
+	Detail     string `json:"detail,omitempty"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
+func (s *Store) InsertAgentEvent(e AgentEvent) (int64, error) {
+	res, err := s.DB.Exec(`
+        INSERT INTO agent_events(run_id, agent_run_id, session_id, phase, event, detail, created_at)
+        VALUES (?,?,?,?,?,?,?)`,
+		e.RunID, nullInt(e.AgentRunID), nullStr(e.SessionID), nullStr(e.Phase),
+		e.Event, nullStr(e.Detail), time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) AgentEvents(runID int64) ([]AgentEvent, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, run_id, COALESCE(agent_run_id,0), COALESCE(session_id,''),
+               COALESCE(phase,''), event, COALESCE(detail,''), created_at
+        FROM agent_events
+        WHERE run_id=?
+        ORDER BY created_at, id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AgentEvent
+	for rows.Next() {
+		var e AgentEvent
+		if err := rows.Scan(&e.ID, &e.RunID, &e.AgentRunID, &e.SessionID,
+			&e.Phase, &e.Event, &e.Detail, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 type PRReviewPost struct {

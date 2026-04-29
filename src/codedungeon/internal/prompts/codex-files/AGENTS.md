@@ -21,9 +21,10 @@ Default workflow:
 - If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
 - Use `./.codex/bin/codedungeon phase info` before changing phase state.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.
-- Preserve the `agent_type`, `model`, and `reasoning_effort` emitted by `spawn-prompt <phase>` when using Codex subagents.
-- Do not write review reports manually. Generate review evidence with `./.codex/bin/codedungeon review run` from `review-manifest.json` and persona output files.
-- Do not write final reports manually. Execute verification with `./.codex/bin/codedungeon qa run`, post review evidence with `./.codex/bin/codedungeon review post`, then use `./.codex/bin/codedungeon report render`; READY_FOR_USER_REVIEW can only come from `codedungeon report render`.
+- Preserve the emitted `agent_type` when using Codex subagents. Record `model` and `reasoning_effort` in telemetry/prompt context; do not force model overrides when Codex rejects that combination.
+- Record every subagent with `./.codex/bin/codedungeon trace agent-start` before spawn and `./.codex/bin/codedungeon trace agent-end` after it returns; telemetry is informational and does not replace gates.
+- Do not write review reports manually. Run standalone review with `./.codex/bin/codedungeon code-review --url <PR URL> --project-context <path-or-text> --task-context <path-or-text> --out .codedungeon/code-review --post`; legacy `review run` is not final approval evidence.
+- Do not write final reports manually. Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, produce and post standalone code-review evidence with `codedungeon code-review --post`, then use `./.codex/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from CodeDungeon finalization/report rendering.
 - Close completed phases with `./.codex/bin/codedungeon phase done`.
 - Treat `.codedungeon/commands/` as reference playbooks, not Codex CLI slash commands.
 - Keep provider-specific instructions in Codex files; do not copy Claude-only syntax into Codex prompts.

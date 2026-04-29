@@ -2,6 +2,9 @@
 
 Feature: {{.Feature}}
 Mode: {{.Mode}}
+PROJECT_RULES_STATUS: {{.ProjectRulesStatus}}
+PROJECT_RULES_DIGEST: {{.ProjectRulesDigest}}
+PROJECT_RULES_READ: {{.ProjectRulesRead}}
 
 Plans:
   Architecture: .codedungeon/plan/arcplan.md
@@ -38,6 +41,7 @@ Work Done
 - Tasks: {{.TasksCompleted}}
 - Changed files: {{.ChangedFiles}}
 - Verification: {{.Verification}}
+- Telemetry: {{$.AgentTelemetry}}
 
 PR
 {{.PRURL}}

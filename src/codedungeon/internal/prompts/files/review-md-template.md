@@ -16,7 +16,7 @@ Findings documented as design decisions (in CLAUDE.md / REVIEW.md / ADRs / spec)
 ### Actionable — must fix before merge
 {{- if not .Actionable }}
 
-_None._
+No actionable findings were emitted by this legacy aggregation section. This output is not final approval evidence without standalone code-review adjudication.
 {{- end }}
 {{- range .Actionable }}
 
@@ -33,7 +33,7 @@ _None._
 ### Accepted design decisions (disclosed, NOT blocking)
 {{- if not .DesignDecisions }}
 
-_None._
+No accepted design-decision findings were emitted by this legacy aggregation section. This output is not final approval evidence without standalone code-review adjudication.
 {{- end }}
 {{- range .DesignDecisions }}
 

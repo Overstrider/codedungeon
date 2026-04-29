@@ -16,10 +16,17 @@ Checks:
 - non-actionable or speculative items are dropped
 
 Return:
-1. Normalized findings
-2. Dropped findings with short reason
-3. Severity changes with rationale
-4. Items needing validator review
+Write ONLY strict JSON to the requested classifier-<idx>.json or classifier-stack-<idx>.json path:
+{
+  "id": "F001",
+  "idx": 1,
+  "classification": "actionable|design_decision",
+  "confidence": "high|medium|low",
+  "evidence_source": "AGENTS.md:12 or NONE",
+  "evidence_quote": "short quote when classifying design_decision",
+  "rationale": "why this is actionable or an accepted design decision"
+}
+Use design_decision only when project docs or accepted plans clearly justify the behavior.
 
 Do not edit source files.
 """

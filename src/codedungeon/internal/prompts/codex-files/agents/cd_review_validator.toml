@@ -16,10 +16,15 @@ Checks:
 - related findings are merged by root cause
 
 Return:
-1. Confirmed findings
-2. Rejected findings with reason
-3. Severity or wording changes
-4. Minimal fix guidance
+Write ONLY strict JSON to the requested validator-<idx>.json path:
+{
+  "id": "F001",
+  "idx": 1,
+  "confirmed": true,
+  "confidence": "high|medium|low",
+  "rationale": "why the finding is confirmed or rejected"
+}
+Use confirmed=false for duplicates, speculation, wrong evidence, or non-actionable claims. Low confidence is dropped by reviewpipe.
 
 Do not create unrelated new findings.
 """

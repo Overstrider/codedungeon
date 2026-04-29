@@ -27,10 +27,16 @@ This workflow may execute steps only inside an autonomous CodeDungeon child sess
 
 ## Evidence Gates
 
-- Do not write review reports manually. Persona outputs must be real files such as `findings-saboteur.json`, declared in `review-manifest.json`, then aggregated with `./.codex/bin/codedungeon review run`.
-- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon report render` after phase, review, git, and QA gates pass.
-- Execute every concrete build/check/test command with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
+- Do not write review reports manually. Code review is a standalone module: run `./.codex/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`; legacy `review run` is not final approval evidence.
+- Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
+- Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
+
+## Agent Telemetry
+
+- Before each task, review, or fix subagent spawn, run `./.codex/bin/codedungeon trace agent-start` with phase, role, agent type, model, effort, task path, and summary.
+- After the subagent returns, run `./.codex/bin/codedungeon trace agent-end` with the returned `agent_run_id`, terminal status, result summary, artifact path, and error when present.
+- Telemetry is informational and must not replace QA, review, PR, or report evidence gates.
 
 Steps:
 - Resolve or write a short plan under `.codedungeon/plans/`.
@@ -39,7 +45,7 @@ Steps:
 - Execute tasks in order with focused verification.
 - Commit, push, and create or reuse a GitHub PR.
 - Run `$code-review`; fix requested changes and rerun review for up to 9 cycles.
-- Post review evidence with `./.codex/bin/codedungeon review post`; arbitrary marker comments do not satisfy `git verify`.
+- Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
 - Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict. Do not merge; the user performs final review and merge.
 
@@ -62,7 +68,7 @@ Summary
 
 Review
 - Adversarial comments: <n>
-- Last review marker: Codex Adversarial Code Review|none
+- Last review marker: CodeDungeon Code Review|none
 - Remaining findings: <none or short list/count>
 
 Work Done

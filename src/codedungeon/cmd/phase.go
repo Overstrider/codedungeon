@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
-	"github.com/loldinis/codedungeon/internal/reviewpipe"
 )
 
 var _ = json.RawMessage{}
@@ -316,16 +316,49 @@ func validateReviewEvidence(e *db.ReviewEvidence) error {
 			return fmt.Errorf("review evidence missing persona %s", persona)
 		}
 	}
-	body, err := os.ReadFile(e.ReviewJSONPath)
+	result, err := codereview.ValidateResultDir(e.ReviewDir)
 	if err != nil {
-		return fmt.Errorf("review.json not readable: %w", err)
+		return err
 	}
-	var review reviewpipe.ReviewJSON
-	if err := json.Unmarshal(body, &review); err != nil {
-		return fmt.Errorf("review.json invalid: %w", err)
+	if result.Verdict != e.Verdict {
+		return fmt.Errorf("review result verdict %s does not match evidence %s", result.Verdict, e.Verdict)
 	}
-	if review.Verdict != e.Verdict {
-		return fmt.Errorf("review.json verdict %s does not match evidence %s", review.Verdict, e.Verdict)
+	if err := validateStandaloneReviewMarkdown(e.ReviewDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReviewStageMetadata(field, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("review.json %s is required", field)
+	}
+	if strings.EqualFold(trimmed, "SKIPPED") {
+		return fmt.Errorf("review.json %s cannot be SKIPPED in final review evidence", field)
+	}
+	return nil
+}
+
+func validateStandaloneReviewMarkdown(reviewDir string) error {
+	if strings.TrimSpace(reviewDir) == "" {
+		return fmt.Errorf("review evidence missing review directory")
+	}
+	body, err := os.ReadFile(filepath.Join(reviewDir, "review.md"))
+	if err != nil {
+		return fmt.Errorf("review.md not readable: %w", err)
+	}
+	text := string(body)
+	for _, required := range []string{"CodeDungeon Code Review", "Verdict", "Review Integrity", "Findings", "Review Summary"} {
+		if !strings.Contains(text, required) {
+			return fmt.Errorf("review.md missing standalone review section %q", required)
+		}
+	}
+	if strings.Contains(text, "_None._") {
+		return fmt.Errorf("review.md contains empty review marker")
+	}
+	if strings.Contains(text, "Persona Approvals") || strings.Contains(text, "#### ") {
+		return fmt.Errorf("review.md contains verbose persona report sections")
 	}
 	return nil
 }
@@ -373,9 +406,13 @@ func validatePhase6Gate(c *cobra.Command) error {
 		return EmitErr(err.Error(), "")
 	}
 	if len(records) == 0 {
-		return EmitErr("phase-6-gate: verification ledger is required", "record commands with `codedungeon qa record --phase 6 ...`")
+		return EmitErr("phase-6-gate: verification ledger is required", "record commands with `codedungeon qa run --phase 6 --cmd \"...\"`")
 	}
-	for _, record := range latestVerificationRecords(records) {
+	latest := latestVerificationRecords(records)
+	if len(latest) == 0 {
+		return EmitErr("phase-6-gate: verification ledger is required", "record commands with `codedungeon qa run --phase 6 --cmd \"...\"`")
+	}
+	for _, record := range latest {
 		if record.Status != "PASS" {
 			return EmitErr("phase-6-gate: verification command failed: "+record.Command, record.LogPath)
 		}

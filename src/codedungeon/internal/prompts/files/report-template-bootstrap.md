@@ -2,6 +2,9 @@
 
 Project: {{.Feature}}
 Mode: BOOTSTRAP (created from scratch)
+PROJECT_RULES_STATUS: {{.ProjectRulesStatus}}
+PROJECT_RULES_DIGEST: {{.ProjectRulesDigest}}
+PROJECT_RULES_READ: {{.ProjectRulesRead}}
 Stack: {{.Stack}} ({{.Lang}})
 
 Plans:
@@ -36,6 +39,7 @@ Work Done
 - Tasks: {{.DevTasks}} dev, {{.TestTasks}} test
 - Changed files: {{.ChangedFiles}}
 - Verification: {{.TestResult}}
+- Telemetry: {{.AgentTelemetry}}
 
 PR
 {{.PRURL}}

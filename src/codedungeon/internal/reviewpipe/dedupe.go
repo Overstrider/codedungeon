@@ -9,6 +9,42 @@ import (
 	"strings"
 )
 
+// CanonicalPersona maps historical persona names to the short file names used
+// by the review pipeline.
+func CanonicalPersona(name string) string {
+	switch strings.TrimSpace(name) {
+	case "security_auditor":
+		return "security"
+	case "spec_enforcer":
+		return "spec"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
+// PersonaFileCandidates returns accepted file suffixes for a persona.
+func PersonaFileCandidates(name string) []string {
+	switch CanonicalPersona(name) {
+	case "security":
+		return []string{"security", "security_auditor"}
+	case "spec":
+		return []string{"spec", "spec_enforcer"}
+	default:
+		return []string{CanonicalPersona(name)}
+	}
+}
+
+// PersonaFindingsPath returns the first existing findings file for a persona.
+func PersonaFindingsPath(dir, name string) (string, bool) {
+	for _, candidate := range PersonaFileCandidates(name) {
+		path := filepath.Join(dir, "findings-"+candidate+".json")
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+	}
+	return filepath.Join(dir, "findings-"+CanonicalPersona(name)+".json"), false
+}
+
 // LoadPersonaFindings reads all findings-<persona>.json files from dir.
 // Expected names: findings-saboteur.json, findings-newhire.json,
 // findings-security.json, findings-spec.json (+ optional findings-stack.json).
@@ -17,7 +53,10 @@ func LoadPersonaFindings(dir string) ([]Finding, []string, error) {
 	var all []Finding
 	var loaded []string
 	for _, n := range names {
-		path := filepath.Join(dir, "findings-"+n+".json")
+		path, ok := PersonaFindingsPath(dir, n)
+		if !ok {
+			continue
+		}
 		b, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -39,6 +78,8 @@ func LoadPersonaFindings(dir string) ([]Finding, []string, error) {
 		for i := range pf.Findings {
 			if pf.Findings[i].Persona == "" {
 				pf.Findings[i].Persona = n
+			} else {
+				pf.Findings[i].Persona = CanonicalPersona(pf.Findings[i].Persona)
 			}
 			if pf.Findings[i].Source == "" {
 				pf.Findings[i].Source = "persona"
@@ -93,7 +134,7 @@ func categoryKey(f Finding) string {
 	case f.FailureClass != "":
 		return "saboteur:" + f.FailureClass
 	case f.Category != "":
-		return f.Persona + ":" + f.Category
+		return "category:" + f.Category
 	}
 	return f.Persona
 }

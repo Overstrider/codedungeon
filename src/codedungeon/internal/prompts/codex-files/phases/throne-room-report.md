@@ -1,43 +1,17 @@
-# Phase 7: Push Verification + Final Report
+# Phase 7: Finalization
 
-You are a phase agent. This phase is deterministic: use `codedungeon` for all state and report work.
+You are a phase agent. Phase 7 is runner-owned and deterministic: do not write final reports manually, do not call `report render` directly, and do not call `phase done 7` yourself.
 
-## Step 1: Verify GitHub PR state
+## Step 1: Delegate Finalization
 
-For each repo in the run's repo map, run:
-
-```bash
-./.codex/bin/codedungeon git verify --repo "$REPO_DIR" --branch "$BRANCH_NAME"
-```
-
-Expected `ok: true`. If any repo fails, do not render the final report and do not mark Phase 7 done. CodeDungeon has no local-only completion path: GitHub PR, pushed branch, and adversarial review evidence are mandatory.
-
-## Step 2: Render final report
+Run the finalizer. It verifies phase, review, PR, git, QA, and report gates; closes eligible final phases; records Phase 7; and emits the final report.
 
 ```bash
-# BOOTSTRAP mode:
-./.codex/bin/codedungeon report render --bootstrap > /tmp/throne-room-report.txt
-
-# SINGLE or MULTI mode:
-./.codex/bin/codedungeon report render > /tmp/throne-room-report.txt
+./.codex/bin/codedungeon run finalize > /tmp/throne-room-report.txt
 ```
 
 Emit the report contents to the user. The report must include a CodeDungeon PR Report block with PR, review, cycles, work done, and verification evidence.
 
-## Step 3: Mark phase complete
-
-```bash
-./.codex/bin/codedungeon phase done 7 \
-  --verdict APPROVED \
-  --summary "push verified, final report emitted" \
-  --artifacts ".codedungeon/plan/pipeline-state.md" \
-  --promise "PHASE_7_COMPLETE: pipeline done"
-```
-
 ## Failure
 
-If `codedungeon git verify` returns `ok: false` for any repo, fail the phase:
-
-```bash
-./.codex/bin/codedungeon phase fail 7 --reason "repo X: missing PR, pushed branch, or adversarial review comment"
-```
+If `codedungeon run finalize` fails, report the exact blocker and do not mark phases, write report evidence, or synthesize READY_FOR_USER_REVIEW. Open non-runner telemetry may be marked ABORTED so stale delegated agents are visible to the next run.

@@ -60,6 +60,9 @@ func TestValidateRenderedReportQualityAcceptsPRReport(t *testing.T) {
 		"",
 		"Work Done",
 		"- Verification: go test ./...: PASS",
+		"PROJECT_RULES_STATUS: approved",
+		"PROJECT_RULES_DIGEST: abc123",
+		"PROJECT_RULES_READ: yes",
 	}, "\n")
 	if err := validateRenderedReportQuality(report); err != nil {
 		t.Fatalf("valid PR report rejected: %v", err)

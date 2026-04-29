@@ -41,6 +41,63 @@ func TestInstallEmbeddedArtifactsAtUsesExplicitRoot(t *testing.T) {
 	t.Fatal("side-quest artifact not found")
 }
 
+func TestInstallRefreshesMetadataWhenDiskAlreadyMatchesEmbedded(t *testing.T) {
+	root := t.TempDir()
+	s, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	arts, err := prompts.Artifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) == 0 {
+		t.Fatal("no embedded artifacts")
+	}
+	artifact := arts[0]
+	disk := filepath.Join(root, filepath.FromSlash(artifact.InstallPath))
+	if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	diskContent := []byte(strings.ReplaceAll(string(artifact.Content), "\n", "\r\n"))
+	if err := os.WriteFile(disk, diskContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertArtifact(db.InstalledArtifact{
+		RelPath:       artifact.RelPath,
+		InstallPath:   artifact.InstallPath,
+		SHA256:        "old-installed-sha",
+		BinaryVersion: "old",
+		Provider:      artifact.Provider,
+		PackID:        artifact.PackID,
+		PackVersion:   artifact.PackVersion,
+		Kind:          artifact.Kind,
+		LogicalName:   artifact.LogicalName,
+		InstalledAt:   123,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runInstallWith(nil, s, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetArtifact(artifact.RelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("artifact metadata missing")
+	}
+	if got.SHA256 != sha256Hex(artifact.Content) || got.BinaryVersion == "old" {
+		t.Fatalf("artifact metadata was not refreshed: %+v", got)
+	}
+}
+
 func TestRunBootstrapReturnsArtifactInstallErrors(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -89,8 +90,14 @@ func StatusCmd() *cobra.Command {
 			}
 			embedded, _ := prompts.Artifacts()
 			embSHA := map[string]string{}
+			embContent := map[string][]byte{}
+			embInstall := map[string]string{}
+			embProvider := map[string]string{}
 			for _, a := range embedded {
 				embSHA[a.RelPath] = sha256Hex(a.Content)
+				embContent[a.RelPath] = a.Content
+				embInstall[a.RelPath] = a.InstallPath
+				embProvider[a.RelPath] = a.Provider
 			}
 
 			rows := []map[string]any{}
@@ -105,23 +112,31 @@ func StatusCmd() *cobra.Command {
 				disk := filepath.Join(root, filepath.FromSlash(installPath))
 				if data, err := os.ReadFile(disk); err == nil {
 					diskSHA := sha256Hex(data)
-					if diskSHA != a.SHA256 {
+					if emb, ok := embContent[a.RelPath]; ok && sameArtifactContent(data, emb) {
+						status = "synced"
+					} else if diskSHA != a.SHA256 {
 						status = "user-modified"
 					} else if ebS, ok := embSHA[a.RelPath]; ok && ebS != a.SHA256 {
 						status = "stale"
+					}
+					if expectedProvider, ok := embProvider[a.RelPath]; ok && expectedProvider != a.Provider && embInstall[a.RelPath] == installPath {
+						if diskSHA == a.SHA256 {
+							status = "provider-mismatch"
+						}
 					}
 				} else {
 					status = "missing"
 				}
 				rows = append(rows, map[string]any{
-					"path":           installPath,
-					"rel_path":       a.RelPath,
-					"status":         status,
-					"binary_version": a.BinaryVersion,
-					"provider":       a.Provider,
-					"pack":           a.PackID,
-					"pack_version":   a.PackVersion,
-					"kind":           a.Kind,
+					"path":              installPath,
+					"rel_path":          a.RelPath,
+					"status":            status,
+					"binary_version":    a.BinaryVersion,
+					"provider":          a.Provider,
+					"expected_provider": embProvider[a.RelPath],
+					"pack":              a.PackID,
+					"pack_version":      a.PackVersion,
+					"kind":              a.Kind,
 				})
 			}
 			return EmitJSON(map[string]any{
@@ -167,7 +182,17 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 		userModified := false
 		if existing, _ := s.GetArtifact(a.RelPath); existing != nil {
 			if data, err := os.ReadFile(disk); err == nil {
-				if sha256Hex(data) != existing.SHA256 {
+				diskSHA := sha256Hex(data)
+				if sameArtifactContent(data, a.Content) {
+					if dry {
+						wrote = append(wrote, "DRY:"+a.InstallPath)
+						continue
+					}
+					_ = s.UpsertArtifact(installedArtifactRecord(a, embSHA))
+					wrote = append(wrote, a.InstallPath)
+					continue
+				}
+				if diskSHA != existing.SHA256 {
 					userModified = true
 				}
 			}
@@ -189,19 +214,7 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 		if err := os.WriteFile(disk, a.Content, 0o644); err != nil {
 			return EmitErr(err.Error(), "")
 		}
-		_ = s.UpsertArtifact(db.InstalledArtifact{
-			RelPath:       a.RelPath,
-			InstallPath:   a.InstallPath,
-			SHA256:        embSHA,
-			BinaryVersion: versionString(),
-			Provider:      a.Provider,
-			PackID:        a.PackID,
-			PackVersion:   a.PackVersion,
-			Kind:          a.Kind,
-			LogicalName:   a.LogicalName,
-			UserModified:  false,
-			InstalledAt:   time.Now().Unix(),
-		})
+		_ = s.UpsertArtifact(installedArtifactRecord(a, embSHA))
 		wrote = append(wrote, a.InstallPath)
 	}
 	return EmitJSON(map[string]any{
@@ -224,6 +237,31 @@ func modeLbl(dry bool) string {
 func sha256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
+}
+
+func sameArtifactContent(disk, embedded []byte) bool {
+	return bytes.Equal(disk, embedded) || bytes.Equal(normalizeLineEndings(disk), normalizeLineEndings(embedded))
+}
+
+func normalizeLineEndings(body []byte) []byte {
+	body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
+	return bytes.ReplaceAll(body, []byte("\r"), []byte("\n"))
+}
+
+func installedArtifactRecord(a prompts.Artifact, sha string) db.InstalledArtifact {
+	return db.InstalledArtifact{
+		RelPath:       a.RelPath,
+		InstallPath:   a.InstallPath,
+		SHA256:        sha,
+		BinaryVersion: versionString(),
+		Provider:      a.Provider,
+		PackID:        a.PackID,
+		PackVersion:   a.PackVersion,
+		Kind:          a.Kind,
+		LogicalName:   a.LogicalName,
+		UserModified:  false,
+		InstalledAt:   time.Now().Unix(),
+	}
 }
 
 // Used by main.go to wire SetVersion flow through.

@@ -26,7 +26,7 @@ You receive a single validated finding JSON:
 
 ```json
 {
-  "persona": "saboteur" | "newhire" | "security_auditor" | "spec_enforcer" | "lang-specialist",
+  "persona": "saboteur" | "newhire" | "security" | "spec" | "lang-specialist",
   "severity": "P0" | "P1" | "P2",
   "file": "path/to/file",
   "line_start": 42,

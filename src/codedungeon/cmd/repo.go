@@ -73,17 +73,21 @@ func repoDiscoverCmd() *cobra.Command {
 			// Optionally persist to DB (if a run exists).
 			if persist {
 				s, err := OpenDB(c)
-				if err == nil {
-					defer s.Close()
-					run, _ := s.CurrentRun()
-					if run != nil {
-						if err := requireAutonomousCustody(s, run.ID, "repo map persistence"); err != nil {
-							return err
-						}
-						b, _ := json.Marshal(result.RepoMap)
-						_ = s.SetRunJSON(run.ID, "repo_map", b)
-						_ = s.UpdateRunConfig(run.ID, "project_mode", result.ProjectMode)
+				if err != nil && isMigrationRequired(err) {
+					return EmitErr(err.Error(), "run: codedungeon migrate")
+				}
+				if err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				defer s.Close()
+				run, _ := s.CurrentRun()
+				if run != nil {
+					if err := requireAutonomousCustody(s, run.ID, "repo map persistence"); err != nil {
+						return err
 					}
+					b, _ := json.Marshal(result.RepoMap)
+					_ = s.SetRunJSON(run.ID, "repo_map", b)
+					_ = s.UpdateRunConfig(run.ID, "project_mode", result.ProjectMode)
 				}
 			}
 			return EmitJSON(result)
@@ -141,6 +145,12 @@ func discover(root string) (*DiscoverResult, error) {
 			RepoMap: []RepoEntry{makeEntry(".", root, rootInfo)},
 		}, nil
 	}
+	if rootInfo.Lang == "unknown" && len(subRepos) > 0 && isGitRoot(root) {
+		return &DiscoverResult{
+			OK: true, Root: root, ProjectMode: "SINGLE",
+			RepoMap: []RepoEntry{makeMonorepoEntry(root, subRepos)},
+		}, nil
+	}
 	// Multi: prefer subRepos; if root also has a manifest, include it too.
 	if rootInfo.Lang != "unknown" && rootInfo.HasSource {
 		// Prepend root as "." entry.
@@ -149,6 +159,66 @@ func discover(root string) (*DiscoverResult, error) {
 	// Stable order by name.
 	sort.SliceStable(subRepos, func(i, j int) bool { return subRepos[i].Name < subRepos[j].Name })
 	return &DiscoverResult{OK: true, Root: root, ProjectMode: "MULTI", RepoMap: subRepos}, nil
+}
+
+func isGitRoot(root string) bool {
+	if st, err := os.Stat(filepath.Join(root, ".git")); err == nil && st.IsDir() {
+		return true
+	}
+	out, _, err := run(root, "git", "rev-parse", "--show-toplevel")
+	return err == nil && samePath(strings.TrimSpace(out), root)
+}
+
+func makeMonorepoEntry(root string, subRepos []RepoEntry) RepoEntry {
+	var stacks []string
+	var manifests []string
+	seenStack := map[string]bool{}
+	for _, repo := range subRepos {
+		if repo.Stack != "" && !seenStack[repo.Stack] {
+			stacks = append(stacks, repo.Stack)
+			seenStack[repo.Stack] = true
+		}
+		if repo.Manifest != "" {
+			manifests = append(manifests, filepath.ToSlash(filepath.Join(repo.Name, repo.Manifest)))
+		}
+	}
+	return RepoEntry{
+		Name:          inferGitRepoName(root),
+		Path:          ".",
+		Lang:          "monorepo",
+		Framework:     "monorepo",
+		Stack:         strings.Join(stacks, " + "),
+		Specialist:    "fullstack-specialist",
+		DomainPlanner: "fullstack-planner",
+		Manifest:      strings.Join(manifests, " + "),
+		HasSource:     true,
+	}
+}
+
+func inferGitRepoName(root string) string {
+	if out, _, err := run(root, "git", "config", "--get", "remote.origin.url"); err == nil {
+		if name := repoNameFromRemote(strings.TrimSpace(out)); name != "" {
+			return name
+		}
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return filepath.Base(root)
+	}
+	return filepath.Base(abs)
+}
+
+func repoNameFromRemote(remote string) string {
+	remote = strings.TrimSuffix(strings.TrimSpace(remote), ".git")
+	remote = strings.TrimRight(remote, "/")
+	if remote == "" {
+		return ""
+	}
+	idx := strings.LastIndexAny(remote, "/:")
+	if idx < 0 || idx == len(remote)-1 {
+		return remote
+	}
+	return remote[idx+1:]
 }
 
 func makeEntry(name, path string, info manifest.Info) RepoEntry {

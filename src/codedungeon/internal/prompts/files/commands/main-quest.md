@@ -168,13 +168,13 @@ CLEAR_BETWEEN_PHASES = True
    e. If `CLEAR_BETWEEN_PHASES` and not last phase: emit `/clear` transition marker.
    f. Continue.
 
-4. After all phases processed → render final report.
+4. After Phase 6 completes, return control to `codedungeon run`; finalization is handled by `codedungeon run finalize`.
 
 ### Step 3: Final report
 
 ```bash
 $CD phase render-state        # refresh pipeline-state.md view
-$CD report render             # write phase-7 formatted report to stdout
+$CD run finalize              # close Phase 7 and write final report under gates
 ```
 
 ---

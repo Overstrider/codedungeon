@@ -26,6 +26,20 @@ var ErrNoGit = errors.New("refuse: project root has no .git - codedungeon requir
 // ErrNoProject is returned when no project root could be resolved.
 var ErrNoProject = errors.New("no project root found - invoke `codedungeon bootstrap` with --target")
 
+type migrationRequiredError struct {
+	From string
+	To   string
+}
+
+func (e migrationRequiredError) Error() string {
+	return fmt.Sprintf("migration-required: %s -> %s", e.From, e.To)
+}
+
+func isMigrationRequired(err error) bool {
+	var target migrationRequiredError
+	return errors.As(err, &target)
+}
+
 // ResolveProjectRoot walks up from start looking for a `.git/` dir (project root).
 // Falls back to abs(start) if none found — callers verify via GuardGit.
 func ResolveProjectRoot(start string) string {
@@ -139,15 +153,8 @@ func OpenDB(c *cobra.Command) (*db.Store, error) {
 	}
 	binVer := versionString()
 	if binVer != "" && binVer != "unknown" && binVer != storedVer {
-		_ = EmitJSON(map[string]any{
-			"error":  "migration-required",
-			"action": "run-codedungeon-migrate",
-			"from":   storedVer,
-			"to":     binVer,
-			"hint":   "run: codedungeon migrate",
-		})
 		s.Close()
-		return nil, fmt.Errorf("migration required: %s → %s", storedVer, binVer)
+		return nil, migrationRequiredError{From: storedVer, To: binVer}
 	}
 	return s, nil
 }

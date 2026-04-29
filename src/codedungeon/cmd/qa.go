@@ -36,6 +36,7 @@ func qaRunCmd() *cobra.Command {
 			phase, _ := c.Flags().GetString("phase")
 			command, _ := c.Flags().GetString("cmd")
 			cwd, _ := c.Flags().GetString("cwd")
+			fresh, _ := c.Flags().GetBool("fresh")
 			if phase == "" {
 				return EmitErr("--phase is required", "")
 			}
@@ -59,6 +60,11 @@ func qaRunCmd() *cobra.Command {
 			}
 			if err := requireAutonomousCustody(s, run.ID, "qa run"); err != nil {
 				return err
+			}
+			if fresh {
+				if err := s.SupersedeVerificationRecords(run.ID, phase); err != nil {
+					return EmitErr(err.Error(), "")
+				}
 			}
 
 			ad := osadapter.Detect()
@@ -89,12 +95,19 @@ func qaRunCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			return EmitJSON(map[string]any{"ok": execErr == nil, "id": id, "phase": phase, "status": status, "log": logPath})
+			if emitErr := EmitJSON(map[string]any{"ok": execErr == nil, "id": id, "phase": phase, "status": status, "log": logPath}); emitErr != nil {
+				return emitErr
+			}
+			if execErr != nil {
+				return fmt.Errorf("verification command failed: %s", command)
+			}
+			return nil
 		},
 	}
 	c.Flags().String("phase", "", "phase number, usually 6")
 	c.Flags().String("cmd", "", "verification command to execute")
 	c.Flags().String("cwd", ".", "working directory for command")
+	c.Flags().Bool("fresh", false, "supersede existing phase records before recording this verification")
 	return c
 }
 

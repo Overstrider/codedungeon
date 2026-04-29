@@ -26,7 +26,7 @@ You receive as input a single finding JSON object:
 
 ```json
 {
-  "persona": "saboteur" | "newhire" | "security_auditor" | "spec_enforcer",
+  "persona": "saboteur" | "newhire" | "security" | "spec",
   "severity": "P0" | "P1" | "P2",
   "file": "path/to/file",
   "line_start": 42,
