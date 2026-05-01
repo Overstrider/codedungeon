@@ -120,9 +120,55 @@ func TestObserveReportIncludesAgentTimelineAndWarnings(t *testing.T) {
 		"cd_dev_worker",
 		"Telemetry warnings",
 		"open agent runs: 1",
+		"Project Context",
 		"Run Events",
 		"code_review_integrity_pass",
 	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("observe report missing %q:\n%s", want, report)
+		}
+	}
+}
+
+func TestObserveReportIncludesTaskExecutionSessions(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertExecutionSession(db.ExecutionSession{
+		ID:        "exec-1",
+		RunID:     run.ID,
+		TaskID:    "TASK-001",
+		TaskPath:  ".codedungeon/task-planning/TASK-001.json",
+		Provider:  "codex",
+		Status:    "COMPLETED",
+		OutputDir: ".codedungeon/execute/sessions/exec-1",
+		Attempt:   1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertExecutionAttempt(db.ExecutionAttempt{
+		SessionID:          "exec-1",
+		Attempt:            1,
+		HeadBefore:         "before",
+		HeadAfter:          "after",
+		BackupRef:          "codedungeon/backup/exec-1/attempt-01",
+		ChangedFiles:       []string{"internal/taskexec/engine.go"},
+		WorkerStatus:       "PASS",
+		VerificationStatus: "PASS",
+		Summary:            "task executed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	report, err := RenderObserveReport(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Task Execution", "exec-1", "TASK-001", "PASS", "internal/taskexec/engine.go"} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("observe report missing %q:\n%s", want, report)
 		}

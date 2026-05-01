@@ -58,6 +58,7 @@ It preserves:
 - `.codedungeon/state/*`
 - `.codedungeon/reviews/*`
 - `.codedungeon/memory/*`
+- `.codedungeon/execute/*`
 - `.codedungeon/project-rules.md`
 - `.codedungeon/project-rules.compact.md`
 - `.codedungeon/project-rules.json`

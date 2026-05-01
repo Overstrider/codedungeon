@@ -18,6 +18,7 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/osadapter"
+	"github.com/loldinis/codedungeon/internal/projectcontext"
 	"github.com/loldinis/codedungeon/internal/provider"
 )
 
@@ -279,10 +280,11 @@ func runStatusCmd() *cobra.Command {
 }
 
 func runFinalizeCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "finalize",
 		Short: "Close final gates, render report, and clean stale agent telemetry",
 		RunE: func(c *cobra.Command, _ []string) error {
+			dryRun, _ := c.Flags().GetBool("dry-run")
 			root := currentProjectRoot()
 			s, err := OpenDB(c)
 			if err != nil {
@@ -310,6 +312,25 @@ func runFinalizeCmd() *cobra.Command {
 				sessionID = sess.ID
 				token = os.Getenv(envSessionToken)
 			}
+			if dryRun {
+				plan, err := prepareFinalization(root, s, run, sessionID, token, 0)
+				if err != nil {
+					return EmitJSON(map[string]any{
+						"ok":            false,
+						"dry_run":       true,
+						"run_id":        run.ID,
+						"blocker":       err.Error(),
+						"next_commands": finalizeDiagnosticCommands(err),
+					})
+				}
+				return EmitJSON(map[string]any{
+					"ok":             true,
+					"dry_run":        true,
+					"run_id":         run.ID,
+					"planned_phases": finalizationPhaseNames(plan.phases),
+					"report_path":    plan.reportPath,
+				})
+			}
 			report, err := finalizeRun(root, s, run, sessionID, token, 0)
 			if err != nil {
 				_ = abortOpenAgentRuns(s, run.ID, sessionID, 0, "finalize failed before READY_FOR_USER_REVIEW", err.Error())
@@ -327,6 +348,35 @@ func runFinalizeCmd() *cobra.Command {
 			fmt.Print(report)
 			return nil
 		},
+	}
+	c.Flags().Bool("dry-run", false, "diagnose finalization gates without mutating run state")
+	return c
+}
+
+func finalizationPhaseNames(phases []finalizablePhase) []string {
+	out := make([]string, 0, len(phases))
+	for _, phase := range phases {
+		out = append(out, phase.phase)
+	}
+	return out
+}
+
+func finalizeDiagnosticCommands(err error) []string {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "review"):
+		return []string{"codedungeon code-review --url <pr-url> --project-context .codedungeon/project-context.md --task-context .codedungeon/plan/PLAN.md --post"}
+	case strings.Contains(msg, "verification"):
+		return []string{"codedungeon qa run --phase 6 --cmd-file <verify-command-file> --fresh"}
+	case strings.Contains(msg, "branch"):
+		return []string{"git push -u origin <branch>"}
+	case strings.Contains(msg, "phase"):
+		return []string{"codedungeon status", "codedungeon observe"}
+	default:
+		return []string{"codedungeon observe", "codedungeon run finalize --dry-run"}
 	}
 }
 
@@ -693,7 +743,20 @@ func commitFinalization(root string, s *db.Store, run *db.Run, sessionID string,
 	if err != nil {
 		return err
 	}
-	return commitFinalizationState(s, run.ID, plan, phase7Handoff)
+	if err := commitFinalizationState(s, run.ID, plan, phase7Handoff); err != nil {
+		return err
+	}
+	proposal, err := projectcontext.ProposeFromRun(root, projectcontext.NewSQLiteStore(s), run.ID)
+	if err != nil {
+		return fmt.Errorf("project-context-proposal: %w", err)
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{
+		RunID:     run.ID,
+		SessionID: sessionID,
+		Event:     "project_context_proposal_created",
+		Detail:    fmt.Sprintf("proposal:%d %s", proposal.ID, projectcontext.ProposalRel),
+	})
+	return nil
 }
 
 func withFinalReportEnv(root string, runID int64, sessionID, token string, fn func() error) error {

@@ -1,4 +1,4 @@
--- codedungeon schema v11
+-- codedungeon schema v14
 -- SQLite with FTS5. Pure-Go driver (modernc.org/sqlite).
 -- All times are unix seconds (INTEGER).
 
@@ -209,6 +209,197 @@ CREATE TABLE IF NOT EXISTS pr_review_posts (
 
 CREATE INDEX IF NOT EXISTS idx_pr_review_posts_run ON pr_review_posts(run_id, created_at);
 
+CREATE TABLE IF NOT EXISTS project_context_versions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    version       INTEGER NOT NULL UNIQUE,
+    body          TEXT    NOT NULL,
+    sha256        TEXT    NOT NULL,
+    source_digest TEXT    NOT NULL,
+    approved_by   TEXT    NOT NULL,
+    created_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_context_proposals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    base_version  INTEGER NOT NULL DEFAULT 0,
+    proposed_body TEXT    NOT NULL,
+    diff_summary  TEXT    NOT NULL,
+    status        TEXT    NOT NULL,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL,
+    approved_at   INTEGER,
+    approved_by   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_context_proposals_status ON project_context_proposals(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_project_context_proposals_run ON project_context_proposals(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS project_context_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    kind       TEXT    NOT NULL,
+    ref        TEXT,
+    summary    TEXT    NOT NULL,
+    full_json  TEXT    NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_context_audit_kind ON project_context_audit(kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_project_context_audit_run ON project_context_audit(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS planning_sessions (
+    id                      TEXT PRIMARY KEY,
+    run_id                  INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    mode                    TEXT    NOT NULL,
+    prompt                  TEXT    NOT NULL,
+    prompt_sha256           TEXT    NOT NULL,
+    project_context_sha256  TEXT    NOT NULL,
+    rules_status            TEXT,
+    rules_digest            TEXT,
+    rules_read              TEXT,
+    human_gate_policy       TEXT    NOT NULL,
+    status                  TEXT    NOT NULL,
+    output_dir              TEXT    NOT NULL,
+    created_at              INTEGER NOT NULL,
+    updated_at              INTEGER NOT NULL,
+    finished_at             INTEGER,
+    failure_message         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_sessions_run ON planning_sessions(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_planning_sessions_status ON planning_sessions(status, created_at);
+
+CREATE TABLE IF NOT EXISTS planning_agents (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT    NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    run_id       INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    role         TEXT    NOT NULL,
+    round        INTEGER NOT NULL,
+    provider     TEXT,
+    model        TEXT,
+    agent_name   TEXT,
+    status       TEXT    NOT NULL,
+    confidence   REAL,
+    output_path  TEXT,
+    summary      TEXT,
+    error        TEXT,
+    started_at   INTEGER NOT NULL,
+    finished_at  INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_agents_session ON planning_agents(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_planning_agents_run ON planning_agents(run_id, started_at);
+
+CREATE TABLE IF NOT EXISTS planning_blackboard (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT    NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    run_id       INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    role         TEXT    NOT NULL,
+    kind         TEXT    NOT NULL,
+    title        TEXT,
+    summary      TEXT,
+    full_json    TEXT    NOT NULL,
+    created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_blackboard_session ON planning_blackboard(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_planning_blackboard_run ON planning_blackboard(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS planning_evaluations (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT    NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    run_id            INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    verdict           TEXT    NOT NULL,
+    score             REAL,
+    needs_user_input  INTEGER NOT NULL,
+    questions         TEXT,
+    issues            TEXT,
+    full_json         TEXT    NOT NULL,
+    created_at        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_evaluations_session ON planning_evaluations(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_planning_evaluations_run ON planning_evaluations(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS planning_task_graphs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT    NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    run_id       INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    version      INTEGER NOT NULL,
+    status       TEXT    NOT NULL,
+    graph_json   TEXT    NOT NULL,
+    created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_task_graphs_session ON planning_task_graphs(session_id, version);
+CREATE INDEX IF NOT EXISTS idx_planning_task_graphs_run ON planning_task_graphs(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS execution_sessions (
+    id              TEXT PRIMARY KEY,
+    run_id          INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    task_id         TEXT    NOT NULL,
+    task_path       TEXT    NOT NULL,
+    provider        TEXT    NOT NULL,
+    status          TEXT    NOT NULL,
+    output_dir      TEXT    NOT NULL,
+    attempt         INTEGER NOT NULL DEFAULT 0,
+    started_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    finished_at     INTEGER,
+    expires_at      INTEGER,
+    failure_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_sessions_run ON execution_sessions(run_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_execution_sessions_status ON execution_sessions(status, started_at);
+
+CREATE TABLE IF NOT EXISTS execution_transitions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL REFERENCES execution_sessions(id) ON DELETE CASCADE,
+    from_status TEXT,
+    to_status   TEXT    NOT NULL,
+    reason      TEXT,
+    created_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_transitions_session ON execution_transitions(session_id, id);
+
+CREATE TABLE IF NOT EXISTS execution_attempts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT    NOT NULL REFERENCES execution_sessions(id) ON DELETE CASCADE,
+    attempt             INTEGER NOT NULL,
+    provider_session_id TEXT,
+    head_before         TEXT,
+    head_after          TEXT,
+    backup_ref          TEXT,
+    diff_path           TEXT,
+    changed_files       TEXT,
+    worker_status       TEXT,
+    review_status       TEXT,
+    verification_status TEXT,
+    summary             TEXT,
+    result_json         TEXT,
+    error_message       TEXT,
+    started_at          INTEGER NOT NULL,
+    finished_at         INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_attempts_session ON execution_attempts(session_id, attempt);
+
+CREATE TABLE IF NOT EXISTS learned_rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    session_id TEXT,
+    taxonomy   TEXT    NOT NULL,
+    title      TEXT    NOT NULL,
+    body       TEXT    NOT NULL,
+    source     TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_learned_rules_session ON learned_rules(session_id, created_at);
+
 -- FTS5 virtual tables (external content — mirror rowid of source table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_handoffs USING fts5(
     summary, decisions, traps, rendered_md,
@@ -227,6 +418,36 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_findings USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_tasks USING fts5(
     title, content,
     content='tasks', content_rowid='rowid'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_project_context_versions USING fts5(
+    body,
+    content='project_context_versions', content_rowid='id'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_project_context_proposals USING fts5(
+    proposed_body, diff_summary,
+    content='project_context_proposals', content_rowid='id'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_project_context_audit USING fts5(
+    summary, full_json,
+    content='project_context_audit', content_rowid='id'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_planning_blackboard USING fts5(
+    role, kind, title, summary, full_json,
+    content='planning_blackboard', content_rowid='id'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_planning_task_graphs USING fts5(
+    graph_json,
+    content='planning_task_graphs', content_rowid='id'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_learned_rules USING fts5(
+    taxonomy, title, body,
+    content='learned_rules', content_rowid='id'
 );
 
 -- Sync triggers for external-content FTS5 tables
@@ -278,6 +499,85 @@ CREATE TRIGGER IF NOT EXISTS prompts_ad AFTER DELETE ON prompts BEGIN
     INSERT INTO fts_prompts(fts_prompts, rowid, name, content) VALUES ('delete', old.rowid, old.name, old.content);
 END;
 
+CREATE TRIGGER IF NOT EXISTS project_context_versions_ai AFTER INSERT ON project_context_versions BEGIN
+    INSERT INTO fts_project_context_versions(rowid, body) VALUES (new.id, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_versions_ad AFTER DELETE ON project_context_versions BEGIN
+    INSERT INTO fts_project_context_versions(fts_project_context_versions, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_versions_au AFTER UPDATE ON project_context_versions BEGIN
+    INSERT INTO fts_project_context_versions(fts_project_context_versions, rowid, body) VALUES ('delete', old.id, old.body);
+    INSERT INTO fts_project_context_versions(rowid, body) VALUES (new.id, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_proposals_ai AFTER INSERT ON project_context_proposals BEGIN
+    INSERT INTO fts_project_context_proposals(rowid, proposed_body, diff_summary) VALUES (new.id, new.proposed_body, new.diff_summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_proposals_ad AFTER DELETE ON project_context_proposals BEGIN
+    INSERT INTO fts_project_context_proposals(fts_project_context_proposals, rowid, proposed_body, diff_summary) VALUES ('delete', old.id, old.proposed_body, old.diff_summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_proposals_au AFTER UPDATE ON project_context_proposals BEGIN
+    INSERT INTO fts_project_context_proposals(fts_project_context_proposals, rowid, proposed_body, diff_summary) VALUES ('delete', old.id, old.proposed_body, old.diff_summary);
+    INSERT INTO fts_project_context_proposals(rowid, proposed_body, diff_summary) VALUES (new.id, new.proposed_body, new.diff_summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_audit_ai AFTER INSERT ON project_context_audit BEGIN
+    INSERT INTO fts_project_context_audit(rowid, summary, full_json) VALUES (new.id, new.summary, new.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_audit_ad AFTER DELETE ON project_context_audit BEGIN
+    INSERT INTO fts_project_context_audit(fts_project_context_audit, rowid, summary, full_json) VALUES ('delete', old.id, old.summary, old.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_context_audit_au AFTER UPDATE ON project_context_audit BEGIN
+    INSERT INTO fts_project_context_audit(fts_project_context_audit, rowid, summary, full_json) VALUES ('delete', old.id, old.summary, old.full_json);
+    INSERT INTO fts_project_context_audit(rowid, summary, full_json) VALUES (new.id, new.summary, new.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_blackboard_ai AFTER INSERT ON planning_blackboard BEGIN
+    INSERT INTO fts_planning_blackboard(rowid, role, kind, title, summary, full_json)
+    VALUES (new.id, new.role, new.kind, new.title, new.summary, new.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_blackboard_ad AFTER DELETE ON planning_blackboard BEGIN
+    INSERT INTO fts_planning_blackboard(fts_planning_blackboard, rowid, role, kind, title, summary, full_json)
+    VALUES ('delete', old.id, old.role, old.kind, old.title, old.summary, old.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_blackboard_au AFTER UPDATE ON planning_blackboard BEGIN
+    INSERT INTO fts_planning_blackboard(fts_planning_blackboard, rowid, role, kind, title, summary, full_json)
+    VALUES ('delete', old.id, old.role, old.kind, old.title, old.summary, old.full_json);
+    INSERT INTO fts_planning_blackboard(rowid, role, kind, title, summary, full_json)
+    VALUES (new.id, new.role, new.kind, new.title, new.summary, new.full_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_task_graphs_ai AFTER INSERT ON planning_task_graphs BEGIN
+    INSERT INTO fts_planning_task_graphs(rowid, graph_json) VALUES (new.id, new.graph_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_task_graphs_ad AFTER DELETE ON planning_task_graphs BEGIN
+    INSERT INTO fts_planning_task_graphs(fts_planning_task_graphs, rowid, graph_json) VALUES ('delete', old.id, old.graph_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS planning_task_graphs_au AFTER UPDATE ON planning_task_graphs BEGIN
+    INSERT INTO fts_planning_task_graphs(fts_planning_task_graphs, rowid, graph_json) VALUES ('delete', old.id, old.graph_json);
+    INSERT INTO fts_planning_task_graphs(rowid, graph_json) VALUES (new.id, new.graph_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS learned_rules_ai AFTER INSERT ON learned_rules BEGIN
+    INSERT INTO fts_learned_rules(rowid, taxonomy, title, body)
+    VALUES (new.id, new.taxonomy, new.title, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS learned_rules_ad AFTER DELETE ON learned_rules BEGIN
+    INSERT INTO fts_learned_rules(fts_learned_rules, rowid, taxonomy, title, body)
+    VALUES ('delete', old.id, old.taxonomy, old.title, old.body);
+END;
+
 -- installed_artifacts: tracks embedded agents/skills/commands written to project
 -- (schema_version=3 adds this; migration 003 creates it on existing DBs).
 CREATE TABLE IF NOT EXISTS installed_artifacts (
@@ -295,6 +595,6 @@ CREATE TABLE IF NOT EXISTS installed_artifacts (
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '11');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '14');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_reasoning_effort', '');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_fast_effort', '');

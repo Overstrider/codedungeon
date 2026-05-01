@@ -16,6 +16,7 @@ Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE
 | `--auto` | `/codedungeon --auto` | `$codedungeon --auto` | Router-selected | Explicit automatic selection. |
 | `--rules` | `/codedungeon --rules` | `$codedungeon --rules` | Project Rules Discovery | Deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact rules. |
 | Review | `/code-review` | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
+| Execute | n/a | n/a | Implementation Executor | Standalone `codedungeon execute task --task task.json` runner for one task contract at a time. |
 
 Compatibility aliases remain installed and supported: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex.
 
@@ -90,6 +91,14 @@ CodeDungeon records informational agent telemetry in the project DB. The autonom
 Telemetry is not a readiness gate. Missing or open telemetry appears as a warning in final reports and in `codedungeon observe report`, but it does not replace QA, review, PR, or report evidence. Use `codedungeon observe agents` for JSON and `codedungeon observe report` for an audit-friendly Markdown timeline.
 
 `--lite` and `--oneshot` are compact workflows: the runner marks the pre-report phase ledger as skipped, then enforces readiness through QA, review, PR, and report evidence. `--full` keeps the full ordered phase lifecycle.
+
+## Implementation Executor
+
+`codedungeon execute task --task <task.json>` is the deterministic Ralphloop module under the higher-level workflows. It accepts one `taskplanning.TaskSpec` JSON contract plus project context, creates a durable execution session, and runs a Codex-first worker loop with per-attempt git snapshots, declared verification commands, and JSON evidence under `.codedungeon/execute/sessions/<session-id>/`.
+
+Session behavior is explicit: resume uses `--resume <id>`, never an implicit “continue latest”; sessions expire after 24 hours by default; `--reset-session` reopens an expired or failed session and records a transition. `execute status --session <id>` reports session, attempts, and transition history. `execute rollback --session <id> --to before|attempt-N --confirm` prints the rollback target for manual recovery; it does not silently reset the repository.
+
+`.ralphrc` can override executor defaults: `session_ttl_hours`, `max_iterations`, `timeout_seconds`, `runner`, `auto_commit`, `auto_push`, `auto_tag`, `verbose`, and `allowed_tools`. Environment variables prefixed with `CODEDUNGEON_EXEC_` override config. Auto-commit is enabled only after verification passes; auto-push and semver tag creation are opt-in.
 
 `APPROVED` does not replace verification. For Rust work, the verification gate includes `cargo check` and `cargo test`. If `Dockerfile` or `Containerfile` changes, the workflow must run `podman build` or return `BLOCKED` with the environment blocker. If a command is recorded multiple times in the Phase 6 ledger, the latest record for that exact command wins.
 

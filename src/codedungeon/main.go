@@ -36,6 +36,8 @@ func main() {
 	root.Flags().String("project-context", "", "code-review project context text or path")
 	root.Flags().String("task-context", "", "code-review task context text or path")
 	root.Flags().String("target-context", "", "code-review target context text or path")
+	root.Flags().String("target-context-mode", "", "code-review target context mode: auto, full, compact")
+	root.Flags().Int("max-target-context-bytes", 0, "max auto-collected target context bytes before compact mode")
 	root.Flags().String("out", "", "code-review output directory")
 	root.Flags().Bool("post", false, "post standalone code-review result")
 
@@ -59,11 +61,14 @@ func main() {
 	root.AddCommand(cmd.SpawnCmd())
 	root.AddCommand(cmd.MapCmd())
 	root.AddCommand(cmd.RulesCmd())
+	root.AddCommand(cmd.ProjectContextCmd())
+	root.AddCommand(cmd.ExecuteCmd())
 	root.AddCommand(cmd.HooksCmd())
 	root.AddCommand(cmd.SetupCmd())
 	root.AddCommand(cmd.RunCmd())
 	root.AddCommand(cmd.TraceCmd())
 	root.AddCommand(cmd.ObserveCmd())
+	root.AddCommand(cmd.DiagnoseCmd())
 
 	root.RunE = func(c *cobra.Command, args []string) error {
 		codeReview, _ := c.Flags().GetBool("code-review")
@@ -90,11 +95,14 @@ func main() {
 
 func runTopLevelCodeReview(root *cobra.Command) error {
 	args := []string{}
-	for _, name := range []string{"url", "project-context", "task-context", "target-context", "out"} {
+	for _, name := range []string{"url", "project-context", "task-context", "target-context", "target-context-mode", "out"} {
 		value, _ := root.Flags().GetString(name)
 		if value != "" {
 			args = append(args, "--"+name, value)
 		}
+	}
+	if value, _ := root.Flags().GetInt("max-target-context-bytes"); value > 0 {
+		args = append(args, "--max-target-context-bytes", fmt.Sprintf("%d", value))
 	}
 	post, _ := root.Flags().GetBool("post")
 	if post {

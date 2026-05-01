@@ -104,7 +104,7 @@ func dbMigrateCmd() *cobra.Command {
 func dbSearchCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "search <query>",
-		Short: "FTS5 search across handoffs/prompts/findings/tasks",
+		Short: "FTS5 search across handoffs/prompts/findings/tasks/planning",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			table, _ := c.Flags().GetString("table")
@@ -116,12 +116,12 @@ func dbSearchCmd() *cobra.Command {
 			defer s.Close()
 			hits, err := s.Search(table, args[0], limit)
 			if err != nil {
-				return EmitErr(err.Error(), "valid tables: handoffs, prompts, findings, tasks")
+				return EmitErr(err.Error(), "valid tables: handoffs, prompts, findings, tasks, planning_blackboard, planning_task_graphs")
 			}
 			return EmitJSON(map[string]any{"ok": true, "table": table, "hits": hits, "count": len(hits)})
 		},
 	}
-	c.Flags().String("table", "handoffs", "one of: handoffs, prompts, findings, tasks")
+	c.Flags().String("table", "handoffs", "one of: handoffs, prompts, findings, tasks, planning_blackboard, planning_task_graphs")
 	c.Flags().Int("limit", 20, "max hits to return")
 	return c
 }

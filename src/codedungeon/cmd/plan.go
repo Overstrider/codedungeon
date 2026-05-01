@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,18 +12,235 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
+	"github.com/loldinis/codedungeon/internal/provider"
 	"github.com/loldinis/codedungeon/internal/reviewpipe"
+	"github.com/loldinis/codedungeon/internal/taskplanning"
 )
 
 func PlanCmd() *cobra.Command {
 	c := &cobra.Command{Use: "plan", Short: "PLAN.md + task file operations"}
+	c.AddCommand(planRunCmd())
+	c.AddCommand(planStatusCmd())
+	c.AddCommand(planResumeCmd())
+	c.AddCommand(planValidateCmd())
+	c.AddCommand(planPromoteCmd())
 	c.AddCommand(planMetaCmd())
 	c.AddCommand(planAppendFixTasksCmd())
+	return c
+}
+
+func planRunCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "run",
+		Short: "Run the standalone task-planning swarm",
+		RunE: func(c *cobra.Command, _ []string) error {
+			req, runner, err := planningRequestFromFlags(c, "")
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			s, run, err := openPlanningStore(c)
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			if run != nil {
+				req.RunID = run.ID
+			}
+			if req.OutputDir == "" {
+				req.OutputDir = defaultPlanningOutputDir(req.Prompt, req.SessionID)
+			}
+			if req.SessionID == "" {
+				req.SessionID = filepath.Base(req.OutputDir)
+			}
+			if req.SessionID == "." || req.SessionID == string(filepath.Separator) {
+				req.SessionID = "plan-" + time.Now().Format("20060102150405")
+			}
+			_ = persistPlanningSessionStart(s, req)
+			if req.RunID != 0 {
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_started", Detail: req.SessionID})
+			}
+			result, execErr := taskplanning.Execute(context.Background(), req, runner)
+			legacyPhase4, _ := c.Flags().GetBool("legacy-phase4")
+			if execErr == nil && legacyPhase4 && result.TaskGraph != nil {
+				feature := req.Prompt
+				if run != nil && run.Feature != "" {
+					feature = run.Feature
+				}
+				legacyArtifacts, legacyErr := mirrorPlanningLegacyArtifacts(currentProjectRoot(), feature, result)
+				if legacyErr != nil {
+					execErr = legacyErr
+				} else {
+					result.Artifacts = append(result.Artifacts, legacyArtifacts...)
+					if result.Metadata == nil {
+						result.Metadata = map[string]any{}
+					}
+					result.Metadata["legacy_phase4_artifacts"] = legacyArtifacts
+				}
+			}
+			promote, _ := c.Flags().GetBool("promote")
+			promoteRepo, _ := c.Flags().GetString("promote-repo")
+			if execErr == nil && promote && result.TaskGraph != nil {
+				if promoteRepo == "" {
+					promoteRepo = promotionRepoFromGraph(*result.TaskGraph)
+				}
+				promoted, promoteErr := promotePlanningArtifacts(currentProjectRoot(), result.OutputDir, promoteRepo)
+				if promoteErr != nil {
+					execErr = promoteErr
+				} else {
+					result.Artifacts = append(result.Artifacts, promoted...)
+					if result.Metadata == nil {
+						result.Metadata = map[string]any{}
+					}
+					result.Metadata["promoted_artifacts"] = promoted
+				}
+			}
+			if persistErr := persistPlanningResult(s, req, result, execErr); persistErr != nil && execErr == nil {
+				execErr = persistErr
+			}
+			if execErr != nil {
+				if req.RunID != 0 {
+					_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_failed", Detail: execErr.Error()})
+				}
+				return EmitErr(execErr.Error(), "")
+			}
+			if req.RunID != 0 {
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_" + strings.ToLower(result.Status), Detail: req.SessionID})
+			}
+			return EmitJSON(result)
+		},
+	}
+	addPlanningRunFlags(c)
+	return c
+}
+
+func planStatusCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "status",
+		Short: "Show task-planning session status",
+		RunE: func(c *cobra.Command, _ []string) error {
+			sessionID, _ := c.Flags().GetString("session")
+			s, _, err := openPlanningStore(c)
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			session, err := planningSessionByFlag(s, sessionID)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			agents, _ := s.PlanningAgents(session.ID)
+			evals, _ := s.PlanningEvaluations(session.ID)
+			graphs, _ := s.PlanningTaskGraphs(session.ID)
+			return EmitJSON(map[string]any{
+				"ok":          true,
+				"session":     session,
+				"agents":      agents,
+				"evaluations": evals,
+				"task_graphs": graphs,
+			})
+		},
+	}
+	c.Flags().String("session", "", "planning session id (defaults to latest)")
+	return c
+}
+
+func planResumeCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "resume",
+		Short: "Resume a failed or user-blocked task-planning session",
+		RunE: func(c *cobra.Command, _ []string) error {
+			sessionID, _ := c.Flags().GetString("session")
+			s, _, err := openPlanningStore(c)
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			session, err := planningSessionByFlag(s, sessionID)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if session.Status == taskplanning.StatusCompleted {
+				return EmitErr("planning session already completed", session.ID)
+			}
+			req, err := readPlanningRequest(filepath.Join(session.OutputDir, "planning-request.json"))
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			req.SessionID = session.ID
+			req.OutputDir = session.OutputDir
+			req.RunID = session.RunID
+			_, runner, err := planningRequestFromFlags(c, req.ProjectContext)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			_ = s.UpdatePlanningSessionStatus(session.ID, taskplanning.StatusRunning, "")
+			result, execErr := taskplanning.Execute(context.Background(), req, runner)
+			if persistErr := persistPlanningResult(s, req, result, execErr); persistErr != nil && execErr == nil {
+				execErr = persistErr
+			}
+			if execErr != nil {
+				return EmitErr(execErr.Error(), "")
+			}
+			return EmitJSON(result)
+		},
+	}
+	c.Flags().String("session", "", "planning session id (defaults to latest)")
+	addPlanningRunnerFlags(c)
+	return c
+}
+
+func planValidateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate a task-planning task graph JSON",
+		RunE: func(c *cobra.Command, _ []string) error {
+			path, _ := c.Flags().GetString("task-graph")
+			if strings.TrimSpace(path) == "" {
+				return EmitErr("--task-graph is required", "")
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			var graph taskplanning.TaskGraph
+			if err := json.Unmarshal(body, &graph); err != nil {
+				return EmitErr(err.Error(), "invalid task graph JSON")
+			}
+			if err := taskplanning.ValidateTaskGraph(graph); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": true, "task_graph": path, "tasks": len(graph.Tasks)})
+		},
+	}
+	c.Flags().String("task-graph", "", "path to task-graph.json")
+	return c
+}
+
+func planPromoteCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "promote",
+		Short: "Promote task-planning artifacts to canonical .codedungeon paths",
+		RunE: func(c *cobra.Command, _ []string) error {
+			from, _ := c.Flags().GetString("from")
+			repo, _ := c.Flags().GetString("repo")
+			if strings.TrimSpace(from) == "" {
+				return EmitErr("--from is required", "")
+			}
+			artifacts, err := promotePlanningArtifacts(currentProjectRoot(), from, repo)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": true, "artifacts": artifacts})
+		},
+	}
+	c.Flags().String("from", "", "task-planning output directory")
+	c.Flags().String("repo", "", "repo key from task graph; defaults to the only rendered repo")
 	return c
 }
 
@@ -246,4 +466,562 @@ func slugify(s string) string {
 		s = "fix"
 	}
 	return s
+}
+
+func addPlanningRunFlags(c *cobra.Command) {
+	c.Flags().String("prompt", "", "user prompt to plan")
+	c.Flags().String("mode", "full", "planning mode: full, lite, oneshot")
+	c.Flags().String("project-context", "", "project context text or path")
+	c.Flags().String("out", "", "output directory for planning artifacts")
+	c.Flags().String("session", "", "planning session id")
+	c.Flags().String("human-gate-policy", taskplanning.HumanGateMaterialAmbiguity, "material_ambiguity | always_before_split | never")
+	c.Flags().StringSlice("role", nil, "exploration role to run; repeatable")
+	c.Flags().String("project-rules-status", "", "PROJECT_RULES_STATUS override")
+	c.Flags().String("project-rules-digest", "", "PROJECT_RULES_DIGEST override")
+	c.Flags().String("project-rules-read", "yes", "PROJECT_RULES_READ override")
+	c.Flags().Bool("legacy-phase4", false, "mirror completed graph to .codedungeon/plan and .codedungeon/tasks for Phase 5 compatibility")
+	c.Flags().Bool("auto-repair", false, "repair deterministic task graph conflicts before rendering")
+	c.Flags().Bool("promote", false, "promote rendered artifacts to canonical .codedungeon/plan and .codedungeon/tasks paths")
+	c.Flags().String("promote-repo", "", "repo key to promote when graph has more than one repo")
+	addPlanningRunnerFlags(c)
+}
+
+func addPlanningRunnerFlags(c *cobra.Command) {
+	c.Flags().String("runner", "codex", "planning runner: codex or files")
+	c.Flags().String("input-dir", "", "input fixture directory for --runner files")
+}
+
+func planningRequestFromFlags(c *cobra.Command, fallbackProjectContext string) (taskplanning.Request, taskplanning.Runner, error) {
+	prompt, _ := c.Flags().GetString("prompt")
+	mode, _ := c.Flags().GetString("mode")
+	projectContextArg, _ := c.Flags().GetString("project-context")
+	outDir, _ := c.Flags().GetString("out")
+	sessionID, _ := c.Flags().GetString("session")
+	humanGate, _ := c.Flags().GetString("human-gate-policy")
+	roles, _ := c.Flags().GetStringSlice("role")
+	rulesStatus, _ := c.Flags().GetString("project-rules-status")
+	rulesDigest, _ := c.Flags().GetString("project-rules-digest")
+	rulesRead, _ := c.Flags().GetString("project-rules-read")
+	runnerName, _ := c.Flags().GetString("runner")
+	inputDir, _ := c.Flags().GetString("input-dir")
+	autoRepair, _ := c.Flags().GetBool("auto-repair")
+
+	projectContext := fallbackProjectContext
+	var err error
+	if strings.TrimSpace(projectContextArg) != "" {
+		projectContext, err = readOptionalContextArg(projectContextArg)
+		if err != nil {
+			return taskplanning.Request{}, nil, fmt.Errorf("project-context: %w", err)
+		}
+	}
+	if strings.TrimSpace(projectContext) == "" {
+		projectContext, err = defaultPlanningProjectContext(currentProjectRoot())
+		if err != nil {
+			return taskplanning.Request{}, nil, err
+		}
+	}
+	if rulesStatus == "" || rulesDigest == "" {
+		if st, stErr := computeProjectRulesStatus(currentProjectRoot()); stErr == nil {
+			if rulesStatus == "" {
+				rulesStatus = st.Status
+			}
+			if rulesDigest == "" {
+				rulesDigest = st.RulesDigest
+			}
+		}
+	}
+	if rulesRead == "" {
+		rulesRead = "yes"
+	}
+	runner, err := planningRunner(runnerName, inputDir)
+	if err != nil {
+		return taskplanning.Request{}, nil, err
+	}
+	return taskplanning.Request{
+		SessionID:       sessionID,
+		Prompt:          prompt,
+		Mode:            mode,
+		ProjectContext:  projectContext,
+		OutputDir:       outDir,
+		Roles:           roles,
+		HumanGatePolicy: humanGate,
+		ProjectRules: taskplanning.ProjectRulesEnvelope{
+			Status: rulesStatus,
+			Digest: rulesDigest,
+			Read:   rulesRead,
+		},
+		AutoRepair: autoRepair,
+	}, runner, nil
+}
+
+func planningRunner(name, inputDir string) (taskplanning.Runner, error) {
+	switch strings.TrimSpace(name) {
+	case "", "codex":
+		return taskplanning.CodexRunner{WorkDir: currentProjectRoot()}, nil
+	case "files":
+		return taskplanning.FilesRunner{InputDir: inputDir}, nil
+	default:
+		return nil, fmt.Errorf("unknown planning runner %q", name)
+	}
+}
+
+func openPlanningStore(c *cobra.Command) (*db.Store, *db.Run, error) {
+	s, err := OpenDB(c)
+	if err != nil {
+		return nil, nil, EmitErr(err.Error(), "")
+	}
+	if err := s.Init(); err != nil {
+		s.Close()
+		return nil, nil, EmitErr(err.Error(), "")
+	}
+	run, err := s.CurrentRun()
+	if err != nil {
+		s.Close()
+		return nil, nil, EmitErr(err.Error(), "")
+	}
+	return s, run, nil
+}
+
+func defaultPlanningOutputDir(prompt, sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = "plan-" + time.Now().Format("20060102150405") + "-" + slugifyFeature(prompt)
+	}
+	return projectPath(currentProjectRoot(), filepath.Join(provider.Detect().StateDir(), "..", "task-planning", sessionID))
+}
+
+func defaultPlanningProjectContext(root string) (string, error) {
+	candidates := []string{
+		filepath.Join(root, ".codedungeon", "project-context.md"),
+		filepath.Join(root, ".codedungeon", "project-rules.compact.md"),
+	}
+	for _, path := range candidates {
+		body, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(body)) != "" {
+			return string(body), nil
+		}
+	}
+	return "", fmt.Errorf("project-context is required; pass --project-context or create .codedungeon/project-context.md")
+}
+
+func persistPlanningSessionStart(s *db.Store, req taskplanning.Request) error {
+	return s.UpsertPlanningSession(db.PlanningSession{
+		ID:                   req.SessionID,
+		RunID:                req.RunID,
+		Mode:                 strings.ToUpper(req.Mode),
+		Prompt:               req.Prompt,
+		PromptSHA256:         shaText(req.Prompt),
+		ProjectContextSHA256: shaText(req.ProjectContext),
+		RulesStatus:          req.ProjectRules.Status,
+		RulesDigest:          req.ProjectRules.Digest,
+		RulesRead:            req.ProjectRules.Read,
+		HumanGatePolicy:      req.HumanGatePolicy,
+		Status:               taskplanning.StatusRunning,
+		OutputDir:            req.OutputDir,
+	})
+}
+
+func persistPlanningResult(s *db.Store, req taskplanning.Request, result taskplanning.Result, execErr error) error {
+	status := result.Status
+	failure := ""
+	if execErr != nil {
+		status = taskplanning.StatusFailed
+		failure = execErr.Error()
+	}
+	if status == "" {
+		status = taskplanning.StatusCompleted
+	}
+	if err := s.UpsertPlanningSession(db.PlanningSession{
+		ID:                   req.SessionID,
+		RunID:                req.RunID,
+		Mode:                 strings.ToUpper(req.Mode),
+		Prompt:               req.Prompt,
+		PromptSHA256:         shaText(req.Prompt),
+		ProjectContextSHA256: shaText(req.ProjectContext),
+		RulesStatus:          req.ProjectRules.Status,
+		RulesDigest:          req.ProjectRules.Digest,
+		RulesRead:            req.ProjectRules.Read,
+		HumanGatePolicy:      req.HumanGatePolicy,
+		Status:               status,
+		OutputDir:            req.OutputDir,
+		FinishedAt:           time.Now().Unix(),
+		FailureMessage:       failure,
+	}); err != nil {
+		return err
+	}
+	for _, agent := range result.Agents {
+		if _, err := s.InsertPlanningAgent(db.PlanningAgent{
+			SessionID:  req.SessionID,
+			RunID:      req.RunID,
+			Role:       agent.Role,
+			Round:      planningRound(agent.Role),
+			Provider:   agent.Provider,
+			Model:      agent.Model,
+			AgentName:  agent.AgentName,
+			Status:     "COMPLETED",
+			Confidence: agent.Confidence,
+			OutputPath: filepath.Join(req.OutputDir, "agent-outputs", agent.Role+".json"),
+			Summary:    agent.Summary,
+		}); err != nil {
+			return err
+		}
+		if req.RunID != 0 {
+			agentRunID, err := s.StartAgentRun(db.AgentRun{
+				RunID:           req.RunID,
+				Phase:           "4",
+				Role:            "planning-" + agent.Role,
+				AgentType:       agent.Role,
+				AgentName:       agent.AgentName,
+				Model:           agent.Model,
+				ReasoningEffort: "provider-default",
+				TaskPath:        filepath.Join(req.OutputDir, "agent-outputs", agent.Role+".json"),
+				InputSummary:    "task planning swarm role " + agent.Role,
+			})
+			if err == nil {
+				_ = s.FinishAgentRun(agentRunID, "COMPLETED", agent.Summary, filepath.Join(req.OutputDir, "agent-outputs", agent.Role+".json"), "")
+				_, _ = s.InsertAgentEvent(db.AgentEvent{
+					RunID:      req.RunID,
+					AgentRunID: agentRunID,
+					Phase:      "4",
+					Event:      "planning_agent_completed",
+					Detail:     agent.Role,
+				})
+			}
+		}
+	}
+	if result.BlackboardPath != "" {
+		if err := persistPlanningBlackboard(s, req.RunID, req.SessionID, result.BlackboardPath); err != nil {
+			return err
+		}
+	}
+	if result.Evaluation != nil {
+		full, _ := json.Marshal(result.Evaluation)
+		questions := make([]string, 0, len(result.Evaluation.Questions))
+		for _, question := range result.Evaluation.Questions {
+			questions = append(questions, question.Question)
+		}
+		if _, err := s.InsertPlanningEvaluation(db.PlanningEvaluation{
+			SessionID:      req.SessionID,
+			RunID:          req.RunID,
+			Verdict:        result.Evaluation.Verdict,
+			Score:          result.Evaluation.Score,
+			NeedsUserInput: result.Evaluation.NeedsUserInput,
+			Questions:      questions,
+			Issues:         result.Evaluation.Issues,
+			FullJSON:       string(full),
+		}); err != nil {
+			return err
+		}
+	}
+	if result.TaskGraph != nil {
+		graphJSON, _ := json.Marshal(result.TaskGraph)
+		if _, err := s.InsertPlanningTaskGraph(db.PlanningTaskGraph{
+			SessionID: req.SessionID,
+			RunID:     req.RunID,
+			Version:   result.TaskGraph.Version,
+			Status:    result.Status,
+			GraphJSON: string(graphJSON),
+		}); err != nil {
+			return err
+		}
+		if req.RunID != 0 {
+			if err := exportPlanningTasks(s, req.RunID, req.OutputDir, *result.TaskGraph); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func persistPlanningBlackboard(s *db.Store, runID int64, sessionID, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Role    string          `json:"role"`
+			Kind    string          `json:"kind"`
+			Title   string          `json:"title"`
+			Summary string          `json:"summary"`
+			Full    json.RawMessage `json:"full"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			return err
+		}
+		if _, err := s.InsertPlanningBlackboard(db.PlanningBlackboardEntry{
+			SessionID: sessionID,
+			RunID:     runID,
+			Role:      entry.Role,
+			Kind:      entry.Kind,
+			Title:     entry.Title,
+			Summary:   entry.Summary,
+			FullJSON:  string(entry.Full),
+		}); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func exportPlanningTasks(s *db.Store, runID int64, outputDir string, graph taskplanning.TaskGraph) error {
+	for _, task := range graph.Tasks {
+		content := ""
+		taskPath := filepath.Join(outputDir, "tasks", filepath.Clean(task.Repo), task.ID+".md")
+		if body, err := os.ReadFile(taskPath); err == nil {
+			content = string(body)
+		} else {
+			content = task.Objective
+		}
+		kind := task.Kind
+		if strings.TrimSpace(kind) == "" {
+			kind = "dev"
+		}
+		if err := s.UpsertTask(db.Task{
+			RunID:     runID,
+			Repo:      task.Repo,
+			TaskID:    task.ID,
+			Kind:      kind,
+			Status:    "pending",
+			Title:     task.Title,
+			DependsOn: task.DependsOn,
+			Content:   content,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mirrorPlanningLegacyArtifacts(root, feature string, result taskplanning.Result) ([]string, error) {
+	if result.TaskGraph == nil {
+		return nil, nil
+	}
+	featureSlug := slugifyFeature(feature)
+	if featureSlug == "" {
+		featureSlug = "task-planning"
+	}
+	var artifacts []string
+	planDir := projectPath(root, provider.Detect().PlanDir())
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return nil, err
+	}
+	masterPath := filepath.Join(planDir, "MASTER.md")
+	if body, err := os.ReadFile(result.MasterPath); err == nil {
+		if err := os.WriteFile(masterPath, body, 0o644); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, masterPath)
+	}
+	copiedPlans := map[string]bool{}
+	for _, task := range result.TaskGraph.Tasks {
+		repoSlug := slugify(task.Repo)
+		if repoSlug == "" || task.Repo == "." {
+			repoSlug = "root"
+		}
+		legacyDir := projectPath(root, filepath.Join(provider.Detect().TasksDir(), featureSlug, repoSlug))
+		if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+			return nil, err
+		}
+		srcPlan := filepath.Join(result.OutputDir, "tasks", filepath.Clean(task.Repo), "PLAN.md")
+		dstPlan := filepath.Join(legacyDir, "PLAN.md")
+		if body, err := os.ReadFile(srcPlan); err == nil && !copiedPlans[dstPlan] {
+			if err := os.WriteFile(dstPlan, body, 0o644); err != nil {
+				return nil, err
+			}
+			artifacts = append(artifacts, dstPlan)
+			copiedPlans[dstPlan] = true
+		}
+		srcTask := filepath.Join(result.OutputDir, "tasks", filepath.Clean(task.Repo), task.ID+".md")
+		taskNum := strings.TrimPrefix(strings.ToLower(task.ID), "task-")
+		dstTask := filepath.Join(legacyDir, fmt.Sprintf("task-%s-%s.md", taskNum, slugify(task.Title)))
+		if body, err := os.ReadFile(srcTask); err == nil {
+			if err := os.WriteFile(dstTask, body, 0o644); err != nil {
+				return nil, err
+			}
+			artifacts = append(artifacts, dstTask)
+		}
+	}
+	return artifacts, nil
+}
+
+func promotePlanningArtifacts(root, outputDir, repo string) ([]string, error) {
+	outputDir = filepath.Clean(outputDir)
+	if strings.TrimSpace(repo) == "" {
+		detected, err := detectPromotableRepo(outputDir)
+		if err != nil {
+			return nil, err
+		}
+		repo = detected
+	}
+	repoDir := filepath.Join(outputDir, "tasks", filepath.Clean(repo))
+	if repo == "." {
+		repoDir = filepath.Join(outputDir, "tasks")
+	}
+	if _, err := os.Stat(repoDir); err != nil {
+		return nil, fmt.Errorf("planning repo artifacts not found for %q: %w", repo, err)
+	}
+
+	var artifacts []string
+	planDir := projectPath(root, provider.Detect().PlanDir())
+	tasksDir := projectPath(root, provider.Detect().TasksDir())
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		return nil, err
+	}
+	if src := filepath.Join(outputDir, "MASTER.md"); fileExists(src) {
+		dst := filepath.Join(planDir, "MASTER.md")
+		if err := copyFile(src, dst, 0o644); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, dst)
+	}
+	if src := filepath.Join(repoDir, "PLAN.md"); fileExists(src) {
+		dst := filepath.Join(planDir, "PLAN.md")
+		if err := copyFile(src, dst, 0o644); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, dst)
+	}
+	existing, _ := filepath.Glob(filepath.Join(tasksDir, "task-*.md"))
+	for _, path := range existing {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+	}
+	entries, err := os.ReadDir(repoDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "TASK-") || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		src := filepath.Join(repoDir, entry.Name())
+		body, err := os.ReadFile(src)
+		if err != nil {
+			return nil, err
+		}
+		id := strings.TrimSuffix(entry.Name(), ".md")
+		dst := filepath.Join(tasksDir, strings.ToLower(id)+"-"+slugify(planningTaskTitle(id, string(body)))+".md")
+		if err := os.WriteFile(dst, body, 0o644); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, dst)
+	}
+	return artifacts, nil
+}
+
+func promotionRepoFromGraph(graph taskplanning.TaskGraph) string {
+	seen := map[string]bool{}
+	for _, task := range graph.Tasks {
+		seen[task.Repo] = true
+	}
+	if len(seen) != 1 {
+		return ""
+	}
+	for repo := range seen {
+		return repo
+	}
+	return ""
+}
+
+func detectPromotableRepo(outputDir string) (string, error) {
+	tasksDir := filepath.Join(outputDir, "tasks")
+	if fileExists(filepath.Join(tasksDir, "PLAN.md")) {
+		return ".", nil
+	}
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return "", err
+	}
+	var repos []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if fileExists(filepath.Join(tasksDir, entry.Name(), "PLAN.md")) {
+			repos = append(repos, entry.Name())
+		}
+	}
+	if len(repos) == 1 {
+		return repos[0], nil
+	}
+	if len(repos) == 0 {
+		return "", fmt.Errorf("no promotable planning repo found in %s", tasksDir)
+	}
+	return "", fmt.Errorf("multiple planning repos found (%s); pass --repo or --promote-repo", strings.Join(repos, ", "))
+}
+
+func planningTaskTitle(id, body string) string {
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	if scanner.Scan() {
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "#"))
+		line = strings.TrimSpace(line)
+		prefix := id + ":"
+		if strings.HasPrefix(line, prefix) {
+			title := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			if title != "" {
+				return title
+			}
+		}
+	}
+	return id
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func planningSessionByFlag(s *db.Store, sessionID string) (*db.PlanningSession, error) {
+	var session *db.PlanningSession
+	var err error
+	if strings.TrimSpace(sessionID) != "" {
+		session, err = s.PlanningSession(sessionID)
+	} else {
+		session, err = s.LatestPlanningSession()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("planning session not found")
+	}
+	return session, nil
+}
+
+func readPlanningRequest(path string) (taskplanning.Request, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return taskplanning.Request{}, err
+	}
+	var req taskplanning.Request
+	if err := json.Unmarshal(body, &req); err != nil {
+		return taskplanning.Request{}, err
+	}
+	return req, nil
+}
+
+func planningRound(role string) int {
+	switch role {
+	case "planning_evaluator":
+		return 2
+	case "task_splitter":
+		return 3
+	default:
+		return 1
+	}
+}
+
+func shaText(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%x", sum[:])
 }

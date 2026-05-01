@@ -27,6 +27,8 @@ func CodeReviewCmd() *cobra.Command {
 			projectContextArg, _ := c.Flags().GetString("project-context")
 			taskContextArg, _ := c.Flags().GetString("task-context")
 			targetContextArg, _ := c.Flags().GetString("target-context")
+			targetContextMode, _ := c.Flags().GetString("target-context-mode")
+			maxTargetContextBytes, _ := c.Flags().GetInt("max-target-context-bytes")
 			outDir, _ := c.Flags().GetString("out")
 			runnerName, _ := c.Flags().GetString("runner")
 			inputDir, _ := c.Flags().GetString("input-dir")
@@ -50,8 +52,12 @@ func CodeReviewCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr("target-context: "+err.Error(), "")
 			}
+			targetContextInfo := targetContextCollectionInfo{Mode: "explicit", Bytes: len(targetContext)}
 			if targetContext == "" {
-				targetContext = collectTargetContext(url)
+				targetContext, targetContextInfo = collectTargetContextWithOptions(url, targetContextOptions{
+					Mode:     targetContextMode,
+					MaxBytes: maxTargetContextBytes,
+				})
 			}
 			prMeta := collectPRMetadata(url)
 			if rulesStatus == "" || rulesDigest == "" {
@@ -88,6 +94,14 @@ func CodeReviewCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 			result, err := codereview.Execute(context.Background(), req, runner)
+			if err != nil && targetContextArg == "" && targetContextInfo.Mode != "compact" && isContextOverflowError(err) {
+				targetContext, targetContextInfo = collectTargetContextWithOptions(url, targetContextOptions{
+					Mode:     "compact",
+					MaxBytes: maxTargetContextBytes,
+				})
+				req.TargetContext = targetContext
+				result, err = codereview.Execute(context.Background(), req, runner)
+			}
 			if err != nil {
 				return EmitErr("code-review failed: "+err.Error(), "")
 			}
@@ -125,6 +139,8 @@ func CodeReviewCmd() *cobra.Command {
 	c.Flags().String("project-context", "", "project context text or path")
 	c.Flags().String("task-context", "", "task context text or path")
 	c.Flags().String("target-context", "", "target context text or path (optional; GitHub PR context is collected when possible)")
+	c.Flags().String("target-context-mode", "auto", "target context collection: auto, full, compact")
+	c.Flags().Int("max-target-context-bytes", 256*1024, "max auto-collected target context bytes before compact mode")
 	c.Flags().String("out", "", "output directory for review artifacts")
 	c.Flags().String("runner", "codex", "review runner: codex or files")
 	c.Flags().String("input-dir", "", "input fixture directory for --runner files")
@@ -166,18 +182,100 @@ func readOptionalContextArg(value string) (string, error) {
 }
 
 func collectTargetContext(url string) string {
+	ctx, _ := collectTargetContextWithOptions(url, targetContextOptions{Mode: "auto", MaxBytes: 256 * 1024})
+	return ctx
+}
+
+type targetContextOptions struct {
+	Mode     string
+	MaxBytes int
+}
+
+type targetContextCollectionInfo struct {
+	Mode  string
+	Bytes int
+}
+
+func collectTargetContextWithOptions(url string, opts targetContextOptions) (string, targetContextCollectionInfo) {
 	if strings.TrimSpace(url) == "" {
-		return ""
+		return "", targetContextCollectionInfo{Mode: "empty"}
+	}
+	mode := strings.ToLower(strings.TrimSpace(opts.Mode))
+	if mode == "" {
+		mode = "auto"
+	}
+	if opts.MaxBytes <= 0 {
+		opts.MaxBytes = 256 * 1024
 	}
 	out, _, err := codeReviewRun(".", "gh", "pr", "view", url, "--json", "title,body,url,baseRefOid,headRefOid,files")
 	if err != nil {
-		return "Target URL: " + url
+		ctx := "Target URL: " + url
+		return ctx, targetContextCollectionInfo{Mode: "url", Bytes: len(ctx)}
 	}
 	diff, _, diffErr := codeReviewRun(".", "gh", "pr", "diff", url)
 	if diffErr != nil {
-		return out
+		ctx := compactTargetContext(url, out, "", true)
+		return ctx, targetContextCollectionInfo{Mode: "compact", Bytes: len(ctx)}
 	}
-	return out + "\n\nDiff:\n" + diff
+	full := out + "\n\nDiff:\n" + diff
+	if mode == "full" || (mode == "auto" && len(full) <= opts.MaxBytes) {
+		return full, targetContextCollectionInfo{Mode: "full", Bytes: len(full)}
+	}
+	ctx := compactTargetContext(url, out, diff, false)
+	return ctx, targetContextCollectionInfo{Mode: "compact", Bytes: len(ctx)}
+}
+
+func compactTargetContext(url, metadata, diff string, diffUnavailable bool) string {
+	var parsed struct {
+		Title      string `json:"title"`
+		URL        string `json:"url"`
+		BaseRefOID string `json:"baseRefOid"`
+		HeadRefOID string `json:"headRefOid"`
+		Files      []struct {
+			Path      string `json:"path"`
+			Additions int    `json:"additions"`
+			Deletions int    `json:"deletions"`
+		} `json:"files"`
+	}
+	_ = json.Unmarshal([]byte(metadata), &parsed)
+	var b strings.Builder
+	fmt.Fprintln(&b, "Context mode: compact")
+	fmt.Fprintf(&b, "Target URL: %s\n", firstNonEmpty(parsed.URL, url))
+	if parsed.Title != "" {
+		fmt.Fprintf(&b, "Title: %s\n", parsed.Title)
+	}
+	if parsed.BaseRefOID != "" || parsed.HeadRefOID != "" {
+		fmt.Fprintf(&b, "Base SHA: %s\nHead SHA: %s\n", parsed.BaseRefOID, parsed.HeadRefOID)
+	}
+	if len(parsed.Files) > 0 {
+		fmt.Fprintln(&b, "Changed files:")
+		for _, file := range parsed.Files {
+			fmt.Fprintf(&b, "- %s (+%d/-%d)\n", file.Path, file.Additions, file.Deletions)
+		}
+	}
+	fmt.Fprintln(&b)
+	if diffUnavailable {
+		fmt.Fprintln(&b, "Diff unavailable from GitHub CLI; review must fetch targeted patches if needed.")
+	} else {
+		fmt.Fprintf(&b, "Diff omitted from prompt because collected diff is %d bytes. Review must inspect targeted files/patches before approving.\n", len(diff))
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "PR metadata JSON:")
+	fmt.Fprintln(&b, metadata)
+	return b.String()
+}
+
+func isContextOverflowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, needle := range []string{"context window", "maximum context", "context length", "ran out of room", "too large"} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type prMetadata struct {

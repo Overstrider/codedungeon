@@ -12,6 +12,7 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/projectcontext"
 	"github.com/loldinis/codedungeon/internal/provider"
 )
 
@@ -130,6 +131,24 @@ func RenderObserveReport(root string) (string, error) {
 	review, _ := s.LatestReviewEvidence(run.ID)
 	prPost, _ := s.LatestPRReviewPost(run.ID)
 	verification, _ := s.VerificationRecords(run.ID, "6")
+	planning, _ := s.LatestPlanningSession()
+	executionSessions, _ := s.ExecutionSessions(run.ID)
+	executionAttempts := map[string][]db.ExecutionAttempt{}
+	for _, execSession := range executionSessions {
+		attempts, _ := s.ExecutionAttempts(execSession.ID)
+		executionAttempts[execSession.ID] = attempts
+	}
+	var planningAgents []db.PlanningAgent
+	var planningEvaluations []db.PlanningEvaluation
+	var planningGraphs []db.PlanningTaskGraph
+	if planning != nil && (planning.RunID == 0 || planning.RunID == run.ID) {
+		planningAgents, _ = s.PlanningAgents(planning.ID)
+		planningEvaluations, _ = s.PlanningEvaluations(planning.ID)
+		planningGraphs, _ = s.PlanningTaskGraphs(planning.ID)
+	} else {
+		planning = nil
+	}
+	contextStatus, contextErr := projectcontext.Status(root, projectcontext.NewSQLiteStore(s))
 
 	var b strings.Builder
 	summary := agentTelemetrySummary(agents)
@@ -173,6 +192,62 @@ func RenderObserveReport(root string) (string, error) {
 	} else {
 		for _, p := range phases {
 			fmt.Fprintf(&b, "- Phase %s: %s%s\n", p.Phase, p.Status, noteSuffix(p.Notes))
+		}
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "## Task Planning")
+	if planning == nil {
+		fmt.Fprintln(&b, "- Status: none recorded")
+	} else {
+		fmt.Fprintf(&b, "- Session: %s\n", planning.ID)
+		fmt.Fprintf(&b, "- Status: %s\n", planning.Status)
+		fmt.Fprintf(&b, "- Human gate policy: %s\n", planning.HumanGatePolicy)
+		fmt.Fprintf(&b, "- Output: %s\n", planning.OutputDir)
+		fmt.Fprintf(&b, "- Planning agents: %d\n", len(planningAgents))
+		if len(planningEvaluations) > 0 {
+			last := planningEvaluations[len(planningEvaluations)-1]
+			fmt.Fprintf(&b, "- Evaluator: %s, needs_user_input=%t, score=%.2f\n", last.Verdict, last.NeedsUserInput, last.Score)
+			for _, question := range last.Questions {
+				fmt.Fprintf(&b, "- User question: %s\n", question)
+			}
+		}
+		if len(planningGraphs) > 0 {
+			last := planningGraphs[len(planningGraphs)-1]
+			fmt.Fprintf(&b, "- Task graph: v%d %s\n", last.Version, last.Status)
+		}
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "## Task Execution")
+	if len(executionSessions) == 0 {
+		fmt.Fprintln(&b, "- Status: none recorded")
+	} else {
+		for _, execSession := range executionSessions {
+			fmt.Fprintf(&b, "- Session: %s task %s status %s attempts %d output %s\n",
+				execSession.ID, execSession.TaskID, execSession.Status, execSession.Attempt, execSession.OutputDir)
+			for _, attempt := range executionAttempts[execSession.ID] {
+				files := "-"
+				if len(attempt.ChangedFiles) > 0 {
+					files = strings.Join(attempt.ChangedFiles, ", ")
+				}
+				fmt.Fprintf(&b, "  - Attempt %d: worker=%s verification=%s head=%s..%s files=%s\n",
+					attempt.Attempt, fallback(attempt.WorkerStatus, "-"), fallback(attempt.VerificationStatus, "-"),
+					fallback(attempt.HeadBefore, "-"), fallback(attempt.HeadAfter, "-"), files)
+			}
+		}
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "## Project Context")
+	if contextErr != nil {
+		fmt.Fprintf(&b, "- Status: error - %s\n", contextErr)
+	} else {
+		fmt.Fprintf(&b, "- Status: %s\n", contextStatus.Status)
+		fmt.Fprintf(&b, "- Active version: %d\n", contextStatus.ActiveVersion)
+		fmt.Fprintf(&b, "- Pending proposals: %d\n", contextStatus.PendingProposals)
+		if contextStatus.StaleReason != "" {
+			fmt.Fprintf(&b, "- Stale reason: %s\n", contextStatus.StaleReason)
 		}
 	}
 	fmt.Fprintln(&b)

@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +27,7 @@ func QACmd() *cobra.Command {
 	c.AddCommand(qaDetectFrameworkCmd())
 	c.AddCommand(qaRecordCmd())
 	c.AddCommand(qaRunCmd())
+	c.AddCommand(qaSecretScanCmd())
 	return c
 }
 
@@ -35,13 +38,24 @@ func qaRunCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			phase, _ := c.Flags().GetString("phase")
 			command, _ := c.Flags().GetString("cmd")
+			commandFile, _ := c.Flags().GetString("cmd-file")
 			cwd, _ := c.Flags().GetString("cwd")
 			fresh, _ := c.Flags().GetBool("fresh")
 			if phase == "" {
 				return EmitErr("--phase is required", "")
 			}
+			if command != "" && commandFile != "" {
+				return EmitErr("use either --cmd or --cmd-file, not both", "")
+			}
+			if commandFile != "" {
+				body, err := os.ReadFile(commandFile)
+				if err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				command = strings.TrimSpace(string(body))
+			}
 			if command == "" {
-				return EmitErr("--cmd is required", "")
+				return EmitErr("--cmd or --cmd-file is required", "")
 			}
 			if cwd == "" {
 				cwd = "."
@@ -106,8 +120,44 @@ func qaRunCmd() *cobra.Command {
 	}
 	c.Flags().String("phase", "", "phase number, usually 6")
 	c.Flags().String("cmd", "", "verification command to execute")
+	c.Flags().String("cmd-file", "", "file containing the verification command to execute")
 	c.Flags().String("cwd", ".", "working directory for command")
 	c.Flags().Bool("fresh", false, "supersede existing phase records before recording this verification")
+	return c
+}
+
+type secretFinding struct {
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	Kind     string `json:"kind"`
+	Redacted string `json:"redacted"`
+}
+
+func qaSecretScanCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "secret-scan",
+		Short: "Scan project files for committed secret values",
+		RunE: func(c *cobra.Command, _ []string) error {
+			kind, _ := c.Flags().GetString("kind")
+			trackedOnly, _ := c.Flags().GetBool("tracked-only")
+			root := currentProjectRoot()
+			files, err := secretScanFiles(root, trackedOnly)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			findings, err := scanSecrets(root, files, kind)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if len(findings) > 0 {
+				_ = EmitJSON(map[string]any{"ok": false, "kind": kind, "findings": findings})
+				return fmt.Errorf("secret scan failed: %d finding(s)", len(findings))
+			}
+			return EmitJSON(map[string]any{"ok": true, "kind": kind, "files": len(files), "findings": findings})
+		},
+	}
+	c.Flags().String("kind", "openrouter", "secret family to scan: openrouter")
+	c.Flags().Bool("tracked-only", false, "scan only git-tracked files")
 	return c
 }
 
@@ -175,6 +225,123 @@ func qaRecordCmd() *cobra.Command {
 	c.Flags().String("status", "", "PASS or FAIL")
 	c.Flags().String("log", "", "path to non-empty command log")
 	return c
+}
+
+func secretScanFiles(root string, trackedOnly bool) ([]string, error) {
+	if trackedOnly {
+		out, errb, err := run(root, "git", "ls-files")
+		if err != nil {
+			return nil, fmt.Errorf("git ls-files failed: %s", strings.TrimSpace(errb))
+		}
+		var files []string
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				files = append(files, line)
+			}
+		}
+		sort.Strings(files)
+		return files, nil
+	}
+	var files []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := entry.Name()
+		if entry.IsDir() {
+			if shouldSkipSecretScanDir(name) && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, rel)
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
+}
+
+func scanSecrets(root string, files []string, kind string) ([]secretFinding, error) {
+	if strings.TrimSpace(kind) == "" {
+		kind = "openrouter"
+	}
+	if kind != "openrouter" {
+		return nil, fmt.Errorf("unsupported secret scan kind %q", kind)
+	}
+	var findings []secretFinding
+	for _, rel := range files {
+		path := filepath.Join(root, rel)
+		body, err := os.ReadFile(path)
+		if err != nil || looksBinary(body) {
+			continue
+		}
+		scanner := bufio.NewScanner(strings.NewReader(string(body)))
+		lineNo := 0
+		for scanner.Scan() {
+			lineNo++
+			if token := findOpenRouterSecret(scanner.Text()); token != "" {
+				findings = append(findings, secretFinding{
+					Path:     filepath.ToSlash(rel),
+					Line:     lineNo,
+					Kind:     "openrouter",
+					Redacted: redactSecret(token),
+				})
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return findings, nil
+}
+
+var (
+	openRouterAssignmentRE = regexp.MustCompile(`(?i)\bOPENROUTER_API_KEY\b\s*=\s*["']?((?:sk-or-v1-|or-v1-|sk-)[A-Za-z0-9_-]{8,})`)
+	openRouterTokenRE      = regexp.MustCompile(`\b(sk-or-v1-[A-Za-z0-9_-]{8,})\b`)
+)
+
+func findOpenRouterSecret(line string) string {
+	if match := openRouterAssignmentRE.FindStringSubmatch(line); len(match) == 2 {
+		return match[1]
+	}
+	if match := openRouterTokenRE.FindStringSubmatch(line); len(match) == 2 {
+		return match[1]
+	}
+	return ""
+}
+
+func redactSecret(secret string) string {
+	secret = strings.TrimSpace(secret)
+	if len(secret) <= 8 {
+		return "****"
+	}
+	return secret[:6] + "..." + secret[len(secret)-4:]
+}
+
+func looksBinary(body []byte) bool {
+	if len(body) > 2*1024*1024 {
+		return true
+	}
+	for _, b := range body {
+		if b == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldSkipSecretScanDir(name string) bool {
+	switch name {
+	case ".git", ".codedungeon", "node_modules", "target", "dist", "build", ".next", "coverage", ".cache":
+		return true
+	default:
+		return false
+	}
 }
 
 // APISpec is the JSON input for `qa validate-api`.

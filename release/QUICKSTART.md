@@ -101,11 +101,15 @@ codedungeon-codex prompts list
 codedungeon-codex migrate
 codedungeon-codex rules status
 codedungeon-codex rules lint
+codedungeon-codex execute task --task task.json --project-context .codedungeon/project-context.md
+codedungeon-codex execute status --session <execution-session-id>
 codedungeon-codex trace agent-start --phase 5 --role dev-worker
 codedungeon-codex observe report
 codedungeon-codex hooks install --provider codex --mode warn
 ```
 
 The same command surface exists through `codedungeon-claude`.
+
+`execute task` is the standalone one-task Implementation Executor/Ralphloop. It persists sessions under `.codedungeon/execute/sessions/`, resumes only with explicit `--resume <id>`, expires sessions after 24 hours by default, and can auto-commit after verification passes. Auto-push and incremental semver tagging are opt-in through `.ralphrc` or `CODEDUNGEON_EXEC_*`.
 
 Existing projects should run `codedungeon-<provider> migrate` after upgrading the binary. See `docs/MIGRATING.md` for the safe migration flow.

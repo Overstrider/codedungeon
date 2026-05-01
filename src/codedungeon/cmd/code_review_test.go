@@ -114,6 +114,39 @@ func TestPostStandaloneReviewFallsBackToCommentWhenRequestChangesReviewIsRejecte
 	}
 }
 
+func TestCollectTargetContextAutoCompactsLargeDiff(t *testing.T) {
+	oldRun := codeReviewRun
+	t.Cleanup(func() { codeReviewRun = oldRun })
+	codeReviewRun = func(_ string, args ...string) (string, string, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "pr view"):
+			return `{"title":"Large PR","url":"https://github.com/acme/example/pull/123","baseRefOid":"aaaaaaaa","headRefOid":"bbbbbbbb","files":[{"path":"src/app.go","additions":120,"deletions":8}]}`, "", nil
+		case strings.Contains(joined, "pr diff"):
+			return strings.Repeat("diff --git a/src/app.go b/src/app.go\n+very large change body\n", 200), "", nil
+		default:
+			t.Fatalf("unexpected gh command: %v", args)
+			return "", "", nil
+		}
+	}
+
+	ctx, info := collectTargetContextWithOptions("https://github.com/acme/example/pull/123", targetContextOptions{
+		Mode:     "auto",
+		MaxBytes: 256,
+	})
+	if info.Mode != "compact" {
+		t.Fatalf("mode = %q, want compact", info.Mode)
+	}
+	for _, want := range []string{"Context mode: compact", "Large PR", "src/app.go", "Diff omitted"} {
+		if !strings.Contains(ctx, want) {
+			t.Fatalf("compact context missing %q:\n%s", want, ctx)
+		}
+	}
+	if strings.Contains(ctx, "very large change body") {
+		t.Fatalf("compact context leaked full diff:\n%s", ctx)
+	}
+}
+
 func writeStandaloneReviewResultFixture(t *testing.T, dir string) codereview.Result {
 	t.Helper()
 	inputDir := filepath.Join(t.TempDir(), "input")

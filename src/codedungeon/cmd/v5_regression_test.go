@@ -432,6 +432,60 @@ func TestRunFinalizeAbortsOpenSessionAgentsOnFailure(t *testing.T) {
 	}
 }
 
+func TestRunFinalizeDryRunReportsBlockersWithoutMutatingAgents(t *testing.T) {
+	root := setupGatedRun(t)
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "full",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StartAgentRun(db.AgentRun{
+		RunID:     run.ID,
+		SessionID: "session-1",
+		Phase:     "5",
+		Role:      "reviewer",
+		AgentType: "cd_review_spec",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	t.Setenv(envSessionID, "session-1")
+	t.Setenv(envSessionToken, "secret")
+
+	finalize := RunCmd()
+	finalize.SetArgs([]string{"finalize", "--dry-run"})
+	if err := finalize.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s = openTestStore(t, root)
+	defer s.Close()
+	agents, err := s.AgentRuns(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Status != "RUNNING" {
+		t.Fatalf("dry-run finalized or aborted agents: %+v", agents)
+	}
+	sess, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess == nil || sess.Status != "RUNNING" {
+		t.Fatalf("dry-run changed custody session: %+v", sess)
+	}
+}
+
 func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	root := setupGatedRun(t)
 	s := openTestStore(t, root)
