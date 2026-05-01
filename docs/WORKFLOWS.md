@@ -72,7 +72,7 @@ Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe tas
 
 CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI. Any workflow that writes code must fail before editing if `git remote get-url origin` or `gh auth status` fails. There is no local-only completion path. A code-writing workflow succeeds only when:
 
-1. Final build/check/test verification starts with `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; subsequent checks run with `codedungeon qa run --phase 6 --cmd "<cmd>"`.
+1. Final build/check/test verification is produced by the QA module. Agents may run explicit checks with `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"` and subsequent `codedungeon qa run --phase 6 --cmd "<cmd>"`; `codedungeon run finalize` also invokes `codedungeon qa run --auto` behavior automatically when the active Phase 6 ledger is missing or failing.
 2. The branch is pushed.
 3. A GitHub PR exists or is reused.
 4. Adversarial review personas write outputs such as `findings-saboteur.json`, `review-manifest.json` records personas/base/head/PR/timestamp, and `codedungeon review run` generates `review.md` and `review.json`.
@@ -82,7 +82,7 @@ CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI.
 
 If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, never `READY_FOR_USER_REVIEW`.
 
-Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon review run`, `codedungeon review post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
+Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon review run`, `codedungeon review post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. QA evidence is session-scoped under `.codedungeon/qa/sessions/<qa-session-id>/` with request/result JSON, preflight data, logs, checks, findings, and summaries. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
 
 ## Agent Telemetry
 
@@ -183,8 +183,20 @@ Use `one-shot` instead when task splitting would be overhead.
 
 It stores phase state, plans, handoffs, tasks, reviews, and reports in `.codedungeon/` so interrupted work can resume and past PR work remains inspectable.
 
-Phase 5 requires approved review evidence and a pushed GitHub PR branch. Phase 6 requires a passing active verification ledger produced by `codedungeon qa run`, with final QA started by `--fresh` when replacing earlier failures. Phase 7 is closed by `codedungeon run finalize` after prior phases, review evidence, recorded PR review-post evidence, verification ledger, `codedungeon git verify`, and report rendering all pass. `codedungeon git verify` rejects arbitrary marker comments and merged PRs.
+Phase 5 requires approved review evidence and a pushed GitHub PR branch. Phase 6 requires a passing active verification ledger produced by `codedungeon qa run`; when `codedungeon run finalize` finds the ledger missing or failing, it runs workflow QA automatically in `auto` mode and writes the Phase 6 evidence itself. Explicit reruns can still use `--fresh` to supersede earlier records. Phase 7 is closed by `codedungeon run finalize` after prior phases, review evidence, recorded PR review-post evidence, verification ledger, `codedungeon git verify`, and report rendering all pass. `codedungeon git verify` rejects arbitrary marker comments and merged PRs.
 
 `codedungeon qa detect-framework --path .` detects single projects and common monorepos. For monorepos it returns `framework: monorepo` with component commands in `components` and `run_cmds`.
+
+Standalone QA commands:
+
+```text
+codedungeon qa run --auto
+codedungeon qa run --cmd "go test ./..."
+codedungeon qa preflight --mode e2e
+codedungeon qa status --latest
+codedungeon qa report --latest
+```
+
+Playwright is treated as an external dependency. If E2E mode requires it and the project lacks Playwright, QA returns `BLOCKED` with an install hint instead of reporting a code failure.
 
 Use `side-quest` or `one-shot` instead when the work does not need the full architecture, QA, test decomposition, and final-report lifecycle.

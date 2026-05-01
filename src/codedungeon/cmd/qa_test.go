@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,4 +116,85 @@ func TestQARunReadsCommandFromFile(t *testing.T) {
 	if strings.TrimSpace(records[0].Command) != "echo qa-cmd-file-ok" || records[0].Status != "PASS" {
 		t.Fatalf("unexpected record: %+v", records[0])
 	}
+}
+
+func TestQARunStandaloneAutoDoesNotRequireActiveRun(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/qa\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "smoke_test.go"), "package qa\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"run", "--auto"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("standalone qa run should not require active run: %v", err)
+	}
+
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	session := latestQASessionByStatus(t, store.DB, "PASS")
+	if session == "" {
+		t.Fatal("qa session was not persisted")
+	}
+}
+
+func TestQAPreflightE2EReportsMissingPlaywrightAsBlocked(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"preflight", "--mode", "e2e"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("preflight should report blocked without failing cobra execution: %v", err)
+	}
+
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	session := latestQASessionByStatus(t, store.DB, "BLOCKED")
+	if session == "" {
+		t.Fatal("blocked qa session was not persisted")
+	}
+	var name, status string
+	var required int
+	if err := store.DB.QueryRow(`SELECT name, status, required FROM qa_dependencies WHERE session_id=?`, session).Scan(&name, &status, &required); err != nil {
+		t.Fatal(err)
+	}
+	if name != "playwright" || status != "missing" || required != 1 {
+		t.Fatalf("dependency = %s %s required=%d, want playwright missing required=1", name, status, required)
+	}
+}
+
+func latestQASessionByStatus(t *testing.T, database *sql.DB, status string) string {
+	t.Helper()
+	var id string
+	err := database.QueryRow(`SELECT id FROM qa_sessions WHERE status=? ORDER BY started_at DESC LIMIT 1`, status).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ""
+		}
+		t.Fatal(err)
+	}
+	return id
 }

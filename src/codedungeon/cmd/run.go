@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -20,6 +21,7 @@ import (
 	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/projectcontext"
 	"github.com/loldinis/codedungeon/internal/provider"
+	qamod "github.com/loldinis/codedungeon/internal/qa"
 )
 
 func RunCmd() *cobra.Command {
@@ -556,6 +558,9 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 	if run == nil {
 		return "", fmt.Errorf("no active run")
 	}
+	if err := ensureWorkflowQA(root, s, run); err != nil {
+		return "", err
+	}
 	plan, err := prepareFinalization(root, s, run, sessionID, token, excludeAgentID)
 	if err != nil {
 		return "", err
@@ -564,6 +569,32 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 		return "", err
 	}
 	return plan.report, nil
+}
+
+func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		return err
+	}
+	if err := validateVerificationRecords(records); err == nil {
+		return nil
+	}
+	result, err := qamod.Run(context.Background(), qamod.Request{
+		Root:       root,
+		RunID:      run.ID,
+		Entrypoint: qamod.EntrypointWorkflow,
+		Mode:       qamod.ModeAuto,
+		Phase:      "6",
+		Fresh:      true,
+		Store:      s,
+	})
+	if err != nil {
+		return fmt.Errorf("workflow-qa: %w", err)
+	}
+	if result.Status != qamod.StatusPass {
+		return fmt.Errorf("workflow-qa: %s (%s)", result.Status, result.SummaryPath)
+	}
+	return nil
 }
 
 func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token string, excludeAgentID int64) (*finalizationPlan, error) {

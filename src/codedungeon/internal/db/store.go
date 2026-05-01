@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "14"
+const SchemaVersion = "15"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -1653,6 +1653,242 @@ func (s *Store) ExecutionAttempts(sessionID string) ([]ExecutionAttempt, error) 
 		}
 		_ = json.Unmarshal([]byte(changed), &a.ChangedFiles)
 		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ===== QA sessions =====
+
+type QASession struct {
+	ID             string `json:"id"`
+	RunID          int64  `json:"run_id,omitempty"`
+	ExecutionID    string `json:"execution_id,omitempty"`
+	Entrypoint     string `json:"entrypoint"`
+	Mode           string `json:"mode"`
+	Status         string `json:"status"`
+	Root           string `json:"root"`
+	PlanPath       string `json:"plan_path,omitempty"`
+	EvidenceDir    string `json:"evidence_dir"`
+	StartedAt      int64  `json:"started_at"`
+	UpdatedAt      int64  `json:"updated_at"`
+	FinishedAt     int64  `json:"finished_at,omitempty"`
+	FailureMessage string `json:"failure_message,omitempty"`
+}
+
+func (s *Store) UpsertQASession(q QASession) error {
+	now := time.Now().Unix()
+	if q.StartedAt == 0 {
+		q.StartedAt = now
+	}
+	if q.UpdatedAt == 0 {
+		q.UpdatedAt = now
+	}
+	_, err := s.DB.Exec(`
+        INSERT INTO qa_sessions
+          (id, run_id, execution_id, entrypoint, mode, status, root, plan_path, evidence_dir,
+           started_at, updated_at, finished_at, failure_message)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          run_id=excluded.run_id,
+          execution_id=excluded.execution_id,
+          entrypoint=excluded.entrypoint,
+          mode=excluded.mode,
+          status=excluded.status,
+          root=excluded.root,
+          plan_path=excluded.plan_path,
+          evidence_dir=excluded.evidence_dir,
+          updated_at=excluded.updated_at,
+          finished_at=excluded.finished_at,
+          failure_message=excluded.failure_message`,
+		q.ID, nullInt(q.RunID), nullStr(q.ExecutionID), q.Entrypoint, q.Mode, q.Status, q.Root,
+		nullStr(q.PlanPath), q.EvidenceDir, q.StartedAt, q.UpdatedAt, nullInt(q.FinishedAt), nullStr(q.FailureMessage))
+	return err
+}
+
+func (s *Store) QASession(id string) (*QASession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, COALESCE(run_id,0), COALESCE(execution_id,''), entrypoint, mode, status,
+               root, COALESCE(plan_path,''), evidence_dir, started_at, updated_at,
+               COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM qa_sessions WHERE id=?`, id)
+	return scanQASession(row)
+}
+
+func (s *Store) LatestQASession(runID int64) (*QASession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, COALESCE(run_id,0), COALESCE(execution_id,''), entrypoint, mode, status,
+               root, COALESCE(plan_path,''), evidence_dir, started_at, updated_at,
+               COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM qa_sessions WHERE run_id=? ORDER BY started_at DESC, rowid DESC LIMIT 1`, runID)
+	return scanQASession(row)
+}
+
+func (s *Store) LatestAnyQASession() (*QASession, error) {
+	row := s.DB.QueryRow(`
+        SELECT id, COALESCE(run_id,0), COALESCE(execution_id,''), entrypoint, mode, status,
+               root, COALESCE(plan_path,''), evidence_dir, started_at, updated_at,
+               COALESCE(finished_at,0), COALESCE(failure_message,'')
+        FROM qa_sessions ORDER BY started_at DESC, rowid DESC LIMIT 1`)
+	return scanQASession(row)
+}
+
+func scanQASession(row *sql.Row) (*QASession, error) {
+	var q QASession
+	if err := row.Scan(&q.ID, &q.RunID, &q.ExecutionID, &q.Entrypoint, &q.Mode, &q.Status, &q.Root,
+		&q.PlanPath, &q.EvidenceDir, &q.StartedAt, &q.UpdatedAt, &q.FinishedAt, &q.FailureMessage); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &q, nil
+}
+
+type QACheck struct {
+	ID         string   `json:"id"`
+	SessionID  string   `json:"session_id"`
+	Kind       string   `json:"kind"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	Command    string   `json:"command,omitempty"`
+	CWD        string   `json:"cwd,omitempty"`
+	ExitCode   int      `json:"exit_code,omitempty"`
+	DurationMs int64    `json:"duration_ms,omitempty"`
+	LogPath    string   `json:"log_path,omitempty"`
+	ReportPath string   `json:"report_path,omitempty"`
+	Artifacts  []string `json:"artifacts,omitempty"`
+	StartedAt  int64    `json:"started_at"`
+	FinishedAt int64    `json:"finished_at,omitempty"`
+}
+
+func (s *Store) InsertQACheck(c QACheck) error {
+	now := time.Now().Unix()
+	if c.StartedAt == 0 {
+		c.StartedAt = now
+	}
+	if c.FinishedAt == 0 {
+		c.FinishedAt = now
+	}
+	artifacts, _ := json.Marshal(c.Artifacts)
+	_, err := s.DB.Exec(`
+        INSERT INTO qa_checks
+          (id, session_id, kind, name, status, command, cwd, exit_code, duration_ms,
+           log_path, report_path, artifacts_json, started_at, finished_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.SessionID, c.Kind, c.Name, c.Status, nullStr(c.Command), nullStr(c.CWD),
+		c.ExitCode, c.DurationMs, nullStr(c.LogPath), nullStr(c.ReportPath), string(artifacts),
+		c.StartedAt, nullInt(c.FinishedAt))
+	return err
+}
+
+func (s *Store) QAChecks(sessionID string) ([]QACheck, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, session_id, kind, name, status, COALESCE(command,''), COALESCE(cwd,''),
+               COALESCE(exit_code,0), COALESCE(duration_ms,0), COALESCE(log_path,''),
+               COALESCE(report_path,''), COALESCE(artifacts_json,'[]'), started_at,
+               COALESCE(finished_at,0)
+        FROM qa_checks WHERE session_id=? ORDER BY started_at, rowid`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []QACheck
+	for rows.Next() {
+		var c QACheck
+		var artifacts string
+		if err := rows.Scan(&c.ID, &c.SessionID, &c.Kind, &c.Name, &c.Status, &c.Command, &c.CWD,
+			&c.ExitCode, &c.DurationMs, &c.LogPath, &c.ReportPath, &artifacts, &c.StartedAt, &c.FinishedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(artifacts), &c.Artifacts)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+type QADependency struct {
+	ID          string `json:"id"`
+	SessionID   string `json:"session_id"`
+	Name        string `json:"name"`
+	Required    bool   `json:"required"`
+	Status      string `json:"status"`
+	Version     string `json:"version,omitempty"`
+	InstallHint string `json:"install_hint,omitempty"`
+	Detail      string `json:"detail,omitempty"`
+}
+
+func (s *Store) InsertQADependency(d QADependency) error {
+	_, err := s.DB.Exec(`
+        INSERT INTO qa_dependencies(id, session_id, name, required, status, version, install_hint, detail)
+        VALUES (?,?,?,?,?,?,?,?)`,
+		d.ID, d.SessionID, d.Name, boolInt(d.Required), d.Status, nullStr(d.Version), nullStr(d.InstallHint), nullStr(d.Detail))
+	return err
+}
+
+func (s *Store) QADependencies(sessionID string) ([]QADependency, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, session_id, name, required, status, COALESCE(version,''),
+               COALESCE(install_hint,''), COALESCE(detail,'')
+        FROM qa_dependencies WHERE session_id=? ORDER BY rowid`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []QADependency
+	for rows.Next() {
+		var d QADependency
+		var required int
+		if err := rows.Scan(&d.ID, &d.SessionID, &d.Name, &required, &d.Status, &d.Version, &d.InstallHint, &d.Detail); err != nil {
+			return nil, err
+		}
+		d.Required = required == 1
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+type QAFinding struct {
+	ID           string `json:"id"`
+	SessionID    string `json:"session_id"`
+	Severity     string `json:"severity"`
+	Category     string `json:"category"`
+	Title        string `json:"title"`
+	Detail       string `json:"detail,omitempty"`
+	EvidencePath string `json:"evidence_path,omitempty"`
+	FixTaskPath  string `json:"fix_task_path,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+func (s *Store) InsertQAFinding(f QAFinding) error {
+	if f.CreatedAt == 0 {
+		f.CreatedAt = time.Now().Unix()
+	}
+	_, err := s.DB.Exec(`
+        INSERT INTO qa_findings
+          (id, session_id, severity, category, title, detail, evidence_path, fix_task_path, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)`,
+		f.ID, f.SessionID, f.Severity, f.Category, f.Title, nullStr(f.Detail),
+		nullStr(f.EvidencePath), nullStr(f.FixTaskPath), f.CreatedAt)
+	return err
+}
+
+func (s *Store) QAFindings(sessionID string) ([]QAFinding, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, session_id, severity, category, title, COALESCE(detail,''),
+               COALESCE(evidence_path,''), COALESCE(fix_task_path,''), created_at
+        FROM qa_findings WHERE session_id=? ORDER BY created_at, rowid`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []QAFinding
+	for rows.Next() {
+		var f QAFinding
+		if err := rows.Scan(&f.ID, &f.SessionID, &f.Severity, &f.Category, &f.Title, &f.Detail,
+			&f.EvidencePath, &f.FixTaskPath, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
 	}
 	return out, rows.Err()
 }

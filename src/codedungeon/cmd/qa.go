@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,12 +20,16 @@ import (
 	"github.com/loldinis/codedungeon/internal/manifest"
 	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/provider"
+	qamod "github.com/loldinis/codedungeon/internal/qa"
 )
 
 func QACmd() *cobra.Command {
 	c := &cobra.Command{Use: "qa", Short: "QA test helpers (API validation, framework detect)"}
 	c.AddCommand(qaValidateAPICmd())
 	c.AddCommand(qaDetectFrameworkCmd())
+	c.AddCommand(qaPreflightCmd())
+	c.AddCommand(qaStatusCmd())
+	c.AddCommand(qaReportCmd())
 	c.AddCommand(qaRecordCmd())
 	c.AddCommand(qaRunCmd())
 	c.AddCommand(qaSecretScanCmd())
@@ -41,9 +46,11 @@ func qaRunCmd() *cobra.Command {
 			commandFile, _ := c.Flags().GetString("cmd-file")
 			cwd, _ := c.Flags().GetString("cwd")
 			fresh, _ := c.Flags().GetBool("fresh")
-			if phase == "" {
-				return EmitErr("--phase is required", "")
-			}
+			auto, _ := c.Flags().GetBool("auto")
+			modeFlag, _ := c.Flags().GetString("mode")
+			root, _ := c.Flags().GetString("root")
+			timeoutSeconds, _ := c.Flags().GetInt("timeout")
+			dependencyMode, _ := c.Flags().GetString("dependency-mode")
 			if command != "" && commandFile != "" {
 				return EmitErr("use either --cmd or --cmd-file, not both", "")
 			}
@@ -54,13 +61,16 @@ func qaRunCmd() *cobra.Command {
 				}
 				command = strings.TrimSpace(string(body))
 			}
-			if command == "" {
-				return EmitErr("--cmd or --cmd-file is required", "")
+			if phase == "" {
+				phase = "6"
 			}
 			if cwd == "" {
 				cwd = "."
 			}
-			s, err := OpenDB(c)
+			if root == "" {
+				root = currentProjectRoot()
+			}
+			s, err := openQAStore(c, root)
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
@@ -69,61 +79,231 @@ func qaRunCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			if run == nil {
-				return EmitErr("no active run", "run `codedungeon phase init` first")
-			}
-			if err := requireAutonomousCustody(s, run.ID, "qa run"); err != nil {
-				return err
-			}
-			if fresh {
-				if err := s.SupersedeVerificationRecords(run.ID, phase); err != nil {
+			runID := int64(0)
+			if run != nil {
+				runID = run.ID
+				if sess, err := s.ActiveRunSession(run.ID); err != nil {
 					return EmitErr(err.Error(), "")
+				} else if sess != nil {
+					if err := requireAutonomousCustody(s, run.ID, "qa run"); err != nil {
+						return err
+					}
 				}
 			}
-
-			ad := osadapter.Detect()
-			stdout, stderr, execErr := ad.RunShell(cwd, command)
-			status := "PASS"
-			if execErr != nil {
-				status = "FAIL"
+			mode := parseQAMode(modeFlag)
+			if auto {
+				mode = qamod.ModeAuto
 			}
-			logDir := projectPath(currentProjectRoot(), filepath.Join(provider.Detect().StateDir(), "qa-logs"))
-			if err := os.MkdirAll(logDir, 0o755); err != nil {
-				return EmitErr(err.Error(), "")
+			if mode == "" {
+				mode = qamod.ModeVerify
 			}
-			logPath := filepath.Join(logDir, fmt.Sprintf("phase-%s-%d.log", phaseLabel(phase), time.Now().UnixNano()))
-			body := fmt.Sprintf("$ %s\n\n[stdout]\n%s\n\n[stderr]\n%s\n", command, stdout, stderr)
-			if execErr != nil {
-				body += fmt.Sprintf("\n[error]\n%v\n", execErr)
+			var commands []qamod.CommandSpec
+			if command != "" {
+				commands = []qamod.CommandSpec{{
+					ID:             "command",
+					Kind:           qamod.CheckCommand,
+					Name:           "Verification command",
+					Command:        command,
+					CWD:            cwd,
+					Required:       true,
+					TimeoutSeconds: timeoutSeconds,
+				}}
+			} else if !auto && modeFlag == "" {
+				return EmitErr("--cmd, --cmd-file, --auto, or --mode is required", "")
 			}
-			if err := os.WriteFile(logPath, []byte(body), 0o644); err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			id, err := s.InsertVerificationRecord(db.VerificationRecord{
-				RunID:   run.ID,
-				Phase:   phase,
-				Command: command,
-				Status:  status,
-				LogPath: logPath,
+			result, err := qamod.Run(context.Background(), qamod.Request{
+				Root:           root,
+				RunID:          runID,
+				Entrypoint:     qamod.EntrypointStandalone,
+				Mode:           mode,
+				Phase:          phase,
+				Commands:       commands,
+				Fresh:          fresh,
+				TimeoutSeconds: timeoutSeconds,
+				DependencyMode: qamod.DependencyMode(dependencyMode),
+				Store:          s,
 			})
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			if emitErr := EmitJSON(map[string]any{"ok": execErr == nil, "id": id, "phase": phase, "status": status, "log": logPath}); emitErr != nil {
-				return emitErr
+			if err := EmitJSON(map[string]any{"ok": result.Status == qamod.StatusPass, "phase": phase, "status": result.Status, "session_id": result.SessionID, "evidence_dir": result.EvidenceDir, "result": result}); err != nil {
+				return err
 			}
-			if execErr != nil {
-				return fmt.Errorf("verification command failed: %s", command)
+			if result.Status == qamod.StatusFail {
+				return fmt.Errorf("qa failed")
+			}
+			if result.Status == qamod.StatusBlocked {
+				return fmt.Errorf("qa blocked")
 			}
 			return nil
 		},
 	}
-	c.Flags().String("phase", "", "phase number, usually 6")
+	c.Flags().String("phase", "6", "phase number, usually 6")
 	c.Flags().String("cmd", "", "verification command to execute")
 	c.Flags().String("cmd-file", "", "file containing the verification command to execute")
 	c.Flags().String("cwd", ".", "working directory for command")
+	c.Flags().String("root", "", "project root")
+	c.Flags().Bool("auto", false, "detect framework and run the default verification command")
+	c.Flags().String("mode", "", "qa mode: auto, verify, unit, integration, api, e2e, full")
+	c.Flags().Int("timeout", 0, "command timeout in seconds")
+	c.Flags().String("dependency-mode", string(qamod.DependencyStrict), "dependency handling: strict, best-effort, report-only")
 	c.Flags().Bool("fresh", false, "supersede existing phase records before recording this verification")
 	return c
+}
+
+func qaPreflightCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "preflight",
+		Short: "Run QA dependency and framework preflight",
+		RunE: func(c *cobra.Command, _ []string) error {
+			root, _ := c.Flags().GetString("root")
+			modeFlag, _ := c.Flags().GetString("mode")
+			if root == "" {
+				root = currentProjectRoot()
+			}
+			s, err := openQAStore(c, root)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			runID := int64(0)
+			if run, err := s.CurrentRun(); err == nil && run != nil {
+				runID = run.ID
+			}
+			result, err := qamod.Run(c.Context(), qamod.Request{
+				Root:       root,
+				RunID:      runID,
+				Entrypoint: qamod.EntrypointStandalone,
+				Mode:       parseQAMode(firstNonEmptyString(modeFlag, string(qamod.ModeAuto))),
+				Phase:      "6",
+				Store:      s,
+			})
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": result.Status == qamod.StatusPass, "status": result.Status, "session_id": result.SessionID, "dependencies": result.Dependencies, "evidence_dir": result.EvidenceDir})
+		},
+	}
+	c.Flags().String("root", "", "project root")
+	c.Flags().String("mode", string(qamod.ModeAuto), "qa mode: auto, verify, unit, integration, api, e2e, full")
+	return c
+}
+
+func qaStatusCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "status",
+		Short: "Show QA session status",
+		RunE: func(c *cobra.Command, _ []string) error {
+			sessionID, _ := c.Flags().GetString("session")
+			latest, _ := c.Flags().GetBool("latest")
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			var session *db.QASession
+			if sessionID != "" {
+				session, err = s.QASession(sessionID)
+			} else if latest {
+				session, err = s.LatestAnyQASession()
+			} else {
+				return EmitErr("--session or --latest is required", "")
+			}
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if session == nil {
+				return EmitErr("qa session not found", "")
+			}
+			checks, _ := s.QAChecks(session.ID)
+			deps, _ := s.QADependencies(session.ID)
+			findings, _ := s.QAFindings(session.ID)
+			return EmitJSON(map[string]any{"ok": true, "session": session, "checks": checks, "dependencies": deps, "findings": findings})
+		},
+	}
+	c.Flags().String("session", "", "qa session id")
+	c.Flags().Bool("latest", false, "show latest qa session")
+	return c
+}
+
+func qaReportCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "report",
+		Short: "Show QA session evidence report",
+		RunE: func(c *cobra.Command, _ []string) error {
+			sessionID, _ := c.Flags().GetString("session")
+			latest, _ := c.Flags().GetBool("latest")
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			var session *db.QASession
+			if sessionID != "" {
+				session, err = s.QASession(sessionID)
+			} else if latest {
+				session, err = s.LatestAnyQASession()
+			} else {
+				return EmitErr("--session or --latest is required", "")
+			}
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if session == nil {
+				return EmitErr("qa session not found", "")
+			}
+			summaryPath := filepath.Join(session.EvidenceDir, "summary.md")
+			body, readErr := os.ReadFile(summaryPath)
+			if readErr != nil {
+				return EmitErr(readErr.Error(), "")
+			}
+			fmt.Print(string(body))
+			return nil
+		},
+	}
+	c.Flags().String("session", "", "qa session id")
+	c.Flags().Bool("latest", false, "show latest qa session")
+	return c
+}
+
+func openQAStore(_ *cobra.Command, root string) (*db.Store, error) {
+	if strings.TrimSpace(root) == "" {
+		root = currentProjectRoot()
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	store, err := db.Open(filepath.Join(abs, provider.Detect().DBPath()))
+	if err != nil {
+		return nil, err
+	}
+	if err := store.Init(); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+func parseQAMode(value string) qamod.Mode {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return qamod.ModeAuto
+	case "verify":
+		return qamod.ModeVerify
+	case "unit":
+		return qamod.ModeUnit
+	case "integration":
+		return qamod.ModeIntegration
+	case "api":
+		return qamod.ModeAPI
+	case "e2e":
+		return qamod.ModeE2E
+	case "full":
+		return qamod.ModeFull
+	default:
+		return qamod.Mode(value)
+	}
 }
 
 type secretFinding struct {
@@ -625,9 +805,7 @@ func qaDetectFrameworkCmd() *cobra.Command {
 			if path == "" {
 				path = "."
 			}
-			result := detectProjectTestFramework(path)
-			result.OK = true
-			result.Path = path
+			result := qamod.DetectFramework(path)
 			return EmitJSON(result)
 		},
 	}
