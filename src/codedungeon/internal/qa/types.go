@@ -73,6 +73,7 @@ type Request struct {
 	DependencyMode DependencyMode `json:"dependency_mode,omitempty"`
 	OutputDir      string         `json:"output_dir,omitempty"`
 	Fresh          bool           `json:"fresh,omitempty"`
+	PreflightOnly  bool           `json:"preflight_only,omitempty"`
 	TimeoutSeconds int            `json:"timeout_seconds,omitempty"`
 	Store          *db.Store      `json:"-"`
 }

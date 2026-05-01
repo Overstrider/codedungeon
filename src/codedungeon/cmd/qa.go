@@ -171,12 +171,13 @@ func qaPreflightCmd() *cobra.Command {
 				runID = run.ID
 			}
 			result, err := qamod.Run(c.Context(), qamod.Request{
-				Root:       root,
-				RunID:      runID,
-				Entrypoint: qamod.EntrypointStandalone,
-				Mode:       parseQAMode(firstNonEmptyString(modeFlag, string(qamod.ModeAuto))),
-				Phase:      "6",
-				Store:      s,
+				Root:          root,
+				RunID:         runID,
+				Entrypoint:    qamod.EntrypointStandalone,
+				Mode:          parseQAMode(firstNonEmptyString(modeFlag, string(qamod.ModeAuto))),
+				Phase:         "6",
+				PreflightOnly: true,
+				Store:         s,
 			})
 			if err != nil {
 				return EmitErr(err.Error(), "")

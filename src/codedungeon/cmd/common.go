@@ -160,11 +160,12 @@ func OpenDB(c *cobra.Command) (*db.Store, error) {
 }
 
 // skipAutoMigrate lists cobra Use-names that must run without the version gate.
-// (bootstrap, migrate, install, version, status — anything that can heal drift.)
+// (bootstrap, migrate, install, version, status/report — anything read-only or that can heal drift.)
 var skipAutoMigrate = map[string]bool{
 	"bootstrap": true,
 	"migrate":   true,
 	"install":   true,
+	"report":    true,
 	"status":    true,
 	"version":   true,
 	"setup":     true,

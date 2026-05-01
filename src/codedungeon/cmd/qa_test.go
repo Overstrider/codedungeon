@@ -186,6 +186,57 @@ func TestQAPreflightE2EReportsMissingPlaywrightAsBlocked(t *testing.T) {
 	}
 }
 
+func TestQAReportBypassesVersionGateForReadOnlyEvidence(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion := versionOverride
+	versionOverride = "dev"
+	t.Cleanup(func() { versionOverride = oldVersion })
+
+	evidenceDir := filepath.Join(root, ".codedungeon", "qa", "sessions", "qa-report")
+	writeFile(t, filepath.Join(evidenceDir, "summary.md"), "# QA Session qa-report\n\nStatus: PASS\n")
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMeta("cd_version", "v2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertQASession(db.QASession{
+		ID:          "qa-report",
+		Entrypoint:  "standalone",
+		Mode:        "e2e",
+		Status:      "PASS",
+		Root:        root,
+		EvidenceDir: evidenceDir,
+		StartedAt:   1,
+		UpdatedAt:   1,
+		FinishedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"report", "--latest"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("qa report should read evidence despite cd_version drift: %v", err)
+	}
+}
+
 func latestQASessionByStatus(t *testing.T, database *sql.DB, status string) string {
 	t.Helper()
 	var id string

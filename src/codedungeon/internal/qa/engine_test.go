@@ -2,8 +2,10 @@ package qa
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -81,6 +83,67 @@ func TestEngineClassifiesMissingPlaywrightAsBlockedForE2E(t *testing.T) {
 	}
 }
 
+func TestEngineE2EModeUsesPlaywrightComponentInMonorepo(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "backend", "Cargo.toml"), "[package]\nname = \"api\"\nversion = \"0.1.0\"\n")
+	mustWrite(t, filepath.Join(root, "frontend", "package.json"), `{"devDependencies":{"@playwright/test":"latest","next":"latest"}}`)
+	mustWrite(t, filepath.Join(root, "frontend", "playwright.config.ts"), "export default {}\n")
+	prependFakeNpx(t)
+
+	result, err := Run(context.Background(), Request{
+		Root:       root,
+		Entrypoint: EntrypointStandalone,
+		Mode:       ModeE2E,
+		Phase:      "6",
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if result.Status != StatusPass {
+		t.Fatalf("status = %s, want %s: %+v", result.Status, StatusPass, result)
+	}
+	if len(result.Dependencies) != 1 || result.Dependencies[0].Status != DependencyPresent {
+		t.Fatalf("expected present playwright dependency: %+v", result.Dependencies)
+	}
+	if len(result.Checks) != 1 {
+		t.Fatalf("checks = %+v, want one playwright check", result.Checks)
+	}
+	check := result.Checks[0]
+	if check.Kind != CheckPlaywright || check.CWD != "frontend" {
+		t.Fatalf("unexpected playwright check: %+v", check)
+	}
+	if !strings.Contains(check.Command, "--reporter=json") {
+		t.Fatalf("playwright command should capture json evidence: %q", check.Command)
+	}
+}
+
+func TestEnginePreflightOnlyDoesNotExecuteChecks(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "package.json"), `{"devDependencies":{"@playwright/test":"latest","next":"latest"}}`)
+	mustWrite(t, filepath.Join(root, "playwright.config.ts"), "export default {}\n")
+	prependFakeNpxWithTestExit(t, 7)
+
+	result, err := Run(context.Background(), Request{
+		Root:          root,
+		Entrypoint:    EntrypointStandalone,
+		Mode:          ModeE2E,
+		Phase:         "6",
+		PreflightOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if result.Status != StatusPass {
+		t.Fatalf("status = %s, want %s: %+v", result.Status, StatusPass, result)
+	}
+	if len(result.Checks) != 0 {
+		t.Fatalf("preflight should not execute checks: %+v", result.Checks)
+	}
+	if len(result.Dependencies) != 1 || result.Dependencies[0].Status != DependencyPresent {
+		t.Fatalf("expected present playwright dependency: %+v", result.Dependencies)
+	}
+}
+
 func TestDetectFrameworkDiscoversMonorepoCommands(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "backend", "Cargo.toml"), "[package]\nname = \"api\"\nversion = \"0.1.0\"\n")
@@ -109,6 +172,32 @@ func mustWrite(t *testing.T, path, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func prependFakeNpx(t *testing.T) {
+	t.Helper()
+	prependFakeNpxWithTestExit(t, 0)
+}
+
+func prependFakeNpxWithTestExit(t *testing.T, testExit int) {
+	t.Helper()
+	bin := t.TempDir()
+	name := "npx"
+	body := "#!/bin/sh\nif [ \"$1\" = \"playwright\" ] && [ \"$2\" = \"--version\" ]; then echo 'Version 1.99.0'; exit 0; fi\nif [ \"$1\" = \"playwright\" ]; then echo 'fake playwright ok'; exit " + fmt.Sprint(testExit) + "; fi\nexit 1\n"
+	if runtime.GOOS == "windows" {
+		name = "npx.cmd"
+		body = "@echo off\r\nif \"%1\"==\"playwright\" (\r\n  if \"%2\"==\"--version\" (\r\n    echo Version 1.99.0\r\n    exit /b 0\r\n  )\r\n  echo fake playwright ok\r\n  exit /b " + fmt.Sprint(testExit) + "\r\n)\r\nexit /b 1\r\n"
+	}
+	path := filepath.Join(bin, name)
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func contains(values []string, needle string) bool {

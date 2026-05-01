@@ -68,6 +68,11 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		})
 		return finalizeResult(req, result)
 	}
+	if req.PreflightOnly {
+		result.Status = StatusPass
+		result.FinishedAt = time.Now()
+		return finalizeResult(req, result)
+	}
 
 	for _, check := range checks {
 		checkResult := runCheck(ctx, req, result.EvidenceDir, check)
@@ -135,6 +140,9 @@ func buildChecks(req Request) []CommandSpec {
 	}
 	switch req.Mode {
 	case ModeE2E:
+		if checks := detectedPlaywrightChecks(req); len(checks) > 0 {
+			return normalizeCommands(checks)
+		}
 		return []CommandSpec{{
 			ID:             "playwright",
 			Kind:           CheckPlaywright,
@@ -154,6 +162,22 @@ func buildChecks(req Request) []CommandSpec {
 	default:
 		return nil
 	}
+}
+
+func detectedPlaywrightChecks(req Request) []CommandSpec {
+	framework := DetectFramework(req.Root)
+	var out []CommandSpec
+	for _, command := range framework.RunCommands {
+		check := commandSpecFromDetected(command, req.TimeoutSeconds)
+		if check.Kind != CheckPlaywright {
+			continue
+		}
+		check.Name = "Playwright E2E"
+		check.Required = true
+		check.TimeoutSeconds = 900
+		out = append(out, check)
+	}
+	return out
 }
 
 func normalizeCommands(commands []CommandSpec) []CommandSpec {
@@ -202,6 +226,7 @@ func commandSpecFromDetected(command string, timeoutSeconds int) CommandSpec {
 	kind := CheckCommand
 	if strings.Contains(strings.ToLower(cmd), "playwright") {
 		kind = CheckPlaywright
+		cmd = ensurePlaywrightJSONReporter(cmd)
 	}
 	return CommandSpec{
 		ID:             commandID(command),
@@ -212,6 +237,13 @@ func commandSpecFromDetected(command string, timeoutSeconds int) CommandSpec {
 		Required:       true,
 		TimeoutSeconds: timeoutSeconds,
 	}
+}
+
+func ensurePlaywrightJSONReporter(command string) string {
+	if strings.Contains(strings.ToLower(command), "--reporter") {
+		return command
+	}
+	return command + " --reporter=json"
 }
 
 func detectPlaywright(root string, required bool) DependencyResult {
