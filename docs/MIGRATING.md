@@ -44,6 +44,15 @@ It updates CodeDungeon-owned artifacts such as:
 
 It also records artifact metadata in the database so later `status`, `install`, and `migrate` commands can detect drift.
 
+For projects with existing run evidence, migration creates the runtime `artifacts` table but does not automatically scan all historical files. Backfill a run when you want older evidence indexed:
+
+```bash
+codedungeon-codex artifacts backfill --run <run-id>
+codedungeon-codex artifacts verify --run <run-id>
+```
+
+The runtime artifact registry is separate from installed artifact drift tracking. It indexes QA, review, planning, execution, report, phase/handoff, and trace evidence produced during runs.
+
 ## What `migrate` Preserves
 
 Migration does not reset the repository and does not delete arbitrary files.

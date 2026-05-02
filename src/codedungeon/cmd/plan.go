@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
 	"github.com/loldinis/codedungeon/internal/provider"
@@ -727,6 +728,50 @@ func persistPlanningResult(s *db.Store, req taskplanning.Request, result taskpla
 			if err := exportPlanningTasks(s, req.RunID, req.OutputDir, *result.TaskGraph); err != nil {
 				return err
 			}
+		}
+	}
+	return registerPlanningArtifacts(s, req, result, status)
+}
+
+func registerPlanningArtifacts(s *db.Store, req taskplanning.Request, result taskplanning.Result, status string) error {
+	registry := artifactreg.NewRegistry(s, currentProjectRoot())
+	meta := map[string]any{"status": status, "mode": req.Mode, "human_gate_policy": req.HumanGatePolicy}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", req.OutputDir},
+		{"request", "json", result.RequestPath},
+		{"blackboard", "jsonl", result.BlackboardPath},
+		{"evaluation", "json", result.EvaluationPath},
+		{"task_graph", "json", result.TaskGraphPath},
+		{"master", "markdown", result.MasterPath},
+		{"result", "json", filepath.Join(req.OutputDir, "planning-result.json")},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: req.RunID, Module: "planning", OwnerType: "planning_session", OwnerID: req.SessionID,
+			Phase: "4", Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, path := range result.Artifacts {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: req.RunID, Module: "planning", OwnerType: "planning_session", OwnerID: req.SessionID,
+			Phase: "4", Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, agent := range result.Agents {
+		path := filepath.Join(req.OutputDir, "agent-outputs", agent.Role+".json")
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: req.RunID, Module: "planning", OwnerType: "planning_agent", OwnerID: req.SessionID + ":" + agent.Role,
+			Phase: "4", Role: "agent_output", Kind: "json", Path: path,
+			Metadata: map[string]any{"role": agent.Role, "status": "COMPLETED", "provider": agent.Provider, "model": agent.Model},
+		}); err != nil {
+			return err
 		}
 	}
 	return nil

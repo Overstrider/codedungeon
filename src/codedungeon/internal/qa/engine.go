@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 )
 
@@ -506,6 +507,68 @@ func persistResult(req Request, result Result) error {
 			FixTaskPath:  finding.FixTaskPath,
 		}); err != nil {
 			return err
+		}
+	}
+	return persistArtifacts(req, result)
+}
+
+func persistArtifacts(req Request, result Result) error {
+	registry := artifactreg.NewRegistry(req.Store, req.Root)
+	meta := map[string]any{
+		"status":     result.Status,
+		"mode":       req.Mode,
+		"entrypoint": req.Entrypoint,
+	}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", result.EvidenceDir},
+		{"request", "json", filepath.Join(result.EvidenceDir, "request.json")},
+		{"preflight", "json", filepath.Join(result.EvidenceDir, "preflight.json")},
+		{"findings", "json", filepath.Join(result.EvidenceDir, "findings.json")},
+		{"summary", "markdown", result.SummaryPath},
+		{"result", "json", result.ResultPath},
+		{"plan", artifactreg.KindForPath(req.PlanPath), req.PlanPath},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: req.RunID, Module: "qa", OwnerType: "qa_session", OwnerID: result.SessionID,
+			Phase: req.Phase, Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, check := range result.Checks {
+		ownerID := result.SessionID + "-" + check.ID
+		checkMeta := map[string]any{
+			"session_id": result.SessionID,
+			"status":     check.Status,
+			"name":       check.Name,
+			"kind":       check.Kind,
+		}
+		for _, item := range []struct {
+			role string
+			path string
+		}{
+			{"check", filepath.Join(result.EvidenceDir, "checks", check.ID+".json")},
+			{"log", check.LogPath},
+			{"report", check.ReportPath},
+		} {
+			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+				RunID: req.RunID, Module: "qa", OwnerType: "qa_check", OwnerID: ownerID,
+				Phase: req.Phase, Role: item.role, Kind: artifactreg.KindForPath(item.path), Path: item.path, Metadata: checkMeta,
+			}); err != nil {
+				return err
+			}
+		}
+		for _, path := range check.Artifacts {
+			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+				RunID: req.RunID, Module: "qa", OwnerType: "qa_check", OwnerID: ownerID,
+				Phase: req.Phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path, Metadata: checkMeta,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

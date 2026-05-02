@@ -169,6 +169,10 @@ var skipAutoMigrate = map[string]bool{
 	"status":    true,
 	"version":   true,
 	"setup":     true,
+	"artifacts": true,
+	"list":      true,
+	"verify":    true,
+	"backfill":  true,
 }
 
 // OpenDBNoGuard skips preflight (only bootstrap uses this).

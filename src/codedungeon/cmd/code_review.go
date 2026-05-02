@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
@@ -458,6 +460,28 @@ func persistStandaloneCodeReviewEvidence(c *cobra.Command, result codereview.Res
 	})
 	if err != nil {
 		return err
+	}
+	registry := artifactreg.NewRegistry(s, currentProjectRoot())
+	meta := map[string]any{"verdict": result.Verdict, "pr_number": req.PRNumber}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", req.OutputDir},
+		{"request", "json", filepath.Join(req.OutputDir, "review-request.json")},
+		{"result", "json", result.ResultJSONPath},
+		{"review_json", "json", result.ReviewJSONPath},
+		{"review_md", "markdown", result.ReviewMDPath},
+		{"summary", "json", result.ReviewSummaryPath},
+		{"decision", "json", result.DecisionJSONPath},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runRow.ID, Module: "review", OwnerType: "review_evidence", OwnerID: strconv.FormatInt(reviewID, 10),
+			Phase: "5.5", Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
 	}
 	if _, err := s.InsertRunEvent(db.RunEvent{
 		RunID:     runRow.ID,

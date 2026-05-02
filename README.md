@@ -98,10 +98,11 @@ See [`docs/MAINTAINER_POLICY.md`](docs/MAINTAINER_POLICY.md) for the full comple
 
 Source of truth lives in `src/codedungeon/`:
 
-- `cmd/`: Cobra commands for setup, bootstrap, phase state, repo discovery, review, plans, task execution, QA, reports, install/migrate/status, project rules, and hook adapters.
+- `cmd/`: Cobra commands for setup, bootstrap, phase state, repo discovery, review, plans, task execution, QA, runtime artifacts, reports, install/migrate/status, project rules, and hook adapters.
 - `internal/provider/`: provider abstraction. Current providers are `claude` and `codex`.
 - `internal/prompts/`: embedded provider prompt packs. Claude uses `files/`; Codex uses `codex-files/`.
-- `internal/db/`: SQLite schema, migrations, FTS5, and installed artifact tracking.
+- `internal/db/`: SQLite schema, migrations, FTS5, installed artifact tracking, and runtime artifact registry rows.
+- `internal/artifacts/`: runtime artifact registry service, hashing, path normalization, verification, and backfill.
 - `internal/qa/`: standalone and workflow QA engine, framework detection, dependency preflight, check execution, findings, and evidence artifacts.
 - `release/`: shippable installers, docs, skills, and binaries.
 - `scripts/build-release.ps1`: cross-platform Go release build used by maintainers.
@@ -123,6 +124,28 @@ Artifacts are versioned and tracked in the project DB with:
 
 This lets `codedungeon status`, `install`, and `migrate` reason about Codex and Claude packs independently.
 
+## Runtime Artifact Registry
+
+Runtime artifacts are indexed in the SQLite `artifacts` table. This is separate from provider pack inventory in `installed_artifacts`.
+
+The registry records normalized project-relative paths, absolute paths, module ownership, owner IDs, phase, role, kind, file/directory type, media type, size, SHA-256, metadata JSON, and timestamps. Producers register artifacts as they run:
+
+- `qa`: session directories, request/preflight/check/result JSON, logs, summaries, Playwright results, and extra check artifacts.
+- `review`: review directories, manifests, Markdown/JSON review output, summaries, and decisions.
+- `planning`: planning session directories, blackboards, evaluations, task graphs, MASTER plans, task contracts, and agent outputs.
+- `execution`: execute-run task graphs/contracts, execution sessions, attempts, diffs, worker results, result JSON, and verification logs.
+- `report`, `phase`, `handoff`, and `trace`: final reports, memory reports, phase outputs, handoff artifacts, agent task paths, and agent artifacts.
+
+Useful registry commands:
+
+```bash
+codedungeon-codex artifacts list --latest-run
+codedungeon-codex artifacts verify --latest-run
+codedungeon-codex artifacts backfill --run <run-id>
+```
+
+`artifacts verify` checks registered files/directories for missing or drifted evidence. `artifacts backfill` indexes evidence produced before the registry existed or by modules that wrote files before a run was interrupted.
+
 ## Useful Commands
 
 ```bash
@@ -142,6 +165,9 @@ codedungeon-codex qa run --mode e2e --root <project> --fresh
 codedungeon-codex qa run --cwd backend --cmd "cargo test" --fresh
 codedungeon-codex qa status --latest
 codedungeon-codex qa report --latest
+codedungeon-codex artifacts list --latest-run
+codedungeon-codex artifacts verify --latest-run
+codedungeon-codex artifacts backfill --run <run-id>
 codedungeon-codex trace agent-start --phase 5 --role dev-worker
 codedungeon-codex observe report
 codedungeon-codex hooks install --provider codex --mode warn

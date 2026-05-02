@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
 	"github.com/loldinis/codedungeon/internal/provider"
@@ -280,12 +281,33 @@ func validateRenderedReportQuality(report string) error {
 func recordReportEvidence(s *db.Store, root string, run *db.Run, report string) error {
 	reportPath := filepath.Join(root, codedungeonDir, "reports", fmt.Sprintf("run-%d.md", run.ID))
 	sum := sha256.Sum256([]byte(report))
-	_, err := s.InsertReportEvidence(db.ReportEvidence{
+	id, err := s.InsertReportEvidence(db.ReportEvidence{
 		RunID:      run.ID,
 		ReportPath: reportPath,
 		SHA256:     hex.EncodeToString(sum[:]),
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	registry := artifactreg.NewRegistry(s, root)
+	ownerID := fmt.Sprintf("%d", id)
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"report", "markdown", reportPath},
+		{"memory", "markdown", filepath.Join(root, codedungeonDir, "memory", "runs", fmt.Sprintf("run-%d.md", run.ID))},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: run.ID, Module: "report", OwnerType: "report_evidence", OwnerID: ownerID,
+			Phase: "7", Role: item.role, Kind: item.kind, Path: item.path,
+			Metadata: map[string]any{"sha256": hex.EncodeToString(sum[:])},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeReportMemoryFiles(root string, run *db.Run, repos []reportRepo, report string) error {

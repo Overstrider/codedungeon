@@ -53,6 +53,7 @@ func main() {
 	root.AddCommand(cmd.ReviewCmd())
 	root.AddCommand(cmd.PlanCmd())
 	root.AddCommand(cmd.QACmd())
+	root.AddCommand(cmd.ArtifactsCmd())
 	root.AddCommand(cmd.CleanupCmd())
 	root.AddCommand(cmd.ConfigCmd())
 	root.AddCommand(cmd.InstallCmd())

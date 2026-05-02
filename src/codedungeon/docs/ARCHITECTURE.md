@@ -37,15 +37,18 @@ Commands, command wrappers, agents, skills, and phase prompts are tracked as ins
 
 ## Data Model
 
-Schema v7 uses SQLite with FTS5 in `.codedungeon/codedungeon.db`. It uses DELETE journaling so the versionable `.codedungeon` directory does not depend on WAL sidecar files. Important tables:
+Schema v16 uses SQLite with FTS5 in `.codedungeon/codedungeon.db`. It uses DELETE journaling so the versionable `.codedungeon` directory does not depend on WAL sidecar files. Important tables:
 
 - `meta`: schema version, OS, project root, binary version, selected models.
 - `runs`, `phases`, `handoffs`: pipeline lifecycle state.
 - `prompts`: embedded/user prompt content indexed for search.
 - `tasks`, `findings`: task and review history.
 - `installed_artifacts`: provider-native and `.codedungeon` artifact drift tracking.
+- `artifacts`: runtime evidence registry for QA, review, planning, execution, report, phase/handoff, and trace outputs.
 
-Migration v5 canonicalizes Claude metadata from `claude-code`/`claude-ce` to `claude` and from `codedungeon-claude-code` to `codedungeon-claude`. Migration v7 switches SQLite away from WAL.
+Migration v5 canonicalizes Claude metadata from `claude-code`/`claude-ce` to `claude` and from `codedungeon-claude-code` to `codedungeon-claude`. Migration v7 switches SQLite away from WAL. Migration v16 adds the runtime artifact registry.
+
+`installed_artifacts` and `artifacts` intentionally solve different problems. `installed_artifacts` tracks provider pack files written by setup/install/migrate. `artifacts` tracks per-run runtime evidence with module, owner type, owner id, phase, role, path, artifact type, media type, size, SHA-256, and metadata JSON. The registry is an index and evidence integrity layer; it does not replace the existing module-specific tables that own domain state.
 
 ## Setup Flow
 

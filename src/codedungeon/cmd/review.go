@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
 	"github.com/loldinis/codedungeon/internal/reviewpipe"
@@ -234,7 +235,9 @@ Use --only STEP to re-run one stage (dedupe|filter|classify|render|verdict).`,
 			}
 			// Persist findings into DB so FTS5 search + history work across runs.
 			persistFindings(store, merged, cycle)
-			persistReviewEvidence(store, dir, manifestPath, manifest, rj)
+			if err := persistReviewEvidence(store, dir, manifestPath, manifest, rj); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			if only == "render" {
 				return EmitJSON(map[string]any{"ok": true, "step": "render", "path_md": filepath.Join(dir, "review.md"), "path_json": filepath.Join(dir, "review.json")})
 			}
@@ -425,15 +428,15 @@ func validateManifestPersonas(dir string, expected, loaded []string) error {
 	return nil
 }
 
-func persistReviewEvidence(store *db.Store, dir, manifestPath string, manifest reviewManifest, review reviewpipe.ReviewJSON) {
+func persistReviewEvidence(store *db.Store, dir, manifestPath string, manifest reviewManifest, review reviewpipe.ReviewJSON) error {
 	if store == nil {
-		return
+		return nil
 	}
 	run, err := store.CurrentRun()
 	if err != nil || run == nil {
-		return
+		return err
 	}
-	_, _ = store.InsertReviewEvidence(db.ReviewEvidence{
+	id, err := store.InsertReviewEvidence(db.ReviewEvidence{
 		RunID:            run.ID,
 		ReviewDir:        dir,
 		ReviewJSONPath:   filepath.Join(dir, "review.json"),
@@ -445,6 +448,30 @@ func persistReviewEvidence(store *db.Store, dir, manifestPath string, manifest r
 		PersonasExpected: manifest.PersonasExpected,
 		PersonasRun:      uniqueSorted(review.PersonasRun),
 	})
+	if err != nil {
+		return err
+	}
+	registry := artifactreg.NewRegistry(store, currentProjectRoot())
+	meta := map[string]any{"verdict": review.Verdict, "pr_number": manifest.PRNumber}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", dir},
+		{"review_md", "markdown", filepath.Join(dir, "review.md")},
+		{"review_json", "json", filepath.Join(dir, "review.json")},
+		{"manifest", "json", manifestPath},
+		{"findings", "json", filepath.Join(dir, "findings-final.json")},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: run.ID, Module: "review", OwnerType: "review_evidence", OwnerID: strconv.FormatInt(id, 10),
+			Phase: "5.5", Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func uniqueSorted(in []string) []string {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/projectcontext"
@@ -777,6 +778,9 @@ func commitFinalization(root string, s *db.Store, run *db.Run, sessionID string,
 	if err := commitFinalizationState(s, run.ID, plan, phase7Handoff); err != nil {
 		return err
 	}
+	if err := registerFinalizationArtifacts(root, s, run.ID, plan, phase7Handoff); err != nil {
+		return err
+	}
 	proposal, err := projectcontext.ProposeFromRun(root, projectcontext.NewSQLiteStore(s), run.ID)
 	if err != nil {
 		return fmt.Errorf("project-context-proposal: %w", err)
@@ -916,6 +920,57 @@ func commitFinalizationState(s *db.Store, runID int64, plan *finalizationPlan, p
 		}
 	}
 	return tx.Commit()
+}
+
+func registerFinalizationArtifacts(root string, s *db.Store, runID int64, plan *finalizationPlan, phase7Handoff *db.Handoff) error {
+	registry := artifactreg.NewRegistry(s, root)
+	reportEvidence, _ := s.LatestReportEvidence(runID)
+	ownerID := fmt.Sprintf("run-%d", runID)
+	sum := ""
+	if reportEvidence != nil {
+		ownerID = fmt.Sprintf("%d", reportEvidence.ID)
+		sum = reportEvidence.SHA256
+	}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"report", "markdown", plan.reportPath},
+		{"memory", "markdown", filepath.Join(root, codedungeonDir, "memory", "runs", fmt.Sprintf("run-%d.md", runID))},
+		{"phase_output", "markdown", projectPath(root, filepath.Join(provider.Detect().StateDir(), "phase-7-output.md"))},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "report", OwnerType: "report_evidence", OwnerID: ownerID,
+			Phase: "7", Role: item.role, Kind: item.kind, Path: item.path,
+			Metadata: map[string]any{"sha256": sum},
+		}); err != nil {
+			return err
+		}
+	}
+	for _, phase := range plan.phases {
+		for _, path := range phase.artifacts {
+			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+				RunID: runID, Module: "phase", OwnerType: "phase", OwnerID: fmt.Sprintf("%d:%s", runID, phase.phase),
+				Phase: phase.phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path,
+				Metadata: map[string]any{"summary": phase.summary},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	if phase7Handoff != nil {
+		for _, path := range phase7Handoff.Artifacts {
+			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+				RunID: runID, Module: "handoff", OwnerType: "handoff", OwnerID: fmt.Sprintf("%d:%s", runID, phase7Handoff.Phase),
+				Phase: phase7Handoff.Phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path,
+				Metadata: map[string]any{"summary": phase7Handoff.Summary},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func setPhaseStatusTx(tx *sql.Tx, runID int64, phase, status, notes string, artifacts []string) error {

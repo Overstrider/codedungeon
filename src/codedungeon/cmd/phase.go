@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
@@ -520,6 +521,9 @@ func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []str
 		outPath := projectPath(currentProjectRoot(), filepath.Join(provider.Detect().StateDir(), "phase-"+phaseLabel(phase)+"-output.md"))
 		_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
 		_ = os.WriteFile(outPath, []byte(rendered), 0o644)
+		if err := registerPhaseArtifacts(s, currentProjectRoot(), run.ID, phase, status, artifacts, outPath, h); err != nil {
+			return runResult{err: EmitErr(err.Error(), "")}
+		}
 	}
 	_ = EmitJSON(map[string]any{
 		"ok":         true,
@@ -532,6 +536,38 @@ func setStatusRun(c *cobra.Command, phase, status, notes string, artifacts []str
 }
 
 // phaseLabel produces the filesystem-safe phase slug: 2' → 2prime, 3.5 → 35.
+func registerPhaseArtifacts(s *db.Store, root string, runID int64, phase, status string, artifacts []string, outputPath string, h *db.Handoff) error {
+	registry := artifactreg.NewRegistry(s, root)
+	meta := map[string]any{"status": status}
+	for _, path := range artifacts {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "phase", OwnerType: "phase", OwnerID: fmt.Sprintf("%d:%s", runID, phase),
+			Phase: phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	if outputPath != "" {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "handoff", OwnerType: "handoff", OwnerID: fmt.Sprintf("%d:%s", runID, phase),
+			Phase: phase, Role: "rendered", Kind: "markdown", Path: outputPath,
+			Metadata: map[string]any{"summary": h.Summary, "status": status},
+		}); err != nil {
+			return err
+		}
+	}
+	for _, path := range h.Artifacts {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "handoff", OwnerType: "handoff", OwnerID: fmt.Sprintf("%d:%s", runID, phase),
+			Phase: phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path,
+			Metadata: map[string]any{"summary": h.Summary, "status": status},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func phaseLabel(p string) string {
 	r := strings.ReplaceAll(p, "'", "prime")
 	r = strings.ReplaceAll(r, ".", "")

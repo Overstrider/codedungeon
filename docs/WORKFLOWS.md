@@ -84,6 +84,8 @@ If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, n
 
 Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon review run`, `codedungeon review post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. QA evidence is session-scoped under `.codedungeon/qa/sessions/<qa-session-id>/` with request/result JSON, preflight data, logs, checks, findings, and summaries. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
 
+Runtime evidence is also indexed in the artifact registry. Use `codedungeon artifacts list --latest-run` to inspect evidence rows, `codedungeon artifacts verify --latest-run` to detect missing or drifted files, and `codedungeon artifacts backfill --run <run-id>` to index evidence from older or interrupted runs.
+
 ## Agent Telemetry
 
 CodeDungeon records informational agent telemetry in the project DB. The autonomous runner records itself automatically. Workflows should record every phase agent, worker, review persona, validator, classifier, and stack-specialist delegation with `codedungeon trace agent-start` before spawning and `codedungeon trace agent-end` after return.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/taskplanning"
 )
@@ -66,11 +67,17 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	if err := writeJSONFile(filepath.Join(session.OutputDir, "task.json"), task); err != nil {
 		return failExecution(store, session.ID, result, err)
 	}
+	if err := registerExecutionSessionArtifacts(store, req.Root, req.RunID, *session, result.Status); err != nil {
+		return failExecution(store, session.ID, result, err)
+	}
 	if req.DryRun {
 		result.Status = StatusDryRun
 		result.Artifacts = append(result.Artifacts, filepath.Join(session.OutputDir, "task.json"))
 		result.Metadata["prompt"] = ExecutionPrompt(agentRequest(req, task, *session, 1, filepath.Join(session.OutputDir, "attempt-01", "execution-result.json")))
 		if err := writeJSONFile(filepath.Join(session.OutputDir, "result.json"), result); err != nil {
+			return failExecution(store, session.ID, result, err)
+		}
+		if err := registerExecutionResultArtifact(store, req.Root, req.RunID, *session, result.Status); err != nil {
 			return failExecution(store, session.ID, result, err)
 		}
 		_ = store.UpdateExecutionSessionStatus(session.ID, StatusDryRun, "")
@@ -90,6 +97,9 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 		if persistErr := persistAttempt(store, session.ID, attemptResult); persistErr != nil && err == nil {
 			err = persistErr
 		}
+		if artifactErr := registerExecutionAttemptArtifacts(store, req.Root, req.RunID, *session, attemptResult); artifactErr != nil && err == nil {
+			err = artifactErr
+		}
 		if err != nil {
 			if attempt >= req.Config.MaxIterations {
 				return failExecution(store, session.ID, result, err)
@@ -102,6 +112,9 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 			_ = store.UpdateExecutionSessionStatus(session.ID, StatusBlocked, attemptResult.Summary)
 			_, _ = store.InsertExecutionTransition(db.ExecutionTransition{SessionID: session.ID, FromStatus: StatusRunning, ToStatus: StatusBlocked, Reason: attemptResult.Summary})
 			_ = writeJSONFile(filepath.Join(session.OutputDir, "result.json"), result)
+			if err := registerExecutionResultArtifact(store, req.Root, req.RunID, *session, result.Status); err != nil {
+				return failExecution(store, session.ID, result, err)
+			}
 			return result, nil
 		}
 		if attemptResult.WorkerStatus == WorkerPassed && attemptResult.VerificationStatus == "PASS" {
@@ -128,6 +141,9 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 			result.Status = StatusCompleted
 			result.OK = true
 			if err := writeJSONFile(filepath.Join(session.OutputDir, "result.json"), result); err != nil {
+				return failExecution(store, session.ID, result, err)
+			}
+			if err := registerExecutionResultArtifact(store, req.Root, req.RunID, *session, result.Status); err != nil {
 				return failExecution(store, session.ID, result, err)
 			}
 			_ = store.UpdateExecutionSessionStatus(session.ID, StatusCompleted, "")
@@ -312,6 +328,74 @@ func persistAttempt(store *db.Store, sessionID string, attempt AttemptResult) er
 		FinishedAt:         now,
 	})
 	return err
+}
+
+func registerExecutionSessionArtifacts(store *db.Store, root string, runID int64, session db.ExecutionSession, status string) error {
+	registry := artifactreg.NewRegistry(store, root)
+	meta := map[string]any{"task_id": session.TaskID, "status": status}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", session.OutputDir},
+		{"task", "json", filepath.Join(session.OutputDir, "task.json")},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execution_session", OwnerID: session.ID,
+			Phase: "5", Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func registerExecutionResultArtifact(store *db.Store, root string, runID int64, session db.ExecutionSession, status string) error {
+	registry := artifactreg.NewRegistry(store, root)
+	return artifactreg.RegisterIfExists(registry, artifactreg.Record{
+		RunID: runID, Module: "execution", OwnerType: "execution_session", OwnerID: session.ID,
+		Phase: "5", Role: "result", Kind: "json", Path: filepath.Join(session.OutputDir, "result.json"),
+		Metadata: map[string]any{"task_id": session.TaskID, "status": status},
+	})
+}
+
+func registerExecutionAttemptArtifacts(store *db.Store, root string, runID int64, session db.ExecutionSession, attempt AttemptResult) error {
+	registry := artifactreg.NewRegistry(store, root)
+	ownerID := fmt.Sprintf("%s:%02d", session.ID, attempt.Attempt)
+	attemptDir := filepath.Join(session.OutputDir, fmt.Sprintf("attempt-%02d", attempt.Attempt))
+	meta := map[string]any{
+		"session_id":          session.ID,
+		"attempt":             attempt.Attempt,
+		"worker_status":       attempt.WorkerStatus,
+		"verification_status": attempt.VerificationStatus,
+	}
+	for _, item := range []struct {
+		role string
+		kind string
+		path string
+	}{
+		{"directory", "directory", attemptDir},
+		{"diff", "patch", attempt.DiffPath},
+		{"worker_result", "json", filepath.Join(attemptDir, "execution-result.json")},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execution_attempt", OwnerID: ownerID,
+			Phase: "5", Role: item.role, Kind: item.kind, Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, result := range attempt.VerificationResults {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execution_attempt", OwnerID: ownerID,
+			Phase: "6", Role: "verification_log", Kind: "log", Path: result.LogPath,
+			Metadata: map[string]any{"command": result.Command, "status": result.Status},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func failExecution(store *db.Store, sessionID string, result Result, err error) (Result, error) {

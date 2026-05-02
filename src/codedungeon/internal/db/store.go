@@ -23,7 +23,7 @@ var schemaSQL string
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const SchemaVersion = "15"
+const SchemaVersion = "16"
 
 // Store wraps the sqlite connection and exposes typed helpers.
 type Store struct {
@@ -1062,6 +1062,129 @@ func (s *Store) UpsertTask(t Task) error {
 		t.RunID, t.Repo, t.TaskID, nullStr(t.Kind), nullStr(t.Status),
 		nullStr(t.Title), string(dep), nullStr(t.Content), time.Now().Unix())
 	return err
+}
+
+// ===== Runtime artifact registry =====
+
+type Artifact struct {
+	ID           int64  `json:"id"`
+	RunID        int64  `json:"run_id,omitempty"`
+	Module       string `json:"module"`
+	OwnerType    string `json:"owner_type"`
+	OwnerID      string `json:"owner_id"`
+	Phase        string `json:"phase,omitempty"`
+	Role         string `json:"role"`
+	Kind         string `json:"kind"`
+	Path         string `json:"path"`
+	AbsPath      string `json:"abs_path,omitempty"`
+	ArtifactType string `json:"artifact_type"`
+	MediaType    string `json:"media_type,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	Bytes        int64  `json:"bytes,omitempty"`
+	MetadataJSON string `json:"metadata_json"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+func (s *Store) RegisterArtifact(a Artifact) (int64, error) {
+	if strings.TrimSpace(a.MetadataJSON) == "" {
+		a.MetadataJSON = "{}"
+	}
+	if strings.TrimSpace(a.ArtifactType) == "" {
+		a.ArtifactType = "file"
+	}
+	if a.CreatedAt == 0 {
+		a.CreatedAt = time.Now().Unix()
+	}
+	_, err := s.DB.Exec(`
+        INSERT INTO artifacts
+          (run_id, module, owner_type, owner_id, phase, role, kind, path, abs_path,
+           artifact_type, media_type, sha256, bytes, metadata_json, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(module, owner_type, owner_id, role, path) DO UPDATE SET
+          run_id=excluded.run_id,
+          phase=excluded.phase,
+          kind=excluded.kind,
+          abs_path=excluded.abs_path,
+          artifact_type=excluded.artifact_type,
+          media_type=excluded.media_type,
+          sha256=excluded.sha256,
+          bytes=excluded.bytes,
+          metadata_json=excluded.metadata_json,
+          created_at=excluded.created_at`,
+		nullInt(a.RunID), a.Module, a.OwnerType, a.OwnerID, nullStr(a.Phase), a.Role, a.Kind,
+		a.Path, nullStr(a.AbsPath), a.ArtifactType, nullStr(a.MediaType), nullStr(a.SHA256),
+		nullInt(a.Bytes), a.MetadataJSON, a.CreatedAt)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	err = s.DB.QueryRow(`
+        SELECT id FROM artifacts
+        WHERE module=? AND owner_type=? AND owner_id=? AND role=? AND path=?`,
+		a.Module, a.OwnerType, a.OwnerID, a.Role, a.Path).Scan(&id)
+	return id, err
+}
+
+func (s *Store) ArtifactsByRun(runID int64) ([]Artifact, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, COALESCE(run_id,0), module, owner_type, owner_id, COALESCE(phase,''),
+               role, kind, path, COALESCE(abs_path,''), artifact_type, COALESCE(media_type,''),
+               COALESCE(sha256,''), COALESCE(bytes,0), COALESCE(metadata_json,'{}'), created_at
+        FROM artifacts
+        WHERE run_id=?
+        ORDER BY module, created_at, id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtifacts(rows)
+}
+
+func (s *Store) ArtifactsByOwner(module, ownerType, ownerID string) ([]Artifact, error) {
+	rows, err := s.DB.Query(`
+        SELECT id, COALESCE(run_id,0), module, owner_type, owner_id, COALESCE(phase,''),
+               role, kind, path, COALESCE(abs_path,''), artifact_type, COALESCE(media_type,''),
+               COALESCE(sha256,''), COALESCE(bytes,0), COALESCE(metadata_json,'{}'), created_at
+        FROM artifacts
+        WHERE module=? AND owner_type=? AND owner_id=?
+        ORDER BY created_at, id`, module, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtifacts(rows)
+}
+
+func (s *Store) LatestArtifacts(limit int) ([]Artifact, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.DB.Query(`
+        SELECT id, COALESCE(run_id,0), module, owner_type, owner_id, COALESCE(phase,''),
+               role, kind, path, COALESCE(abs_path,''), artifact_type, COALESCE(media_type,''),
+               COALESCE(sha256,''), COALESCE(bytes,0), COALESCE(metadata_json,'{}'), created_at
+        FROM artifacts
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtifacts(rows)
+}
+
+func scanArtifacts(rows *sql.Rows) ([]Artifact, error) {
+	var out []Artifact
+	for rows.Next() {
+		var a Artifact
+		if err := rows.Scan(&a.ID, &a.RunID, &a.Module, &a.OwnerType, &a.OwnerID, &a.Phase,
+			&a.Role, &a.Kind, &a.Path, &a.AbsPath, &a.ArtifactType, &a.MediaType,
+			&a.SHA256, &a.Bytes, &a.MetadataJSON, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // ===== Installed artifacts =====

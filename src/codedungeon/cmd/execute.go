@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/taskexec"
 	"github.com/loldinis/codedungeon/internal/taskplanning"
 )
@@ -129,6 +130,9 @@ func executeRunCmd() *cobra.Command {
 					return runErr
 				}
 				return emitRunErr(runErr.Error(), "")
+			}
+			if err := registerExecuteRunArtifacts(c, root, runID, executionID, result); err != nil {
+				return emitRunErr(err.Error(), "")
 			}
 			return EmitJSON(result)
 		},
@@ -303,6 +307,51 @@ func executeTaskPathSequence(ctx context.Context, req executeRunFlowRequest, tas
 		}
 	}
 	return results, nil
+}
+
+func registerExecuteRunArtifacts(c *cobra.Command, root string, runID int64, executionID string, result executeRunResult) error {
+	store, err := OpenDB(c)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if err := store.Init(); err != nil {
+		return err
+	}
+	registry := artifactreg.NewRegistry(store, root)
+	meta := map[string]any{"status": result.Status, "input": result.Input, "tasks": result.Tasks}
+	for _, item := range []struct {
+		role string
+		path string
+	}{
+		{"contracts_dir", result.ContractsDir},
+		{"task_graph", result.TaskGraphPath},
+	} {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execute_run", OwnerID: executionID,
+			Phase: "5", Role: item.role, Kind: artifactreg.KindForPath(item.path), Path: item.path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, path := range result.Contracts {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execute_run", OwnerID: executionID,
+			Phase: "5", Role: "contract", Kind: "json", Path: path, Metadata: meta,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, execResult := range result.Results {
+		if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+			RunID: runID, Module: "execution", OwnerType: "execute_run", OwnerID: executionID,
+			Phase: "5", Role: "task_output", Kind: "directory", Path: execResult.OutputDir,
+			Metadata: map[string]any{"task_id": execResult.Task.ID, "status": execResult.Status},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func executeRunInputFromFlags(c *cobra.Command) (executeRunInput, error) {

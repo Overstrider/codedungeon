@@ -478,6 +478,31 @@ CREATE TABLE IF NOT EXISTS qa_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_qa_artifacts_session ON qa_artifacts(session_id, created_at);
 
+CREATE TABLE IF NOT EXISTS artifacts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    module        TEXT    NOT NULL,
+    owner_type    TEXT    NOT NULL,
+    owner_id      TEXT    NOT NULL,
+    phase         TEXT,
+    role          TEXT    NOT NULL,
+    kind          TEXT    NOT NULL,
+    path          TEXT    NOT NULL,
+    abs_path      TEXT,
+    artifact_type TEXT    NOT NULL,
+    media_type    TEXT,
+    sha256        TEXT,
+    bytes         INTEGER,
+    metadata_json TEXT    NOT NULL DEFAULT '{}',
+    created_at    INTEGER NOT NULL,
+    UNIQUE(module, owner_type, owner_id, role, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifacts_run_module ON artifacts(run_id, module, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifacts_owner ON artifacts(module, owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts(path);
+CREATE INDEX IF NOT EXISTS idx_artifacts_sha ON artifacts(sha256);
+
 -- FTS5 virtual tables (external content — mirror rowid of source table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_handoffs USING fts5(
     summary, decisions, traps, rendered_md,
@@ -673,6 +698,6 @@ CREATE TABLE IF NOT EXISTS installed_artifacts (
 );
 
 -- bootstrap: schema_version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '15');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '16');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_reasoning_effort', '');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('model_fast_effort', '');

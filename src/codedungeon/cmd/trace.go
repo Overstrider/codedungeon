@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
 )
 
@@ -58,6 +59,16 @@ func traceAgentStartCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if taskPath != "" {
+				registry := artifactreg.NewRegistry(s, currentProjectRoot())
+				if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+					RunID: run.ID, Module: "trace", OwnerType: "agent_run", OwnerID: fmt.Sprintf("%d", id),
+					Phase: phase, Role: "task", Kind: artifactreg.KindForPath(taskPath), Path: taskPath,
+					Metadata: map[string]any{"role": role, "agent_type": agentType, "status": "RUNNING"},
+				}); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+			}
 			_, _ = s.InsertAgentEvent(db.AgentEvent{
 				RunID:      run.ID,
 				AgentRunID: id,
@@ -105,6 +116,16 @@ func traceAgentEndCmd() *cobra.Command {
 			errorMessage, _ := c.Flags().GetString("error")
 			if err := s.FinishAgentRun(id, status, summary, artifact, errorMessage); err != nil {
 				return EmitErr(err.Error(), "")
+			}
+			if artifact != "" {
+				registry := artifactreg.NewRegistry(s, currentProjectRoot())
+				if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
+					RunID: run.ID, Module: "trace", OwnerType: "agent_run", OwnerID: fmt.Sprintf("%d", id),
+					Role: "artifact", Kind: artifactreg.KindForPath(artifact), Path: artifact,
+					Metadata: map[string]any{"status": status},
+				}); err != nil {
+					return EmitErr(err.Error(), "")
+				}
 			}
 			_, _ = s.InsertAgentEvent(db.AgentEvent{
 				RunID:      run.ID,

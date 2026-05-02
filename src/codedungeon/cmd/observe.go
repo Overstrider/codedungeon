@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/projectcontext"
@@ -149,6 +150,8 @@ func RenderObserveReport(root string) (string, error) {
 		planning = nil
 	}
 	contextStatus, contextErr := projectcontext.Status(root, projectcontext.NewSQLiteStore(s))
+	registeredArtifacts, _ := s.ArtifactsByRun(run.ID)
+	artifactChecks, _ := artifactreg.NewRegistry(s, root).VerifyRun(run.ID)
 
 	var b strings.Builder
 	summary := agentTelemetrySummary(agents)
@@ -252,6 +255,23 @@ func RenderObserveReport(root string) (string, error) {
 	}
 	fmt.Fprintln(&b)
 
+	fmt.Fprintln(&b, "## Artifact Registry")
+	if len(registeredArtifacts) == 0 {
+		fmt.Fprintln(&b, "- Status: none recorded")
+	} else {
+		missing, drifted := artifactVerificationCounts(artifactChecks)
+		integrity := "PASS"
+		if missing > 0 || drifted > 0 {
+			integrity = "WARN"
+		}
+		fmt.Fprintf(&b, "- Artifacts: %d\n", len(registeredArtifacts))
+		fmt.Fprintf(&b, "- Integrity: %s (missing=%d, drifted=%d)\n", integrity, missing, drifted)
+		for _, item := range artifactModuleCounts(registeredArtifacts) {
+			fmt.Fprintf(&b, "- %s: %d\n", item.module, item.count)
+		}
+	}
+	fmt.Fprintln(&b)
+
 	fmt.Fprintln(&b, "## Evidence")
 	if review != nil {
 		fmt.Fprintf(&b, "- Review: %s, PR #%s, personas %s\n", review.Verdict, review.PRNumber, strings.Join(review.PersonasRun, ", "))
@@ -293,6 +313,28 @@ func RenderObserveReport(root string) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+type artifactModuleCount struct {
+	module string
+	count  int
+}
+
+func artifactModuleCounts(rows []db.Artifact) []artifactModuleCount {
+	counts := map[string]int{}
+	for _, row := range rows {
+		counts[row.Module]++
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]artifactModuleCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, artifactModuleCount{module: key, count: counts[key]})
+	}
+	return out
 }
 
 func agentTelemetrySummary(agents []db.AgentRun) map[string]any {
