@@ -16,6 +16,14 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 
 Thin state-machine orchestrator. Dispatches isolated phase agents; reads only `pipeline-state.md` + handoffs. All deterministic mechanics (state, handoffs, repo discover, review pipeline, plan parsing, QA, report) live in `codedungeon`.
 
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
 This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
 
 ```bash
@@ -88,8 +96,8 @@ Store as `FEATURE_PROMPT`.
 ```bash
 # Ensure codedungeon alive in project.
 if [ ! -x .claude/bin/codedungeon ] || [ ! -f .codedungeon/codedungeon.db ]; then
-  "$HOME/.claude/plugins/local/codedungeon/bin/codedungeon" bootstrap \
-    --reasoning claude-opus-4-7 --fast claude-sonnet-4-6
+  echo "Status BLOCKED: run project-local codedungeon setup before /main-quest"
+  exit 2
 fi
 CD=./.claude/bin/codedungeon
 

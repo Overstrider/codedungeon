@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"text/template"
 
 	"github.com/spf13/cobra"
 
 	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
+	"github.com/loldinis/codedungeon/internal/codereview"
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/prompts"
 	"github.com/loldinis/codedungeon/internal/provider"
@@ -138,7 +140,7 @@ func buildReportSnapshot(s *db.Store, run *db.Run, bootstrap bool, phases []db.P
 		return "", nil, fmt.Errorf("template parse: %w", err)
 	}
 
-	data := buildReportData(run, repos, phases, execOrder, agents)
+	data := buildReportData(s, run, repos, phases, execOrder, agents)
 
 	var out bytes.Buffer
 	if err := tpl.Execute(&out, data); err != nil {
@@ -366,6 +368,7 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 	}
 	reviewEvidence, _ := s.LatestReviewEvidence(run.ID)
 	prPost, _ := s.LatestPRReviewPost(run.ID)
+	reviewResult := loadReportReviewResult(reviewEvidence)
 	if len(entries) == 0 && reviewEvidence != nil {
 		entries = []repoEntry{{Name: fallback(inferGitRepoName("."), "project")}}
 	}
@@ -428,6 +431,19 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 		}
 	}
 	verification := summarizeVerificationRecords(s, run.ID)
+	layerVerification := verificationLayerResult(verification)
+	reviewCycles := summarizeReviewCycles(s, run.ID, reviewEvidence)
+	reviewMode := "not_run"
+	if reviewEvidence != nil {
+		reviewMode = "standalone"
+	}
+	adversarialComments := "0"
+	if prPost != nil && strings.TrimSpace(prPost.CommentURL) != "" {
+		adversarialComments = "1"
+	}
+	remainingFindings := summarizeRemainingFindings(reviewEvidence, reviewResult)
+	changedFiles := summarizeReviewedFiles(reviewResult)
+	tasksCompleted := summarizeReportTasks(s, run.ID)
 
 	var repos []reportRepo
 	for _, e := range entries {
@@ -439,21 +455,115 @@ func aggregateRepos(s *db.Store, run *db.Run) []reportRepo {
 			PRNumber:          prMap[e.Name],
 			PRURL:             fallback(prURLMap[e.Name], "url unavailable"),
 			Branch:            fallback(run.Branch, "unknown"),
-			ReviewCycles:      "unknown",
-			ReviewMode:        "not_run",
+			ReviewCycles:      reviewCycles,
+			ReviewMode:        reviewMode,
 			Summary:           fallback(run.Feature, "n/a"),
-			AdvReviewCount:    "unknown",
-			RemainingFindings: "unknown",
-			TasksCompleted:    "unknown",
-			ChangedFiles:      "unknown",
+			AdvReviewCount:    adversarialComments,
+			RemainingFindings: remainingFindings,
+			TasksCompleted:    tasksCompleted,
+			ChangedFiles:      changedFiles,
 			Verification:      verification,
 			NextAction:        "inspect PR review state",
-			IntegrationResult: fallback(matchPrefix(testResult, e.Name+":integration"), "n/a"),
-			APIResult:         fallback(matchPrefix(testResult, e.Name+":api"), "n/a"),
-			E2EResult:         fallback(matchPrefix(testResult, e.Name+":e2e"), "n/a"),
+			IntegrationResult: fallback(matchPrefix(testResult, e.Name+":integration"), layerVerification),
+			APIResult:         fallback(matchPrefix(testResult, e.Name+":api"), layerVerification),
+			E2EResult:         fallback(matchPrefix(testResult, e.Name+":e2e"), layerVerification),
 		})
 	}
 	return repos
+}
+
+func loadReportReviewResult(e *db.ReviewEvidence) *codereview.Result {
+	if e == nil || strings.TrimSpace(e.ReviewJSONPath) == "" {
+		return nil
+	}
+	body, err := os.ReadFile(e.ReviewJSONPath)
+	if err != nil {
+		return nil
+	}
+	var result codereview.Result
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil
+	}
+	return &result
+}
+
+func summarizeReviewCycles(s *db.Store, runID int64, reviewEvidence *db.ReviewEvidence) string {
+	if maxCycle, err := s.MaxFindingCycle(runID); err == nil && maxCycle > 0 {
+		return fmt.Sprintf("%d", maxCycle)
+	}
+	if reviewEvidence != nil {
+		return "1"
+	}
+	return "0"
+}
+
+func summarizeRemainingFindings(e *db.ReviewEvidence, result *codereview.Result) string {
+	if result != nil {
+		if len(result.Findings) == 0 {
+			return "none"
+		}
+		return fmt.Sprintf("%d", len(result.Findings))
+	}
+	if e != nil && strings.EqualFold(e.Verdict, "APPROVED") {
+		return "none"
+	}
+	return "not recorded"
+}
+
+func summarizeReviewedFiles(result *codereview.Result) string {
+	if result == nil {
+		return "not recorded"
+	}
+	seen := map[string]bool{}
+	var files []string
+	for _, persona := range result.Personas {
+		for _, scope := range persona.ReviewedScope {
+			scope = strings.TrimSpace(scope)
+			if scope == "" || seen[scope] {
+				continue
+			}
+			seen[scope] = true
+			files = append(files, scope)
+		}
+	}
+	sort.Strings(files)
+	if len(files) == 0 {
+		return "not recorded"
+	}
+	if len(files) > 6 {
+		return strings.Join(files[:6], ", ") + fmt.Sprintf(" (+%d more)", len(files)-6)
+	}
+	return strings.Join(files, ", ")
+}
+
+func summarizeReportTasks(s *db.Store, runID int64) string {
+	rows, err := s.DB.Query(`SELECT COALESCE(kind,''), COALESCE(status,''), COUNT(1) FROM tasks WHERE run_id=? GROUP BY kind, status`, runID)
+	if err != nil {
+		return "0 dev, 0 test"
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var kind, status string
+		var count int
+		if err := rows.Scan(&kind, &status, &count); err != nil {
+			return "0 dev, 0 test"
+		}
+		if strings.EqualFold(status, "done") || strings.EqualFold(status, "completed") {
+			counts[strings.ToLower(kind)] += count
+		}
+	}
+	return fmt.Sprintf("%d dev, %d test", counts["dev"], counts["test"])
+}
+
+func verificationLayerResult(verification string) string {
+	if strings.TrimSpace(verification) == "" || verification == "missing" {
+		return "not recorded"
+	}
+	if strings.Contains(verification, "PASS") {
+		return "PASS - " + verification
+	}
+	return verification
 }
 
 func summarizeVerificationRecords(s *db.Store, runID int64) string {
@@ -506,7 +616,7 @@ func fallback(v, def string) string {
 	return v
 }
 
-func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrder string, agents []db.AgentRun) map[string]any {
+func buildReportData(s *db.Store, run *db.Run, repos []reportRepo, phases []db.Phase, execOrder string, agents []db.AgentRun) map[string]any {
 	// Conventional plan paths.
 	var domainPlans, qaPlans []string
 	for _, r := range repos {
@@ -525,7 +635,7 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 	if len(repos) > 0 {
 		bs = repos[0]
 	}
-	rulesStatus, rulesDigest, rulesRead := reportProjectRulesEnvelope()
+	rulesStatus, rulesDigest, rulesRead := reportProjectRulesEnvelope(s, run.ID)
 	return map[string]any{
 		"Feature":            run.Feature,
 		"Mode":               run.Mode,
@@ -560,8 +670,18 @@ func buildReportData(run *db.Run, repos []reportRepo, phases []db.Phase, execOrd
 	}
 }
 
-func reportProjectRulesEnvelope() (status, digest, read string) {
+func reportProjectRulesEnvelope(s *db.Store, runID int64) (status, digest, read string) {
 	st, err := computeProjectRulesStatus(currentProjectRoot())
+	if err == nil && st.Status != "" && st.Status != "missing" && st.Status != "stale" {
+		return st.Status, st.RulesDigest, "yes"
+	}
+	if s != nil {
+		if evidence, err := s.LatestReviewEvidence(runID); err == nil {
+			if result := loadReportReviewResult(evidence); result != nil && strings.TrimSpace(result.ProjectRules.Status) != "" {
+				return result.ProjectRules.Status, result.ProjectRules.Digest, result.ProjectRules.Read
+			}
+		}
+	}
 	if err != nil {
 		return "missing", "", "no"
 	}
@@ -595,7 +715,7 @@ func reportAgentTelemetryLine(agents []db.AgentRun) string {
 		if counts["FAILED"] == 0 && counts["ABORTED"] == 0 {
 			status = "OK"
 		} else {
-			status = "OK_WITH_RETRIES"
+			status = "OK_RECOVERED"
 		}
 	}
 	return fmt.Sprintf("%s - %d agents recorded; open=%d completed=%d failed=%d aborted=%d",

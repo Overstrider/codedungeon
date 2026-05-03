@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,51 @@ func TestNormalizeModelTierAliases(t *testing.T) {
 		if got != want {
 			t.Fatalf("normalizeModelTier(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestConfigModelsShowsActiveLockAndCompiledDefaultsSeparately(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	dbPath := filepath.Join(root, ".codedungeon", "codedungeon.db")
+	s, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"model_reasoning": "claude-sonnet-4-6",
+		"model_fast":      "claude-sonnet-4-6",
+		"model_lock":      "claude-sonnet-4-6",
+	} {
+		if err := s.SetMeta(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := ConfigCmd()
+	cmd.SetArgs([]string{"models"})
+	out, err := executeCommandInDir(root, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode output %q: %v", out, err)
+	}
+	if payload["model_lock"] != "claude-sonnet-4-6" {
+		t.Fatalf("model_lock missing: %+v", payload)
+	}
+	if _, ok := payload["compiled_defaults"]; !ok {
+		t.Fatalf("compiled_defaults missing: %+v", payload)
+	}
+	if _, ok := payload["defaults"]; ok {
+		t.Fatalf("config models should not expose ambiguous defaults key: %+v", payload)
 	}
 }
 

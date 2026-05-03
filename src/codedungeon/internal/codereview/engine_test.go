@@ -3,6 +3,7 @@ package codereview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,9 +15,13 @@ import (
 type fakeRunner struct {
 	personas map[string]PersonaReview
 	decision *Decision
+	failures map[string]error
 }
 
 func (f fakeRunner) RunPersona(_ context.Context, _ Request, persona string, outPath string) error {
+	if err := f.failures[persona]; err != nil {
+		return err
+	}
 	review, ok := f.personas[persona]
 	if !ok {
 		return os.ErrNotExist
@@ -25,10 +30,60 @@ func (f fakeRunner) RunPersona(_ context.Context, _ Request, persona string, out
 }
 
 func (f fakeRunner) RunAdjudicator(_ context.Context, _ Request, _ []PersonaReview, outPath string) error {
+	if err := f.failures["adjudicator"]; err != nil {
+		return err
+	}
 	if f.decision == nil {
 		return os.ErrNotExist
 	}
 	return writeTestJSON(outPath, *f.decision)
+}
+
+func TestExecuteFailureDoesNotLeaveStalePublishedReviewArtifacts(t *testing.T) {
+	req := validRequest(t)
+	if err := os.MkdirAll(req.OutputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staleSummary := filepath.Join(req.OutputDir, "review-summary.json")
+	staleResult := filepath.Join(req.OutputDir, "review-result.json")
+	if err := os.WriteFile(staleSummary, []byte(`{"verdict":"CHANGES_REQUESTED","stale":true}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleResult, []byte(`{"verdict":"CHANGES_REQUESTED","stale":true}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := fakeRunner{
+		personas: approvedPersonas(),
+		failures: map[string]error{"security": errors.New("provider rate limit")},
+	}
+
+	_, err := Execute(context.Background(), req, runner)
+	if err == nil {
+		t.Fatal("Execute succeeded despite provider failure")
+	}
+	for _, stalePath := range []string{staleSummary, staleResult, filepath.Join(req.OutputDir, "review.md"), filepath.Join(req.OutputDir, "review.json")} {
+		if _, statErr := os.Stat(stalePath); !os.IsNotExist(statErr) {
+			t.Fatalf("stale published artifact still exists after failed attempt: %s", stalePath)
+		}
+	}
+	failurePath := filepath.Join(req.OutputDir, "review-failure.json")
+	body, readErr := os.ReadFile(failurePath)
+	if readErr != nil {
+		t.Fatalf("review failure artifact missing: %v", readErr)
+	}
+	var failure ReviewFailure
+	if err := json.Unmarshal(body, &failure); err != nil {
+		t.Fatalf("review failure artifact invalid: %v\n%s", err, body)
+	}
+	if failure.AttemptID == "" || failure.Status != "FAILED" || failure.Persona != "security" || failure.FailureKind == "" {
+		t.Fatalf("failure artifact missing required fields: %+v", failure)
+	}
+	if failure.FailurePath == "" {
+		t.Fatalf("failure artifact should point at the failed attempt artifact: %+v", failure)
+	}
+	if _, err := os.Stat(filepath.Join(req.OutputDir, "attempts", failure.AttemptID)); err != nil {
+		t.Fatalf("attempt directory missing: %v", err)
+	}
 }
 
 func TestExecuteRejectsApprovedPersonasWithoutFinalDecision(t *testing.T) {
@@ -105,6 +160,50 @@ func TestExecuteRejectsApprovedDecisionWithActionableFinding(t *testing.T) {
 		t.Fatal("Execute accepted APPROVED while an actionable finding remained")
 	}
 	if !strings.Contains(err.Error(), "actionable") && !strings.Contains(err.Error(), "saboteur") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePersonaReviewAcceptsShortVerbatimEvidenceQuote(t *testing.T) {
+	review := approvedPersonas()["tests"]
+	review.Verdict = VerdictChangesRequested
+	review.ApprovalRationale = ""
+	review.RisksConsidered = nil
+	review.Findings = []reviewpipe.Finding{{
+		Severity:      "P2",
+		File:          "backend/tests/api_conversations.rs",
+		LineStart:     91,
+		LineEnd:       92,
+		Title:         "ordering assertion is missing",
+		EvidenceQuote: "assert_eq!(arr.len(), 2);",
+		SuggestedFix:  "Assert the ordered titles instead of only the row count.",
+	}}
+
+	if err := ValidatePersonaReview(review, review.ProjectRules); err != nil {
+		t.Fatalf("short verbatim evidence quote was rejected: %v", err)
+	}
+}
+
+func TestValidatePersonaReviewRejectsPlaceholderEvidenceQuote(t *testing.T) {
+	review := approvedPersonas()["tests"]
+	review.Verdict = VerdictChangesRequested
+	review.ApprovalRationale = ""
+	review.RisksConsidered = nil
+	review.Findings = []reviewpipe.Finding{{
+		Severity:      "P2",
+		File:          "backend/tests/api_conversations.rs",
+		LineStart:     91,
+		LineEnd:       92,
+		Title:         "ordering assertion is missing",
+		EvidenceQuote: "exact quote",
+		SuggestedFix:  "Assert the ordered titles instead of only the row count.",
+	}}
+
+	err := ValidatePersonaReview(review, review.ProjectRules)
+	if err == nil {
+		t.Fatal("placeholder evidence quote was accepted")
+	}
+	if !strings.Contains(err.Error(), "evidence_quote") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

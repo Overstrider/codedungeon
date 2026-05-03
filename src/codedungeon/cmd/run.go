@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -19,10 +18,11 @@ import (
 
 	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
-	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/projectcontext"
 	"github.com/loldinis/codedungeon/internal/provider"
 	qamod "github.com/loldinis/codedungeon/internal/qa"
+	"github.com/loldinis/codedungeon/internal/recovery"
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 func RunCmd() *cobra.Command {
@@ -139,10 +139,14 @@ func runStartE(c *cobra.Command, _ []string) error {
 	}
 
 	if err := executeProviderChild(root, mode, childPrompt, runID, sessionID, token); err != nil {
-		_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_failed", Detail: err.Error()})
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
-		_ = abortOpenAgentRuns(s, runID, sessionID, runnerAgentID, "runner child failed before returning control", err.Error())
+		report, recovered, recoverErr := recoverAfterProviderChildFailure(root, s, runID, sessionID, token, runnerAgentID, err)
+		if recoverErr != nil {
+			return EmitErr("codedungeon runner failed: "+err.Error()+"; recovery failed: "+recoverErr.Error(), strings.Join(finalizeDiagnosticCommands(recoverErr), "\n"))
+		}
+		if recovered {
+			fmt.Print(report)
+			return nil
+		}
 		return EmitErr("codedungeon runner failed: "+err.Error(), "")
 	}
 	if mode == "rules" {
@@ -165,6 +169,57 @@ func runStartE(c *cobra.Command, _ []string) error {
 	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "ready_for_user_review", Detail: branch})
 	fmt.Print(report)
 	return nil
+}
+
+func recoverAfterProviderChildFailure(root string, s *db.Store, runID int64, sessionID, token string, runnerAgentID int64, childErr error) (string, bool, error) {
+	if childErr == nil {
+		return "", false, nil
+	}
+	message := childErr.Error()
+	if err := s.UpdateRunSessionStatus(sessionID, "FAILED", message); err != nil {
+		return "", false, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_failed", Detail: message})
+	if err := recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", message); err != nil {
+		return "", false, err
+	}
+	if err := abortOpenAgentRuns(s, runID, sessionID, runnerAgentID, "runner child failed before returning control", message); err != nil {
+		return "", false, err
+	}
+	runRow, err := s.GetRun(runID)
+	if err != nil {
+		return "", false, err
+	}
+	if runRow == nil || strings.EqualFold(runRow.Mode, "RULES") {
+		return "", false, nil
+	}
+	recoveredSession, err := startRecoveredFinalizationSession(s, runRow, "")
+	if err != nil {
+		return "", false, err
+	}
+	if recoveredSession == nil {
+		return "", false, nil
+	}
+	if err := abortOpenAgentRuns(s, runID, recoveredSession.RecoveredFromID, 0, "stale agent closed during provider-child recovery", "final gates recovered after provider child failure"); err != nil {
+		return "", false, err
+	}
+	report, err := finalizeRun(root, s, runRow, recoveredSession.ID, recoveredSession.Token, 0)
+	if err != nil {
+		_ = s.UpdateRunSessionStatus(recoveredSession.ID, "FAILED", err.Error())
+		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: recoveredSession.ID, Event: "report_failed", Detail: err.Error()})
+		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: recoveredSession.ID, Event: "session_recovery_blocked", Detail: recoveredSession.RecoveredFromID})
+		return "", false, err
+	}
+	if err := completeOpenRunnerAgents(s, runID, recoveredSession.ID, 0, "final report rendered after provider-child recovery"); err != nil {
+		return "", false, err
+	}
+	if err := s.UpdateRunSessionStatus(recoveredSession.ID, "READY_FOR_USER_REVIEW", ""); err != nil {
+		return "", false, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: recoveredSession.ID, Event: "session_recovered", Detail: recoveredSession.RecoveredFromID})
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: recoveredSession.ID, Event: "provider_child_recovered", Detail: message})
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: recoveredSession.ID, Event: "ready_for_user_review", Detail: runRow.Branch})
+	return report, true, nil
 }
 
 func addRunStartFlags(c *cobra.Command) {
@@ -277,7 +332,11 @@ func runStatusCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess})
+			rec, err := recovery.InspectRunSession(s, run.ID, time.Now())
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess, "recovery": rec})
 		},
 	}
 }
@@ -334,9 +393,24 @@ func runFinalizeCmd() *cobra.Command {
 					"report_path":    plan.reportPath,
 				})
 			}
+			recoveredSession, err := startRecoveredFinalizationSession(s, run, sessionID)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if recoveredSession != nil {
+				sessionID = recoveredSession.ID
+				token = recoveredSession.Token
+				if err := abortOpenAgentRuns(s, run.ID, recoveredSession.RecoveredFromID, 0, "stale agent closed during recovered finalization", "final gates recovered after session failure"); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+			}
 			report, err := finalizeRun(root, s, run, sessionID, token, 0)
 			if err != nil {
 				_ = abortOpenAgentRuns(s, run.ID, sessionID, 0, "finalize failed before READY_FOR_USER_REVIEW", err.Error())
+				if recoveredSession != nil {
+					_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
+					_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
+				}
 				return EmitErr("run finalize failed: "+err.Error(), "")
 			}
 			if sessionID != "" {
@@ -346,6 +420,9 @@ func runFinalizeCmd() *cobra.Command {
 				if err := s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", ""); err != nil {
 					return EmitErr(err.Error(), "")
 				}
+				if recoveredSession != nil {
+					_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "session_recovered", Detail: recoveredSession.RecoveredFromID})
+				}
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "ready_for_user_review", Detail: run.Branch})
 			}
 			fmt.Print(report)
@@ -354,6 +431,62 @@ func runFinalizeCmd() *cobra.Command {
 	}
 	c.Flags().Bool("dry-run", false, "diagnose finalization gates without mutating run state")
 	return c
+}
+
+type recoveredFinalizationSession struct {
+	ID              string
+	Token           string
+	RecoveredFromID string
+}
+
+func startRecoveredFinalizationSession(s *db.Store, run *db.Run, currentSessionID string) (*recoveredFinalizationSession, error) {
+	if currentSessionID != "" || run == nil {
+		return nil, nil
+	}
+	latest, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil || !recoverableRunSessionStatus(latest.Status) {
+		return nil, nil
+	}
+	sessionID, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	token, err := randomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	mode := latest.Mode
+	if strings.TrimSpace(mode) == "" {
+		mode = strings.ToLower(run.Mode)
+	}
+	providerName := latest.Provider
+	if strings.TrimSpace(providerName) == "" {
+		providerName = provider.Detect().Name()
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          sessionID,
+		RunID:       run.ID,
+		Provider:    providerName,
+		Mode:        mode,
+		TokenSHA256: hashSessionToken(token),
+		Status:      "RUNNING",
+	}); err != nil {
+		return nil, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "session_recovery_started", Detail: latest.ID})
+	return &recoveredFinalizationSession{ID: sessionID, Token: token, RecoveredFromID: latest.ID}, nil
+}
+
+func recoverableRunSessionStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FAILED", "ABORTED":
+		return true
+	default:
+		return false
+	}
 }
 
 func finalizationPhaseNames(phases []finalizablePhase) []string {
@@ -404,18 +537,19 @@ func runUnlockCmd() *cobra.Command {
 			if run == nil {
 				return EmitErr("no active run", "")
 			}
-			sess, err := s.ActiveRunSession(run.ID)
+			rec, err := recovery.AbortActiveRunSession(s, run.ID, reason, recovery.AbortOptions{
+				IncludeAutonomousRunner: true,
+				Summary:                 "manual recovery unlock",
+			})
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			if sess == nil {
-				return EmitJSON(map[string]any{"ok": true, "status": "no_active_session"})
-			}
-			if err := s.UpdateRunSessionStatus(sess.ID, "ABORTED", reason); err != nil {
-				return EmitErr(err.Error(), "")
-			}
-			_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "session_aborted", Detail: reason})
-			return EmitJSON(map[string]any{"ok": true, "session_id": sess.ID, "status": "ABORTED"})
+			return EmitJSON(map[string]any{
+				"ok":         true,
+				"session_id": rec.SessionID,
+				"status":     rec.Status,
+				"recovery":   rec,
+			})
 		},
 	}
 	c.Flags().String("reason", "", "why the session is being aborted")
@@ -505,17 +639,22 @@ func slugifyFeature(prompt string) string {
 }
 
 func autonomousChildPrompt(mode, prompt, branch string) string {
+	return autonomousChildPromptForProvider(provider.Detect().Name(), mode, prompt, branch)
+}
+
+func autonomousChildPromptForProvider(providerName, mode, prompt, branch string) string {
 	var skill string
 	switch mode {
 	case "full":
-		skill = ".agents/skills/main-quest/SKILL.md"
+		skill = childWorkflowPath(providerName, "main-quest")
 	case "lite":
-		skill = ".agents/skills/side-quest/SKILL.md"
+		skill = childWorkflowPath(providerName, "side-quest")
 	case "oneshot":
-		skill = ".agents/skills/one-shot/SKILL.md"
+		skill = childWorkflowPath(providerName, "one-shot")
 	case "rules":
-		skill = ".agents/skills/codedungeon/SKILL.md"
+		skill = childWorkflowPath(providerName, "codedungeon")
 	}
+	cmdName := codedungeonCommandForProvider(providerName)
 	return fmt.Sprintf(`You are the CodeDungeon autonomous child runner.
 
 Load and follow %s. The parent agent is no longer in control of workflow steps.
@@ -524,21 +663,34 @@ Required custody:
 - Use only the project-local codedungeon binary for workflow evidence.
 - A run and custody session already exist. Do not run phase init or create another run.
 - Do not manually write review reports, final reports, persona evidence, or DB rows.
-- Code review is isolated. Run the standalone module with ./.codex/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post; do not use legacy review run as final approval evidence.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Code review is isolated. Run the standalone module with %s code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post; do not use legacy review run as final approval evidence.
+- Run verification through %s qa run --phase 6 --fresh.
+- Finalize with %s run finalize. READY_FOR_USER_REVIEW can only come from codedungeon run finalize.
 - Do not merge pull requests.
 - Finish with the PR open for human review and merge.
 
 Agent telemetry:
 - Record every subagent, persona, validator, classifier, worker, or phase delegation.
-- Before spawning it, run: ./.codex/bin/codedungeon trace agent-start --phase "<phase>" --role "<role>" --agent-type "<agent_type>" --agent-name "<name>" --model "<model>" --reasoning-effort "<effort>" --task "<artifact-or-task>" --input-summary "<short summary>".
-- Save the returned agent_run_id. After the agent returns, run: ./.codex/bin/codedungeon trace agent-end --id "<agent_run_id>" --status COMPLETED|FAILED|ABORTED --summary "<short result>" --artifact "<primary artifact>" --error "<failure message if any>".
+- Before spawning it, run: %s trace agent-start --phase "<phase>" --role "<role>" --agent-type "<agent_type>" --agent-name "<name>" --model "<model>" --reasoning-effort "<effort>" --task "<artifact-or-task>" --input-summary "<short summary>".
+- Save the returned agent_run_id. After the agent returns, run: %s trace agent-end --id "<agent_run_id>" --status COMPLETED|FAILED|ABORTED --summary "<short result>" --artifact "<primary artifact>" --error "<failure message if any>".
 - Telemetry is informational and does not replace phase, QA, review, PR, or report gates.
 
 Workflow mode: %s
 Target branch: %s
 User prompt:
 %s
-`, skill, mode, branch, prompt)
+`, skill, cmdName, cmdName, cmdName, cmdName, cmdName, mode, branch, prompt)
+}
+
+func childWorkflowPath(providerName, workflow string) string {
+	switch providerName {
+	case "codex", "codex-cli":
+		return ".agents/skills/" + workflow + "/SKILL.md"
+	default:
+		return ".codedungeon/commands/" + workflow + ".md"
+	}
 }
 
 type finalizablePhase struct {
@@ -952,7 +1104,7 @@ func registerFinalizationArtifacts(root string, s *db.Store, runID int64, plan *
 		for _, path := range phase.artifacts {
 			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
 				RunID: runID, Module: "phase", OwnerType: "phase", OwnerID: fmt.Sprintf("%d:%s", runID, phase.phase),
-				Phase: phase.phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path,
+				Phase: phase.phase, Role: "artifact", Kind: artifactreg.KindForPathAtRoot(root, path), Path: path,
 				Metadata: map[string]any{"summary": phase.summary},
 			}); err != nil {
 				return err
@@ -963,7 +1115,7 @@ func registerFinalizationArtifacts(root string, s *db.Store, runID int64, plan *
 		for _, path := range phase7Handoff.Artifacts {
 			if err := artifactreg.RegisterIfExists(registry, artifactreg.Record{
 				RunID: runID, Module: "handoff", OwnerType: "handoff", OwnerID: fmt.Sprintf("%d:%s", runID, phase7Handoff.Phase),
-				Phase: phase7Handoff.Phase, Role: "artifact", Kind: artifactreg.KindForPath(path), Path: path,
+				Phase: phase7Handoff.Phase, Role: "artifact", Kind: artifactreg.KindForPathAtRoot(root, path), Path: path,
 				Metadata: map[string]any{"summary": phase7Handoff.Summary},
 			}); err != nil {
 				return err
@@ -1025,33 +1177,13 @@ func latestVerificationLogPaths(records []db.VerificationRecord) []string {
 }
 
 func abortOpenAgentRuns(s *db.Store, runID int64, sessionID string, excludeAgentID int64, summary, errorMessage string) error {
-	agents, err := s.AgentRuns(runID)
-	if err != nil {
-		return err
-	}
-	for _, agent := range agents {
-		if agent.Status != "RUNNING" || agent.ID == excludeAgentID {
-			continue
-		}
-		if agent.Role == "autonomous-runner" {
-			continue
-		}
-		if sessionID != "" && agent.SessionID != sessionID {
-			continue
-		}
-		if err := s.FinishAgentRun(agent.ID, "ABORTED", summary, agent.ArtifactPath, errorMessage); err != nil {
-			return err
-		}
-		_, _ = s.InsertAgentEvent(db.AgentEvent{
-			RunID:      runID,
-			AgentRunID: agent.ID,
-			SessionID:  agent.SessionID,
-			Phase:      agent.Phase,
-			Event:      "agent_aborted",
-			Detail:     firstNonEmpty(errorMessage, summary),
-		})
-	}
-	return nil
+	_, err := recovery.AbortOpenAgentRuns(s, runID, recovery.AgentAbortOptions{
+		SessionID:      sessionID,
+		ExcludeAgentID: excludeAgentID,
+		Summary:        summary,
+		ErrorMessage:   errorMessage,
+	})
+	return err
 }
 
 func completeOpenRunnerAgents(s *db.Store, runID int64, sessionID string, excludeAgentID int64, summary string) error {
@@ -1128,42 +1260,21 @@ func summaryForError(status, summary string) string {
 }
 
 func executeProviderChild(root, mode, prompt string, runID int64, sessionID, token string) error {
-	ad := osadapter.Detect()
 	p := provider.Detect()
-	env := append(os.Environ(),
-		envRunID+"="+fmt.Sprintf("%d", runID),
-		envSessionID+"="+sessionID,
-		envSessionToken+"="+token,
-	)
-	var name string
-	var args []string
-	switch p.Name() {
-	case "codex":
-		resolved, err := ad.FindTool("codex")
-		if err != nil {
-			return err
-		}
-		name = resolved
-		out := filepath.Join(root, provider.Detect().StateDir(), "runner-last-message.txt")
-		args = []string{"exec", "--cd", root, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "--output-last-message", out, "-"}
-	default:
-		resolved, err := ad.FindTool("claude")
-		if err != nil {
-			return err
-		}
-		name = resolved
-		args = []string{"--print", "--output-format", "stream-json", "--dangerously-skip-permissions", prompt}
-		prompt = ""
+	env := []string{
+		envRunID + "=" + fmt.Sprintf("%d", runID),
+		envSessionID + "=" + sessionID,
+		envSessionToken + "=" + token,
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = root
-	cmd.Env = env
-	if prompt != "" {
-		cmd.Stdin = strings.NewReader(prompt)
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return tooladapter.NewProviderRunner(nil).Run(context.Background(), tooladapter.ProviderRunRequest{
+		Provider:          p.Name(),
+		Root:              root,
+		Model:             providerChildModel(root, mode, p),
+		Prompt:            prompt,
+		Env:               env,
+		OutputLastMessage: filepath.Join(root, p.StateDir(), "runner-last-message.txt"),
+		Stream:            true,
+	})
 }
 
 func renderFinalReport(root string, runID int64, sessionID, token string) (string, error) {

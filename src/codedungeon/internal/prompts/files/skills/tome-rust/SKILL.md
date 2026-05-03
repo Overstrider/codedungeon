@@ -92,7 +92,7 @@ Read only the subset relevant to THIS change — do not front-load context:
 
 ## Subagent spawning
 
-If this agent itself needs to spawn sub-work (rare), follow `.claude/skills/summoning-circle-spawn/SKILL.md (or $HOME/.claude/plugins/local/codedungeon/skills/summoning-circle-spawn/SKILL.md as fallback)` — explicit type matrix, return contract, ROI hook auto-logged.
+If this agent itself needs to spawn sub-work (rare), follow `.claude/skills/summoning-circle-spawn/SKILL.md` — explicit type matrix, return contract, ROI hook auto-logged.
 
 ## Completion promise
 

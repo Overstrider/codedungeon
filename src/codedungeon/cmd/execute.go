@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
+	"github.com/loldinis/codedungeon/internal/recovery"
 	"github.com/loldinis/codedungeon/internal/taskexec"
 	"github.com/loldinis/codedungeon/internal/taskplanning"
 )
@@ -867,11 +868,16 @@ func executeStatusCmd() *cobra.Command {
 			}
 			attempts, _ := store.ExecutionAttempts(sessionID)
 			transitions, _ := store.ExecutionTransitions(sessionID)
+			rec, err := recovery.InspectExecutionSession(store, sessionID, currentProjectRoot(), time.Now())
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			return EmitJSON(map[string]any{
 				"ok":          true,
 				"session":     session,
 				"attempts":    attempts,
 				"transitions": transitions,
+				"recovery":    rec,
 			})
 		},
 	}
@@ -901,28 +907,16 @@ func executeRollbackCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 			defer store.Close()
-			attempts, err := store.ExecutionAttempts(sessionID)
+			plan, err := recovery.BuildRollbackPlan(store, sessionID, to)
 			if err != nil {
 				return EmitErr(err.Error(), "")
-			}
-			if len(attempts) == 0 {
-				return EmitErr("no execution attempts for session: "+sessionID, "")
-			}
-			target := attempts[0].HeadBefore
-			if strings.HasPrefix(to, "attempt-") {
-				var n int
-				_, _ = fmt.Sscanf(to, "attempt-%d", &n)
-				for _, attempt := range attempts {
-					if attempt.Attempt == n && attempt.HeadBefore != "" {
-						target = attempt.HeadBefore
-					}
-				}
 			}
 			return EmitJSON(map[string]any{
 				"ok":         true,
 				"session_id": sessionID,
-				"target":     target,
-				"command":    "git reset --hard " + target,
+				"target":     plan.Target,
+				"command":    plan.Command,
+				"rollback":   plan,
 			})
 		},
 	}

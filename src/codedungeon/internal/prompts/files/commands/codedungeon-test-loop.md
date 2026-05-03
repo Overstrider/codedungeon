@@ -2,6 +2,14 @@
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context "$TASK_DIR/PLAN.md" --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
 Test execution loop for one repo: integration → API → E2E. Failures create fix tasks that re-enter the dev loop via `/codedungeon-loop`.
 
 Deterministic mechanics (branch guard, plan parsing, curl validation, fix-task generation, framework detect) delegated to `codedungeon`. LLM-driven: integration test specialist, playwright wraith-tester-frontend, owl-tester-quality.
@@ -140,7 +148,6 @@ Playwright skill resolution:
 ```bash
 PLAYWRIGHT_SKILL_PATH=""
 for p in \
-  "$HOME/.claude/plugins/local/codedungeon/skills/crystal-ball-e2e/SKILL.md" \
   ".claude/skills/crystal-ball-e2e/SKILL.md"; do
   [ -f "$p" ] && PLAYWRIGHT_SKILL_PATH="$p" && break
 done

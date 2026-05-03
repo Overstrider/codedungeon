@@ -47,9 +47,6 @@ func TestDetectDefaultsToClaude(t *testing.T) {
 	if p.ReviewsDir() != filepath.Join(".codedungeon", "reviews") {
 		t.Fatalf("reviews dir = %q, want .codedungeon/reviews", p.ReviewsDir())
 	}
-	if !p.HasPluginSystem() {
-		t.Fatalf("claude should keep plugin system enabled")
-	}
 }
 
 func TestDetectUsesBuildTimeDefaultProvider(t *testing.T) {
@@ -127,9 +124,6 @@ func TestDetectCodexProvider(t *testing.T) {
 	if p.ReviewsDir() != filepath.Join(".codedungeon", "reviews") {
 		t.Fatalf("reviews dir = %q, want .codedungeon/reviews", p.ReviewsDir())
 	}
-	if p.HasPluginSystem() {
-		t.Fatalf("codex provider should not use Claude plugin install flow")
-	}
 	if p.SupportsThinking() {
 		t.Fatalf("codex spawn prompts should not emit Claude max_thinking_tokens")
 	}
@@ -181,5 +175,13 @@ func TestClaudeRequiresDangerouslySkipPermissions(t *testing.T) {
 func TestCodexDoesNotUseClaudePermissionBypass(t *testing.T) {
 	if args := (Codex{}).RequiredCLIArgs(); len(args) != 0 {
 		t.Fatalf("codex required cli args = %#v, want empty", args)
+	}
+}
+
+func TestReviewCommentMarkerIsCanonicalAcrossProviders(t *testing.T) {
+	for _, p := range []Provider{Claude{}, Codex{}} {
+		if got := p.ReviewCommentMarker(); got != "CodeDungeon Code Review" {
+			t.Fatalf("%s review marker = %q, want CodeDungeon Code Review", p.Name(), got)
+		}
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 func TestValidateTaskGraphRejectsCyclesAndUnsafeParallelWriteScopes(t *testing.T) {
@@ -270,6 +272,66 @@ func TestCodexRunnerFailsFastWhenNetworkSandboxIsActive(t *testing.T) {
 	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
 		t.Fatalf("runner should not create output when sandbox preflight fails, stat err=%v", statErr)
 	}
+}
+
+func TestClaudeRunnerPinsProjectLocalSonnetModel(t *testing.T) {
+	var captured tooladapter.Command
+	runner := ClaudeRunner{
+		WorkDir: "repo",
+		Model:   "claude-sonnet-4-6",
+		Runner: commandRunnerFunc(func(_ context.Context, cmd tooladapter.Command) (tooladapter.CommandResult, error) {
+			captured = cmd
+			return tooladapter.CommandResult{}, nil
+		}),
+	}
+
+	err := runner.RunPlanningAgent(context.Background(), AgentRequest{
+		Role:          "planner_architect",
+		SessionID:     "phase-4",
+		Round:         1,
+		ContextPacket: "project context",
+		OutputPath:    "out/planner_architect.json",
+		ProjectRules:  ProjectRulesEnvelope{Status: "approved", Digest: "digest", Read: "yes"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.Name != "claude" {
+		t.Fatalf("command name = %q, want claude", captured.Name)
+	}
+	for _, want := range []string{
+		"--setting-sources", "project,local",
+		"--strict-mcp-config",
+		"--dangerously-skip-permissions",
+		"--model", "claude-sonnet-4-6",
+	} {
+		if !containsString(captured.Args, want) {
+			t.Fatalf("claude planning args missing %q: %+v", want, captured.Args)
+		}
+	}
+	if containsString(captured.Args, "--fallback-model") {
+		t.Fatalf("claude planning args must not include fallback model: %+v", captured.Args)
+	}
+	for _, want := range []string{
+		"CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6",
+		"ANTHROPIC_MODEL=claude-sonnet-4-6",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=claude-sonnet-4-6",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-4-6",
+	} {
+		if !containsString(captured.Env, want) {
+			t.Fatalf("claude planning env missing %q: %+v", want, captured.Env)
+		}
+	}
+	if !strings.Contains(captured.Stdin, `"provider": "claude"`) ||
+		!strings.Contains(captured.Stdin, `"model": "claude-sonnet-4-6"`) {
+		t.Fatalf("planning prompt did not require Claude/Sonnet metadata:\n%s", captured.Stdin)
+	}
+}
+
+type commandRunnerFunc func(context.Context, tooladapter.Command) (tooladapter.CommandResult, error)
+
+func (f commandRunnerFunc) Run(ctx context.Context, cmd tooladapter.Command) (tooladapter.CommandResult, error) {
+	return f(ctx, cmd)
 }
 
 type fakeRunner struct {

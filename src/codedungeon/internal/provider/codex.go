@@ -23,10 +23,6 @@ func (Codex) StateDir() string    { return filepath.Join(".codedungeon", "state"
 func (Codex) PlansDir() string    { return filepath.Join(".codedungeon", "plans") }
 func (Codex) ReviewsDir() string  { return filepath.Join(".codedungeon", "reviews") }
 
-func (Codex) PluginDir() string            { return "" }
-func (Codex) PluginManifest(string) []byte { return nil }
-func (Codex) HasPluginSystem() bool        { return false }
-
 func (Codex) HomeGuardPaths() []string {
 	home, _ := os.UserHomeDir()
 	paths := []string{}
@@ -49,5 +45,5 @@ func (Codex) ModelAlternatives() []ModelConfig {
 }
 
 func (Codex) RequiredCLIArgs() []string   { return nil }
-func (Codex) ReviewCommentMarker() string { return "Codex Adversarial Code Review" }
+func (Codex) ReviewCommentMarker() string { return "CodeDungeon Code Review" }
 func (Codex) SupportsThinking() bool      { return false }

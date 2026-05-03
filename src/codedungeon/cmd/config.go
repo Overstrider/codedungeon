@@ -102,13 +102,15 @@ func configModelsCmd() *cobra.Command {
 			reasoningEffort, _ := s.GetMeta("model_reasoning_effort")
 			fast, _ := s.GetMeta("model_fast")
 			fastEffort, _ := s.GetMeta("model_fast_effort")
+			modelLock, _ := s.GetMeta("model_lock")
 			return EmitJSON(map[string]any{
-				"ok":               true,
-				"reasoning":        reasoning,
-				"reasoning_effort": reasoningEffort,
-				"fast":             fast,
-				"fast_effort":      fastEffort,
-				"defaults":         provider.Detect().DefaultModels(),
+				"ok":                true,
+				"reasoning":         reasoning,
+				"reasoning_effort":  reasoningEffort,
+				"fast":              fast,
+				"fast_effort":       fastEffort,
+				"model_lock":        modelLock,
+				"compiled_defaults": provider.Detect().DefaultModels(),
 			})
 		},
 	}
@@ -202,6 +204,9 @@ func configSetModelsCmd() *cobra.Command {
 			if err := s.SetMeta("model_fast_effort", cfg.FastEffort); err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if err := writeModelLockMeta(s, cfg); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			return EmitJSON(map[string]any{
 				"ok":               true,
 				"reasoning":        cfg.Reasoning,
@@ -216,6 +221,14 @@ func configSetModelsCmd() *cobra.Command {
 	c.Flags().String("fast", "", "model ID for fast/cheap tier")
 	c.Flags().String("fast-effort", "", "reasoning effort for fast/cheap tier")
 	return c
+}
+
+func writeModelLockMeta(s *db.Store, cfg provider.ModelConfig) error {
+	lock := ""
+	if provider.Detect().Name() == "claude" && strings.TrimSpace(cfg.Reasoning) != "" && strings.TrimSpace(cfg.Reasoning) == strings.TrimSpace(cfg.Fast) {
+		lock = strings.TrimSpace(cfg.Reasoning)
+	}
+	return s.SetMeta("model_lock", lock)
 }
 
 func completeModelConfigFromFlags(c *cobra.Command) (provider.ModelConfig, error) {

@@ -15,6 +15,15 @@ OLD/
 # Pre-purge tarballs (created by the refactor flow; ephemeral)
 /tmp/cd-*
 
+# Local generated smoke/e2e workspaces; never version these large artifacts.
+.tmp/
+examples/v4/
+examples/v5/
+examples/v6/
+examples/v7/
+examples/v8/
+examples/v9/
+
 # Legacy provider-local codedungeon state from old consumer projects.
 .claude/codedungeon.db*
 .claude/loldinis-state/

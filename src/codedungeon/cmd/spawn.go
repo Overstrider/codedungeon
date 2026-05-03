@@ -178,6 +178,8 @@ func codedungeonCommandForProvider(providerName string) string {
 	switch providerName {
 	case "codex", "codex-cli":
 		return "./.codex/bin/codedungeon"
+	case "claude", "claude-code", "claude-ce":
+		return "./.claude/bin/codedungeon"
 	default:
 		return "codedungeon"
 	}

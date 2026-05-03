@@ -14,6 +14,14 @@ PROJECT_RULES_READ: yes|no
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plans/one-shot/PLAN.md --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
 Minimal CodeDungeon workflow for a small change that still needs the safety rail of branch, commit, PR, and adversarial review.
 
 Use when the request is narrow enough for one planner pass and one implementation pass. Do not split into task files, do not run the phase pipeline, and do not call `codedungeon-loop`.
@@ -47,8 +55,8 @@ Stop.
 Run:
 
 ```bash
-CD=.claude/bin/codedungeon
-[ -x "$CD" ] || CD=codedungeon
+CD=./.claude/bin/codedungeon
+[ -x "$CD" ] || { echo "Status BLOCKED: run project-local codedungeon setup before /one-shot"; exit 2; }
 git rev-parse --is-inside-work-tree >/dev/null
 git remote get-url origin >/dev/null
 gh auth status

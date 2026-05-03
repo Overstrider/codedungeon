@@ -18,9 +18,9 @@ import (
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/manifest"
-	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/provider"
 	qamod "github.com/loldinis/codedungeon/internal/qa"
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 func QACmd() *cobra.Command {
@@ -666,7 +666,6 @@ type curlResult struct {
 }
 
 func runCurl(method, url string, headers map[string]string, body any) curlResult {
-	ad := osadapter.Detect()
 	if method == "" {
 		method = "GET"
 	}
@@ -684,12 +683,12 @@ func runCurl(method, url string, headers map[string]string, body any) curlResult
 		args = append(args, "-d", string(b))
 	}
 	start := time.Now()
-	out, errStr, err := ad.RunExec("", "curl", args...)
+	result, err := tooladapter.NewSystemRunner().Run(context.Background(), tooladapter.Command{Name: "curl", Args: args})
 	elapsed := int(time.Since(start).Milliseconds())
 	if err != nil {
-		return curlResult{Err: fmt.Errorf("curl: %s (%w)", errStr, err), TimeMs: elapsed}
+		return curlResult{Err: fmt.Errorf("curl: %s (%w)", result.Stderr, err), TimeMs: elapsed}
 	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
 	status := 0
 	if len(lines) >= 1 {
 		status, _ = strconv.Atoi(lines[0])

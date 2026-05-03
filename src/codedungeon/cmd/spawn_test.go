@@ -40,6 +40,9 @@ func TestBuildSpawnPromptForClaudeKeepsThinkingBudget(t *testing.T) {
 	if strings.Contains(got, "reasoning_effort") {
 		t.Fatalf("claude spawn prompt should not include codex reasoning effort:\n%s", got)
 	}
+	if !strings.Contains(got, "via ./.claude/bin/codedungeon config model fast") {
+		t.Fatalf("claude spawn prompt should point model lookup at project-local Claude binary:\n%s", got)
+	}
 }
 
 func TestBuildSpawnPromptForCodexOmitsClaudePermissionBypass(t *testing.T) {
@@ -65,5 +68,48 @@ func TestCodexPhaseAgentTypesHaveInstalledAgentConfigs(t *testing.T) {
 		if !installed[path] {
 			t.Fatalf("phase %s emits agent_type %q but %s is not installed", phase, agentType, path)
 		}
+	}
+}
+
+func TestAutonomousChildPromptDefaultsToClaudeProjectLocalSurfaces(t *testing.T) {
+	got := autonomousChildPromptForProvider("claude", "full", "ship feature", "feat/ship-feature")
+	for _, required := range []string{
+		".codedungeon/commands/main-quest.md",
+		"./.claude/bin/codedungeon",
+		"codedungeon code-review --url <PR URL>",
+		"codedungeon qa run --phase 6 --fresh",
+		"codedungeon run finalize",
+		"Do not write review reports manually",
+		"Do not write final reports manually",
+	} {
+		if !strings.Contains(got, required) {
+			t.Fatalf("claude child prompt missing %q:\n%s", required, got)
+		}
+	}
+	for _, forbidden := range []string{
+		".agents/skills/main-quest/SKILL.md",
+		"./.codex/bin/codedungeon",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("claude child prompt contains forbidden Codex surface %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestAutonomousChildPromptForCodexKeepsCodexProjectLocalSurfaces(t *testing.T) {
+	got := autonomousChildPromptForProvider("codex", "full", "ship feature", "feat/ship-feature")
+	for _, required := range []string{
+		".agents/skills/main-quest/SKILL.md",
+		"./.codex/bin/codedungeon",
+		"codedungeon code-review --url <PR URL>",
+		"codedungeon qa run --phase 6 --fresh",
+		"codedungeon run finalize",
+	} {
+		if !strings.Contains(got, required) {
+			t.Fatalf("codex child prompt missing %q:\n%s", required, got)
+		}
+	}
+	if strings.Contains(got, "./.claude/bin/codedungeon") {
+		t.Fatalf("codex child prompt contains Claude binary:\n%s", got)
 	}
 }

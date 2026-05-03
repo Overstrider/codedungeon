@@ -68,3 +68,47 @@ func TestValidateRenderedReportQualityAcceptsPRReport(t *testing.T) {
 		t.Fatalf("valid PR report rejected: %v", err)
 	}
 }
+
+func TestFinalReportDoesNotUseUnknownPlaceholdersForPassedGates(t *testing.T) {
+	root := setupGatedRun(t)
+	store := openTestStore(t, root)
+	defer store.Close()
+	run, err := store.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareRunFinalizationEvidence(t, root, store, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGitBranch(t, filepath.Join(root, "fake-bin"), run.Branch)
+
+	report, err := finalizeRun(root, store, run, "session-report", "token", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"Remaining findings: unknown",
+		"Tasks: unknown",
+		"Changed files: unknown",
+		"Cycles        unknown",
+		"last mode: not_run",
+		"Integration: n/a",
+		"API: n/a",
+		"E2E: n/a",
+	} {
+		if strings.Contains(report, forbidden) {
+			t.Fatalf("final report contains placeholder %q:\n%s", forbidden, report)
+		}
+	}
+	for _, want := range []string{
+		"Remaining findings: none",
+		"Verification: go test ./...: PASS",
+		"Review        APPROVED",
+		"PROJECT_RULES_STATUS: approved",
+		"PROJECT_RULES_DIGEST: rules-digest",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("final report missing %q:\n%s", want, report)
+		}
+	}
+}

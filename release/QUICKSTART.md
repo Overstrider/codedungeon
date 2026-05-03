@@ -38,7 +38,7 @@ Codex setup:
 
 1. Copies the project binary to `.codex/bin/codedungeon`.
 2. Creates `.codedungeon/codedungeon.db`.
-3. Installs Codex agents and config under `.codex/`, including `multi_agent_v2` for custom subagents. Unless `--skip-global` is passed, setup also runs `codex features enable multi_agent_v2` so Codex accepts the installed custom agents.
+3. Installs Codex agents and config under `.codex/`, including project-local `multi_agent_v2` config for custom subagents. Runtime Codex launches that need custom agents use `--enable multi_agent_v2`; setup does not persist user-global feature flags.
 4. Installs workflow/domain skills under `.agents/skills/`.
 5. Installs editable commands, phases, tasks/plans/state/reviews/memory folders under `.codedungeon/`.
 6. Writes a codedungeon section to `AGENTS.md`.
@@ -49,7 +49,7 @@ Claude setup:
 codedungeon-claude setup
 ```
 
-Claude setup installs `.claude/*`, `.codedungeon/*`, `CLAUDE.md`, and the global Claude plugin.
+Claude setup installs `.claude/*`, `.codedungeon/*`, and `CLAUDE.md`. It does not install or depend on external plugin directories.
 
 Run Project Rules discovery before the first real task:
 
@@ -60,6 +60,8 @@ $codedungeon --rules
 ```
 
 Project Rules discovery deep-reads the repo, drafts `.codedungeon/project-rules.md`, asks for user confirmation, then generates `.codedungeon/project-rules.compact.md`. Workflows read approved compact rules before planning, executing, reviewing, or reporting completion.
+
+Optional pre-run helper: use `$task-maker` in Codex or `/task-maker` in Claude Code when the request is still rough. It asks short clarifying questions, renders `.codedungeon/task-maker/sessions/<session>/request.json`, `design.md`, `prompt.txt`, and `output.md`, and prints a reviewed `$codedungeon --full "<prompt>"` or `/codedungeon --full "<prompt>"` command without starting the full workflow automatically.
 
 ## Requirements
 
@@ -76,13 +78,14 @@ After Codex setup, invoke the promoted workflow router as a skill:
 - `$codedungeon --full <prompt>`: full phase workflow for complex or multi-repo work.
 - `$codedungeon --rules`: discover, approve, and compact project rules.
 - `$codedungeon <prompt>` or `$codedungeon --auto <prompt>`: automatically selects a mode and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+- `$task-maker`: clarify a rough task and prepare an English `$codedungeon --full` prompt before running it.
 - `$code-review`
 - `$codedungeon-test-loop`
 - `$cleanup-tasks`
 
 Editable command playbooks live in `.codedungeon/commands/`; Codex workflows are invoked through skills. Compatibility aliases remain available as `$one-shot`, `$side-quest`, and `$main-quest`.
 
-Claude Code uses the matching slash command router: `/codedungeon --oneshot|--lite|--full <prompt>`. Compatibility aliases remain available as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
+Claude Code uses the matching slash command router: `/codedungeon --oneshot|--lite|--full <prompt>`. It also installs `/task-maker` to clarify a rough task and prepare an English `/codedungeon --full` prompt before running it. Compatibility aliases remain available as `/one-shot`, `/side-quest`, `/main-quest`, and `/code-review`.
 
 `one-shot` intentionally creates or switches to a feature branch before running `codedungeon git guard`, because guard rejects protected branches such as `main`.
 

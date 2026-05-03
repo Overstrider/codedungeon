@@ -15,6 +15,7 @@ Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE
 | `--full` | `/codedungeon --full` | `$codedungeon --full` | Main Quest | Complex features, multi-repo work, full phase lifecycle, QA, tests, and final report. |
 | `--auto` | `/codedungeon --auto` | `$codedungeon --auto` | Router-selected | Explicit automatic selection. |
 | `--rules` | `/codedungeon --rules` | `$codedungeon --rules` | Project Rules Discovery | Deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact rules. |
+| Task Maker | `/task-maker` | `$task-maker` | Task Maker | Clarify a rough request, persist a minimal design, and prepare a reviewed English run-full prompt before a full run. |
 | Review | `/code-review` | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
 | Execute | n/a | n/a | Implementation Executor | Standalone `codedungeon execute task --task task.json` runner for one task contract at a time. |
 
@@ -27,6 +28,19 @@ Router validation:
 - `--rules` may run without a user prompt and must not be combined with another mode flag.
 - `--lite` requires a prior plan in `.codedungeon/plans/*.md` or an explicit plan path in the prompt.
 - Auto mode chooses `full` for complex, architectural, multi-repo, QA/test, or final-report work; `lite` when a plan exists and the prompt asks to execute, split, or continue simple planned work; and `oneshot` for small direct changes.
+
+## Task Maker
+
+Task Maker is available in both provider packs. Invoke `$task-maker` in Codex or `/task-maker` in Claude Code when the user has a rough request and wants help shaping it before `$codedungeon --full` or `/codedungeon --full`.
+
+The command or skill stays in the user's language during clarification, asks one material question per turn, and records assumptions for minor ambiguity. After the user confirms, it writes a request JSON and runs the renderer with the provider surface:
+
+```bash
+codedungeon task-maker render --surface codex --input .codedungeon/task-maker/sessions/<session>/request.json --out .codedungeon/task-maker/sessions/<session> --print
+codedungeon task-maker render --surface claude --input .codedungeon/task-maker/sessions/<session>/request.json --out .codedungeon/task-maker/sessions/<session> --print
+```
+
+The renderer writes `request.json`, `design.md`, `prompt.txt`, and `output.md`. The printed output always contains `# Task Maker Output`, a minimal design, a concise English run-full prompt, and a provider-native command: `$codedungeon --full "<prompt>"` for Codex or `/codedungeon --full "<prompt>"` for Claude Code. Task Maker must not start the run-full workflow automatically; the user decides whether to run the prompt after review.
 
 ## Project Rules
 

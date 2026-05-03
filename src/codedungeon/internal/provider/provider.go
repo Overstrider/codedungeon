@@ -26,10 +26,6 @@ type Provider interface {
 	PlansDir() string
 	ReviewsDir() string
 
-	PluginDir() string
-	PluginManifest(version string) []byte
-	HasPluginSystem() bool
-
 	HomeGuardPaths() []string
 
 	DefaultModels() ModelConfig

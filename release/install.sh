@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# codedungeon installer - detect OS, install provider-specific binary.
+# codedungeon installer - stage a provider-specific binary inside a git project.
 #
 # Usage:
-#   ./install.sh --provider codex
+#   ./install.sh --provider codex --target /path/to/project
 #   ./install.sh --provider claude
 #   ./install.sh codex
 #   ./install.sh claude
@@ -11,6 +11,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROVIDER=""
+TARGET=""
 
 normalize_provider() {
     case "$1" in
@@ -20,9 +21,25 @@ normalize_provider() {
     esac
 }
 
+detect_target() {
+    local requested="${1:-}"
+    if [[ -n "$requested" ]]; then
+        git -C "$requested" rev-parse --show-toplevel 2>/dev/null || {
+            echo "[ERROR] target is not inside a git project: $requested" >&2
+            exit 1
+        }
+        return
+    fi
+    git rev-parse --show-toplevel 2>/dev/null || {
+        echo "[ERROR] run from a git project or pass --target <project-root>" >&2
+        exit 1
+    }
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --provider) PROVIDER="${2:-}"; shift 2 ;;
+        --target) TARGET="${2:-}"; shift 2 ;;
         codex|claude|claude-code|claude-ce) PROVIDER="$1"; shift ;;
         --yes) shift ;;
         *) echo "[ERROR] unknown arg: $1"; exit 1 ;;
@@ -38,15 +55,16 @@ if [[ -z "$PROVIDER" ]]; then
     fi
 fi
 PROVIDER="$(normalize_provider "$PROVIDER")"
+TARGET="$(detect_target "$TARGET")"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case "$OS:$ARCH" in
-    linux:x86_64)   BIN="codedungeon-${PROVIDER}" ;;
-    linux:aarch64)  echo "[WARN] linux-arm64 not built - using amd64 via emulation"; BIN="codedungeon-${PROVIDER}" ;;
-    darwin:arm64)   BIN="codedungeon-${PROVIDER}-darwin-arm64" ;;
-    darwin:x86_64)  BIN="codedungeon-${PROVIDER}-darwin-amd64" ;;
-    *mingw*|*cygwin*|*msys*) BIN="codedungeon-${PROVIDER}.exe" ;;
+    linux:x86_64)   BIN="codedungeon-${PROVIDER}"; EXT="" ;;
+    linux:aarch64)  echo "[WARN] linux-arm64 not built - using amd64 via emulation"; BIN="codedungeon-${PROVIDER}"; EXT="" ;;
+    darwin:arm64)   BIN="codedungeon-${PROVIDER}-darwin-arm64"; EXT="" ;;
+    darwin:x86_64)  BIN="codedungeon-${PROVIDER}-darwin-amd64"; EXT="" ;;
+    *mingw*|*cygwin*|*msys*) BIN="codedungeon-${PROVIDER}.exe"; EXT=".exe" ;;
     *) echo "[ERROR] unsupported OS/arch: $OS/$ARCH"; exit 1 ;;
 esac
 
@@ -54,68 +72,25 @@ SRC="$HERE/bin/$BIN"
 [[ -x "$SRC" ]] || { echo "[ERROR] binary missing: $SRC"; exit 1; }
 echo "[OK] detected $OS/$ARCH -> $BIN"
 
-DEST_DIR="$HOME/.local/bin"
+DEST_DIR="$TARGET/.codedungeon/bin"
 mkdir -p "$DEST_DIR"
-DEST_BIN="$DEST_DIR/codedungeon-${PROVIDER}"
-[[ "$OS" == *mingw* || "$OS" == *msys* ]] && DEST_BIN="$HOME/.local/bin/codedungeon-${PROVIDER}.exe"
+DEST_BIN="$DEST_DIR/codedungeon-${PROVIDER}${EXT}"
 cp "$SRC" "$DEST_BIN"
 chmod +x "$DEST_BIN"
 echo "[OK] copied binary -> $DEST_BIN"
 
-if [[ "$PROVIDER" == "claude" ]]; then
-    PLUG="$HOME/.claude/plugins/local/codedungeon"
-    mkdir -p "$PLUG/bin" "$PLUG/skills"
-
-    PLUGIN_BIN="$PLUG/bin/codedungeon"
-    [[ "$OS" == *mingw* || "$OS" == *msys* ]] && PLUGIN_BIN="$PLUG/bin/codedungeon.exe"
-    cp "$SRC" "$PLUGIN_BIN"
-    chmod +x "$PLUGIN_BIN"
-    echo "[OK] plugin binary -> $PLUGIN_BIN"
-
-    rm -rf "$PLUG/skills/grimoire-cli"
-    cp -r "$HERE/skills/grimoire-cli" "$PLUG/skills/"
-    echo "[OK] skill -> $PLUG/skills/grimoire-cli/"
-
-    mkdir -p "$PLUG/.claude-plugin"
-    cat > "$PLUG/.claude-plugin/plugin.json" <<'JSON'
-{
-  "name": "codedungeon",
-  "version": "2.0.0",
-  "description": "Deterministic Go CLI for project pipelines: phase state, review, repo discovery, QA, code-review, task decomposition. SQLite FTS5 backend, embedded prompts.",
-  "author": { "name": "loldinis" }
-}
-JSON
-    echo "[OK] manifest -> $PLUG/.claude-plugin/plugin.json"
-else
-    echo "[OK] Codex provider selected; no global Claude plugin installed"
-fi
-
-BIN_CMD="$(basename "$DEST_BIN")"
-if ! command -v "$BIN_CMD" >/dev/null 2>&1; then
-    echo ""
-    echo "[WARN] $DEST_DIR is not on PATH. Either:"
-    echo "       1) add 'export PATH=\"\$HOME/.local/bin:\$PATH\"' to ~/.bashrc"
-    echo "       2) or call by full path: $DEST_BIN"
-else
-    echo "[OK] '$BIN_CMD' resolves -> $(command -v "$BIN_CMD")"
-fi
+echo "[OK] running project-local setup in $TARGET"
+CODEDUNGEON_PROVIDER="$PROVIDER" "$DEST_BIN" setup --target "$TARGET" --yes
 
 echo ""
 echo "=== Install complete ==="
 echo ""
-echo "Next steps:"
-echo "  1. cd into any git project"
-echo "  2. $BIN_CMD setup"
+echo "Project binary:"
+echo "  $DEST_BIN"
 if [[ "$PROVIDER" == "codex" ]]; then
-    echo "  3. Codex workflow router becomes available:"
-    echo "     \$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
-    echo "     Recommended first run: \$codedungeon --rules"
-    echo "     Compatibility aliases: \$main-quest, \$side-quest, \$one-shot"
+    echo "Codex workflow router:"
+    echo "  $ ./ .agents/skills/codedungeon/SKILL.md is installed for project use"
 else
-    echo "  3. Claude Code workflow router becomes available:"
-    echo "     /codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
-    echo "     Recommended first run: /codedungeon --rules"
-    echo "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
+    echo "Claude Code workflow router:"
+    echo "  /codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
 fi
-echo ""
-"$DEST_BIN" version --human

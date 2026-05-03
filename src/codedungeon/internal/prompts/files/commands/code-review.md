@@ -16,6 +16,16 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 
 Runs an **adversarial PR code review** on the current branch using a multi-persona fanout (Saboteur + New Hire + Security Auditor + Spec Enforcer) followed by per-finding validators and a stack-specific `{LANG}-specialist` pass. Posts results to GitHub as a PR comment with severity tiers P0/P1/P2 and a machine-parseable tally.
 
+Use only `./.claude/bin/codedungeon` for this command.
+
+Do not write review reports manually. The standalone module is the final adjudicator:
+
+```bash
+./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post
+```
+
+legacy `review run` output are invalid as final approval evidence. Never publish per-persona approvals as the PR verdict; post only the concise final adjudication from `codedungeon code-review`.
+
 **Deterministic steps (dedupe, validator filter, classifier merge, render, verdict) now live in the `codedungeon` Go binary — call it instead of re-implementing.** Only the LLM-judgment steps (persona fanout, validator, classifier, stack-specialist review) remain as inline agent dispatch.
 
 ## Parameters

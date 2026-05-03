@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 type PromptPlannerConfig struct {
@@ -166,12 +167,15 @@ func (r PlannerSplitterRunner) selectedModel() string {
 }
 
 func defaultPlannerCommandRunner(ctx context.Context, inv PlannerCommandInvocation) error {
-	cmd := exec.CommandContext(ctx, inv.Name, inv.Args...)
-	cmd.Stdin = strings.NewReader(inv.Stdin)
-	cmd.Stdout = os.Stdout
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	_, err := tooladapter.NewSystemRunner().Run(ctx, tooladapter.Command{
+		Name:   inv.Name,
+		Args:   inv.Args,
+		Stdin:  inv.Stdin,
+		Stdout: os.Stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
 		return fmt.Errorf("%s %s failed: %w: %s", inv.Name, strings.Join(inv.Args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return nil

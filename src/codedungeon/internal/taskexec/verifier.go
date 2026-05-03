@@ -1,14 +1,15 @@
 package taskexec
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 type ShellVerifier struct{}
@@ -41,22 +42,19 @@ func runVerificationCommand(ctx context.Context, root, repo, command string) Ver
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, fmt.Sprintf("verify-%d.log", time.Now().UnixNano()))
 
-	var cmd *exec.Cmd
-	if isWindows() {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+	runner := tooladapter.NewSystemRunner()
+	var cmdResult tooladapter.CommandResult
+	var err error
+	if runtime.GOOS == "windows" {
+		cmdResult, err = runner.Run(ctx, tooladapter.Command{Dir: cwd, Name: "powershell", Args: []string{"-NoProfile", "-Command", command}})
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmdResult, err = runner.RunShell(ctx, cwd, command, 0)
 	}
-	cmd.Dir = cwd
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
 	status := "PASS"
 	if err != nil {
 		status = "FAIL"
 	}
-	body := fmt.Sprintf("$ %s\n\n[stdout]\n%s\n\n[stderr]\n%s\n", command, stdout.String(), stderr.String())
+	body := fmt.Sprintf("$ %s\n\n[stdout]\n%s\n\n[stderr]\n%s\n", command, cmdResult.Stdout, cmdResult.Stderr)
 	if err != nil {
 		body += fmt.Sprintf("\n[error]\n%v\n", err)
 	}
@@ -66,8 +64,4 @@ func runVerificationCommand(ctx context.Context, root, repo, command string) Ver
 		result.Error = err.Error()
 	}
 	return result
-}
-
-func isWindows() bool {
-	return os.PathSeparator == '\\'
 }

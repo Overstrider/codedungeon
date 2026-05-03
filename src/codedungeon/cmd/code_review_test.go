@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/loldinis/codedungeon/internal/codereview"
+	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/reviewpipe"
 )
 
@@ -75,6 +76,98 @@ func TestCodeReviewCommandRunsStandaloneFromFileRunner(t *testing.T) {
 	}
 	if summary.Verdict != codereview.VerdictApproved || summary.FullArtifacts.ResultJSONPath == "" {
 		t.Fatalf("unexpected summary artifact: %+v", summary)
+	}
+}
+
+func TestCodeReviewCommandEmitsStructuredFailureArtifact(t *testing.T) {
+	root := t.TempDir()
+	projectContext := filepath.Join(root, "project-context.md")
+	taskContext := filepath.Join(root, "task-context.md")
+	writeFile(t, projectContext, strings.Repeat("Project context for standalone review integrity and explicit approvals. ", 2))
+	writeFile(t, taskContext, strings.Repeat("Task context for implementing a backend and frontend with reviewable behavior. ", 2))
+
+	inputDir := filepath.Join(root, "review-input")
+	writeStandaloneReviewFixture(t, inputDir)
+	if err := os.Remove(filepath.Join(inputDir, "personas", "security.json")); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(root, "review-out")
+
+	cmd := CodeReviewCmd()
+	cmd.SetArgs([]string{
+		"--url", "https://github.com/acme/example/pull/1",
+		"--project-context", projectContext,
+		"--task-context", taskContext,
+		"--project-rules-status", "approved",
+		"--project-rules-digest", "rules-digest",
+		"--out", outDir,
+		"--runner", "files",
+		"--input-dir", inputDir,
+	})
+	out, err := executeCommandInDir(root, cmd)
+	if err == nil {
+		t.Fatalf("code-review unexpectedly succeeded:\n%s", out)
+	}
+	var payload struct {
+		OK          bool   `json:"ok"`
+		Error       string `json:"error"`
+		AttemptID   string `json:"attempt_id"`
+		FailureKind string `json:"failure_kind"`
+		FailurePath string `json:"failure_path"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode output %q: %v", out, err)
+	}
+	if payload.OK || payload.Error == "" || payload.AttemptID == "" || payload.FailureKind == "" || payload.FailurePath == "" {
+		t.Fatalf("structured failure fields missing: %+v", payload)
+	}
+	if _, err := os.Stat(payload.FailurePath); err != nil {
+		t.Fatalf("failure_path not readable: %v", err)
+	}
+}
+
+func TestCodeReviewRunnerSupportsClaudeProvider(t *testing.T) {
+	runner, err := codeReviewRunner("claude", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := runner.(codereview.ClaudeRunner); !ok {
+		t.Fatalf("runner type = %T, want codereview.ClaudeRunner", runner)
+	}
+}
+
+func TestCodeReviewRunnerUsesConfiguredClaudeFastModel(t *testing.T) {
+	root := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMeta("model_fast", "claude-sonnet-4-6"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, err := codeReviewRunner("claude", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeRunner, ok := runner.(codereview.ClaudeRunner)
+	if !ok {
+		t.Fatalf("runner type = %T, want codereview.ClaudeRunner", runner)
+	}
+	if claudeRunner.Model != "claude-sonnet-4-6" {
+		t.Fatalf("claude review model = %q, want claude-sonnet-4-6", claudeRunner.Model)
 	}
 }
 

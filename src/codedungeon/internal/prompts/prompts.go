@@ -207,6 +207,9 @@ func packFor(providerName string) pack {
 
 func (p pack) installPath(rel string) (string, bool) {
 	if p.provider == "claude" {
+		if rel == "settings.json" {
+			return ".claude/settings.json", true
+		}
 		if !hasInstallPrefix(rel) {
 			return "", false
 		}
@@ -267,7 +270,7 @@ func artifactKind(rel string) string {
 	switch {
 	case rel == "AGENTS.md":
 		return "project-instructions"
-	case rel == "config.toml":
+	case rel == "config.toml", rel == "settings.json":
 		return "provider-config"
 	case strings.HasPrefix(rel, "agents/"):
 		return "agent"

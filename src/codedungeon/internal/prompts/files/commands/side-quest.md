@@ -14,6 +14,14 @@ PROJECT_RULES_READ: yes|no
 
 Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
 
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
 Lightweight pipeline. Reads a Claude Code plan (`.codedungeon/plans/*.md`), splits into tasks, runs the ralph loop (codedungeon-loop), runs adversarial code review, ends with approved PR. No architect, no QA, no tests, no report — just plan → split → execute → review → PR.
 
 **Deterministic mechanics (branch guard, plan parsing, PR creation, fix-task generation) delegated to `codedungeon`. Only LLM work (task decomposition, specialist plan/exec/review, persona fanout) is inline.**

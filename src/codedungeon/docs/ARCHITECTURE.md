@@ -18,7 +18,6 @@ Provider differences are isolated behind `internal/provider.Provider`:
 - project instruction file: `AGENTS.md` or `CLAUDE.md`
 - model defaults
 - review marker
-- plugin support
 - thinking-token support
 
 ## Prompt Packs
@@ -30,7 +29,7 @@ Embedded prompt packs live in `internal/prompts/`:
 
 The shared phase lifecycle stays provider-agnostic. Provider-native mechanics live in the pack content:
 
-- Codex installs `.codex/agents/*.toml`, `.codex/config.toml` with `multi_agent_v2`, `AGENTS.md`, `.agents/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Setup also enables Codex's global `multi_agent_v2` feature flag unless `--skip-global` is passed, because project-local config alone is not sufficient in current Codex CLI builds. The project config leaves `agents.max_threads` and `agents.max_depth` unset so current Codex builds can use their defaults while the feature flag is active.
+- Codex installs `.codex/agents/*.toml`, `.codex/config.toml` with `multi_agent_v2`, `AGENTS.md`, `.agents/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Runtime Codex launches that need custom agents pass `--enable multi_agent_v2` directly; setup never persists user-global feature flags. The project config leaves `agents.max_threads` and `agents.max_depth` unset so current Codex builds can use their defaults while the feature flag is active.
 - Claude installs `.claude/agents/*`, `.claude/commands/*` wrappers, `.claude/skills/*`, `CLAUDE.md`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`.
 
 Commands, command wrappers, agents, skills, and phase prompts are tracked as installed artifacts with provider, pack id, pack version, install path, kind, logical name, sha256, and user-modified state.
@@ -55,14 +54,13 @@ Migration v5 canonicalizes Claude metadata from `claude-code`/`claude-ce` to `cl
 `setup` is the human-friendly entry point:
 
 1. Verify the target is a git project and not inside provider home config.
-2. Install global plugin only when the provider has a plugin system.
-3. Pick or accept model tiers.
-4. Run bootstrap.
-5. Migrate legacy runtime state from `.claude`/`.codex` into `.codedungeon`.
-6. Seed prompts and install provider-native bootstrap files plus editable commands/phases.
-7. Write the project instruction section.
+2. Pick or accept model tiers.
+3. Run bootstrap.
+4. Migrate legacy runtime state from `.claude`/`.codex` into `.codedungeon`.
+5. Seed prompts and install provider-native bootstrap files plus editable commands/phases.
+6. Write the project instruction section.
 
-Codex has no global plugin step. Claude installs the plugin under `~/.claude/plugins/local/codedungeon`.
+Setup is strictly project-local for every provider. Compatibility flags such as `--skip-global` remain accepted but do not enable global install behavior.
 
 ## Release Shape
 
@@ -71,9 +69,9 @@ Release builds produce provider-specific binaries. The provider is baked into th
 Installers:
 
 - root `install.sh` and `install.ps1` wrap release installers.
-- `release/install.sh` and `release/install.ps1` install local binaries.
-- Claude installation also installs the global Claude plugin and copies the plugin binary as `bin/codedungeon`.
-- Codex installation installs only the provider binary; project setup installs `.codex/*`, `.agents/skills/*`, and `.codedungeon/*`.
+- `release/install.sh` and `release/install.ps1` detect or accept a git project target, copy the selected provider binary to `<project>/.codedungeon/bin/codedungeon-<provider>`, then run project-local setup from that binary.
+- Claude project setup installs `.claude/*`, `.codedungeon/*`, and `CLAUDE.md`.
+- Codex project setup installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
 
 ## Adding Work
 

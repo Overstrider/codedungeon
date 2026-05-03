@@ -1,10 +1,6 @@
 package provider
 
-import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-)
+import "path/filepath"
 
 type Claude struct{}
 
@@ -24,31 +20,8 @@ func (Claude) StateDir() string    { return filepath.Join(".codedungeon", "state
 func (Claude) PlansDir() string    { return filepath.Join(".codedungeon", "plans") }
 func (Claude) ReviewsDir() string  { return filepath.Join(".codedungeon", "reviews") }
 
-func (Claude) PluginDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", "plugins", "local", "codedungeon")
-}
-
-func (Claude) HasPluginSystem() bool { return true }
-
-func (Claude) PluginManifest(version string) []byte {
-	m := map[string]any{
-		"name":        "codedungeon",
-		"version":     version,
-		"description": "Deterministic Go CLI for autonomous dev pipelines. SQLite (FTS5) state, embedded prompts, project-scoped.",
-		"author":      map[string]string{"name": "loldinis"},
-	}
-	b, _ := json.MarshalIndent(m, "", "  ")
-	b = append(b, '\n')
-	return b
-}
-
 func (Claude) HomeGuardPaths() []string {
-	home, _ := os.UserHomeDir()
 	paths := []string{"/root/.claude"}
-	if home != "" {
-		paths = append([]string{filepath.Join(home, ".claude")}, paths...)
-	}
 	return paths
 }
 
@@ -65,5 +38,5 @@ func (Claude) ModelAlternatives() []ModelConfig {
 }
 
 func (Claude) RequiredCLIArgs() []string   { return []string{"--dangerously-skip-permissions"} }
-func (Claude) ReviewCommentMarker() string { return "Claude Adversarial Code Review" }
+func (Claude) ReviewCommentMarker() string { return "CodeDungeon Code Review" }
 func (Claude) SupportsThinking() bool      { return true }

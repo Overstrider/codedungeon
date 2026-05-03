@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/loldinis/codedungeon/internal/clauderuntime"
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 type Runner interface {
@@ -35,6 +37,7 @@ func (r FilesRunner) RunPlanningAgent(_ context.Context, req AgentRequest) error
 
 type CodexRunner struct {
 	WorkDir string
+	Runner  tooladapter.CommandRunner
 }
 
 func (r CodexRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) error {
@@ -45,13 +48,64 @@ func (r CodexRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) err
 	if workDir == "" {
 		workDir = "."
 	}
-	cmd := exec.CommandContext(ctx, "codex", "exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-")
-	cmd.Stdin = strings.NewReader(planningPrompt(req))
-	cmd.Stdout = os.Stdout
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	runner := r.Runner
+	if runner == nil {
+		runner = tooladapter.NewSystemRunner()
+	}
+	_, err := runner.Run(ctx, tooladapter.Command{
+		Dir:    workDir,
+		Name:   "codex",
+		Args:   []string{"exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-"},
+		Stdin:  planningPrompt(req),
+		Stdout: os.Stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
 		return fmt.Errorf("codex planning agent %s failed: %w: %s", req.Role, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+type ClaudeRunner struct {
+	WorkDir string
+	Model   string
+	Runner  tooladapter.CommandRunner
+}
+
+func (r ClaudeRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) error {
+	workDir := strings.TrimSpace(r.WorkDir)
+	if workDir == "" {
+		workDir = "."
+	}
+	model := strings.TrimSpace(r.Model)
+	if model == "" {
+		model = "claude-sonnet-4-6"
+	}
+	var stderr bytes.Buffer
+	runner := r.Runner
+	if runner == nil {
+		runner = tooladapter.NewSystemRunner()
+	}
+	_, err := runner.Run(ctx, tooladapter.Command{
+		Dir:  workDir,
+		Name: "claude",
+		Args: []string{
+			"--setting-sources", "project,local",
+			"--strict-mcp-config",
+			"-p", "Read the CodeDungeon planning prompt from stdin and execute it.",
+			"--output-format", "stream-json",
+			"--verbose",
+			"--dangerously-skip-permissions",
+			"--model", model,
+		},
+		Stdin:  planningPromptForProvider(req, "claude", model),
+		Env:    clauderuntime.ModelEnv(model),
+		Stdout: os.Stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
+		return fmt.Errorf("claude planning agent %s failed: %w: %s", req.Role, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }
@@ -62,6 +116,18 @@ func codexSandboxNetworkDisabled() bool {
 }
 
 func planningPrompt(req AgentRequest) string {
+	return planningPromptForProvider(req, "codex", "model-name")
+}
+
+func planningPromptForProvider(req AgentRequest, providerName, model string) string {
+	providerName = strings.TrimSpace(providerName)
+	if providerName == "" {
+		providerName = "codex"
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "model-name"
+	}
 	return fmt.Sprintf(`You are a CodeDungeon task-planning swarm agent.
 
 Role: %s
@@ -75,8 +141,8 @@ Required JSON shape:
 {
   "role": %q,
   "agent_name": "short-name",
-  "provider": "codex",
-  "model": "model-name",
+  "provider": %q,
+  "model": %q,
   "session_id": "session-or-run-id",
   "confidence": 0.75,
   "summary": "concrete planning result",
@@ -119,6 +185,6 @@ Rules:
 
 Context packet:
 %s
-`, req.Role, req.SessionID, req.Round, filepath.Clean(req.OutputPath), req.Role,
+`, req.Role, req.SessionID, req.Round, filepath.Clean(req.OutputPath), req.Role, providerName, model,
 		req.ProjectRules.Status, req.ProjectRules.Digest, req.ProjectRules.Read, req.ContextPacket)
 }

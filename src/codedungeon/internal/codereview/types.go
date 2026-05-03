@@ -1,6 +1,11 @@
 package codereview
 
-import "github.com/loldinis/codedungeon/internal/reviewpipe"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/loldinis/codedungeon/internal/reviewpipe"
+)
 
 const (
 	VerdictApproved         = "APPROVED"
@@ -8,6 +13,16 @@ const (
 
 	IntegrityPass = "PASS"
 	IntegrityFail = "FAIL"
+)
+
+type FailureKind string
+
+const (
+	FailureReviewValidation  FailureKind = "review_validation"
+	FailureProviderRateLimit FailureKind = "provider_rate_limit"
+	FailureProviderAuth      FailureKind = "provider_auth"
+	FailureProviderContext   FailureKind = "provider_context"
+	FailureProviderProcess   FailureKind = "provider_process"
 )
 
 var DefaultPersonas = []string{"saboteur", "newhire", "security", "spec", "tests"}
@@ -75,6 +90,7 @@ type ReviewArtifacts struct {
 	ResultJSONPath   string `json:"result_json_path"`
 	DecisionJSONPath string `json:"decision_json_path"`
 	PersonaDir       string `json:"persona_dir"`
+	AttemptDir       string `json:"attempt_dir,omitempty"`
 }
 
 type ReviewSummary struct {
@@ -93,6 +109,9 @@ type ReviewSummary struct {
 type Result struct {
 	URL               string               `json:"url"`
 	Verdict           string               `json:"verdict"`
+	AttemptID         string               `json:"attempt_id,omitempty"`
+	AttemptDir        string               `json:"attempt_dir,omitempty"`
+	PersonaDir        string               `json:"persona_dir,omitempty"`
 	ProjectRules      ProjectRulesEnvelope `json:"project_rules"`
 	Personas          []PersonaReview      `json:"personas"`
 	Decision          Decision             `json:"decision"`
@@ -105,4 +124,70 @@ type Result struct {
 	DecisionJSONPath  string               `json:"decision_json_path"`
 	Summary           ReviewSummary        `json:"summary"`
 	CommentURL        string               `json:"comment_url,omitempty"`
+}
+
+type ReviewFailure struct {
+	OK            bool        `json:"ok"`
+	AttemptID     string      `json:"attempt_id"`
+	Status        string      `json:"status"`
+	FailureKind   FailureKind `json:"failure_kind"`
+	Persona       string      `json:"persona,omitempty"`
+	Message       string      `json:"message"`
+	FailurePath   string      `json:"failure_path"`
+	RetryAfter    string      `json:"retry_after,omitempty"`
+	ResumeCommand string      `json:"resume_command,omitempty"`
+	CreatedAt     string      `json:"created_at"`
+}
+
+type ProviderFailureError struct {
+	Kind       FailureKind
+	Provider   string
+	Model      string
+	Message    string
+	RetryAfter string
+	Err        error
+}
+
+func (e ProviderFailureError) Error() string {
+	parts := []string{string(e.Kind)}
+	if strings.TrimSpace(e.Provider) != "" {
+		parts = append(parts, "provider="+strings.TrimSpace(e.Provider))
+	}
+	if strings.TrimSpace(e.Model) != "" {
+		parts = append(parts, "model="+strings.TrimSpace(e.Model))
+	}
+	if strings.TrimSpace(e.RetryAfter) != "" {
+		parts = append(parts, "retry_after="+strings.TrimSpace(e.RetryAfter))
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		parts = append(parts, strings.TrimSpace(e.Message))
+	}
+	if e.Err != nil {
+		parts = append(parts, e.Err.Error())
+	}
+	return strings.Join(parts, ": ")
+}
+
+func (e ProviderFailureError) Unwrap() error { return e.Err }
+
+func (e ProviderFailureError) Is(target error) bool {
+	other, ok := target.(ProviderFailureError)
+	return ok && other.Kind != "" && e.Kind == other.Kind
+}
+
+func providerFailure(kind FailureKind, provider, model, message string, err error) ProviderFailureError {
+	return ProviderFailureError{
+		Kind:     kind,
+		Provider: provider,
+		Model:    model,
+		Message:  strings.TrimSpace(message),
+		Err:      err,
+	}
+}
+
+func (k FailureKind) String() string {
+	if k == "" {
+		return string(FailureReviewValidation)
+	}
+	return fmt.Sprint(string(k))
 }

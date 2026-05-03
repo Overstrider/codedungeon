@@ -769,7 +769,7 @@ func (s *Store) LatestRunSession(runID int64) (*RunSession, error) {
 	row := s.DB.QueryRow(`
         SELECT id, run_id, provider, mode, token_sha256, status,
                started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
-        FROM run_sessions WHERE run_id=? ORDER BY started_at DESC LIMIT 1`, runID)
+        FROM run_sessions WHERE run_id=? ORDER BY started_at DESC, rowid DESC LIMIT 1`, runID)
 	var sess RunSession
 	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
 		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
@@ -786,7 +786,7 @@ func (s *Store) ActiveRunSession(runID int64) (*RunSession, error) {
         SELECT id, run_id, provider, mode, token_sha256, status,
                started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
         FROM run_sessions WHERE run_id=? AND status='RUNNING'
-        ORDER BY started_at DESC LIMIT 1`, runID)
+        ORDER BY started_at DESC, rowid DESC LIMIT 1`, runID)
 	var sess RunSession
 	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
 		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
@@ -803,7 +803,7 @@ func (s *Store) ActiveAnyRunSession() (*RunSession, error) {
         SELECT id, run_id, provider, mode, token_sha256, status,
                started_at, COALESCE(finished_at,0), COALESCE(failure_message,'')
         FROM run_sessions WHERE status='RUNNING'
-        ORDER BY started_at DESC LIMIT 1`)
+        ORDER BY started_at DESC, rowid DESC LIMIT 1`)
 	var sess RunSession
 	if err := row.Scan(&sess.ID, &sess.RunID, &sess.Provider, &sess.Mode, &sess.TokenSHA256,
 		&sess.Status, &sess.StartedAt, &sess.FinishedAt, &sess.FailureMessage); err != nil {
@@ -1352,7 +1352,7 @@ func (s *Store) LatestPlanningSession() (*PlanningSession, error) {
                COALESCE(rules_status,''), COALESCE(rules_digest,''), COALESCE(rules_read,''),
                human_gate_policy, status, output_dir, created_at, updated_at,
                COALESCE(finished_at,0), COALESCE(failure_message,'')
-        FROM planning_sessions ORDER BY created_at DESC, id DESC LIMIT 1`)
+        FROM planning_sessions ORDER BY updated_at DESC, created_at DESC, rowid DESC LIMIT 1`)
 	return scanPlanningSession(row)
 }
 

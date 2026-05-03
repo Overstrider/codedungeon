@@ -270,11 +270,19 @@ func mediaTypeForPath(path, artifactType string) string {
 }
 
 func KindForPath(path string) string {
+	return KindForPathAtRoot("", path)
+}
+
+func KindForPathAtRoot(root, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "file"
 	}
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
+	statPath := filepath.FromSlash(path)
+	if root != "" && !filepath.IsAbs(statPath) {
+		statPath = filepath.Join(root, statPath)
+	}
+	if info, err := os.Stat(statPath); err == nil && info.IsDir() {
 		return "directory"
 	}
 	ext := strings.ToLower(filepath.Ext(path))

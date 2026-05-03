@@ -50,7 +50,8 @@ func BuildReviewSummary(result Result) (ReviewSummary, error) {
 			ReviewJSONPath:   result.ReviewJSONPath,
 			ResultJSONPath:   result.ResultJSONPath,
 			DecisionJSONPath: result.DecisionJSONPath,
-			PersonaDir:       filepath.Join(filepath.Dir(result.ReviewJSONPath), "personas"),
+			PersonaDir:       firstNonEmpty(result.PersonaDir, filepath.Join(filepath.Dir(result.ReviewJSONPath), "personas")),
+			AttemptDir:       result.AttemptDir,
 		},
 	}, nil
 }
@@ -280,6 +281,15 @@ func emptyDefault(value, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(value)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func rulesContextLabel(rules ProjectRulesEnvelope) string {

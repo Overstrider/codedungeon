@@ -155,6 +155,8 @@ func RenderObserveReport(root string) (string, error) {
 
 	var b strings.Builder
 	summary := agentTelemetrySummary(agents)
+	readyAt := latestReadyForUserReviewAt(runEvents)
+	recoveredTerminalAgents := recoveredTerminalAgentStatuses(agents, readyAt)
 	fmt.Fprintln(&b, "# CodeDungeon Observability Report")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "- Run: %d\n", run.ID)
@@ -183,11 +185,17 @@ func RenderObserveReport(root string) (string, error) {
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Telemetry warnings")
-	warnings := telemetryWarnings(summary, agents)
+	warnings := telemetryWarningsWithReadyAt(summary, agents, readyAt)
 	for _, warning := range warnings {
 		fmt.Fprintf(&b, "- %s\n", warning)
 	}
 	fmt.Fprintln(&b)
+
+	if len(recoveredTerminalAgents) > 0 {
+		fmt.Fprintln(&b, "## Recovery")
+		fmt.Fprintf(&b, "- Recovered terminal agent statuses: %s\n", strings.Join(recoveredTerminalAgents, ", "))
+		fmt.Fprintln(&b)
+	}
 
 	fmt.Fprintln(&b, "## Phase Status")
 	if len(phases) == 0 {
@@ -204,7 +212,7 @@ func RenderObserveReport(root string) (string, error) {
 		fmt.Fprintln(&b, "- Status: none recorded")
 	} else {
 		fmt.Fprintf(&b, "- Session: %s\n", planning.ID)
-		fmt.Fprintf(&b, "- Status: %s\n", planning.Status)
+		fmt.Fprintf(&b, "- Status: %s\n", effectivePlanningStatus(planning, planningEvaluations, planningGraphs, runEvents))
 		fmt.Fprintf(&b, "- Human gate policy: %s\n", planning.HumanGatePolicy)
 		fmt.Fprintf(&b, "- Output: %s\n", planning.OutputDir)
 		fmt.Fprintf(&b, "- Planning agents: %d\n", len(planningAgents))
@@ -359,6 +367,10 @@ func agentTelemetrySummary(agents []db.AgentRun) map[string]any {
 }
 
 func telemetryWarnings(summary map[string]any, agents []db.AgentRun) []string {
+	return telemetryWarningsWithReadyAt(summary, agents, 0)
+}
+
+func telemetryWarningsWithReadyAt(summary map[string]any, agents []db.AgentRun, readyAt int64) []string {
 	open, _ := summary["open"].(int)
 	warnings := []string{fmt.Sprintf("open agent runs: %d", open)}
 	if len(agents) == 0 {
@@ -366,7 +378,7 @@ func telemetryWarnings(summary map[string]any, agents []db.AgentRun) []string {
 	}
 	var failed []string
 	for _, a := range agents {
-		if a.Status == "FAILED" || a.Status == "ABORTED" {
+		if isTerminalNonSuccessAgent(a) && !isRecoveredTerminalAgent(a, readyAt) {
 			failed = append(failed, fmt.Sprintf("#%d %s", a.ID, a.Status))
 		}
 	}
@@ -375,6 +387,97 @@ func telemetryWarnings(summary map[string]any, agents []db.AgentRun) []string {
 		warnings = append(warnings, "terminal non-success statuses: "+strings.Join(failed, ", "))
 	}
 	return warnings
+}
+
+func latestReadyForUserReviewAt(events []db.RunEvent) int64 {
+	var readyAt int64
+	for _, event := range events {
+		if event.Event == "ready_for_user_review" && event.CreatedAt >= readyAt {
+			readyAt = event.CreatedAt
+		}
+	}
+	return readyAt
+}
+
+func recoveredTerminalAgentStatuses(agents []db.AgentRun, readyAt int64) []string {
+	var recovered []string
+	for _, agent := range agents {
+		if isRecoveredTerminalAgent(agent, readyAt) {
+			recovered = append(recovered, fmt.Sprintf("#%d %s", agent.ID, agent.Status))
+		}
+	}
+	sort.Strings(recovered)
+	return recovered
+}
+
+func isRecoveredTerminalAgent(agent db.AgentRun, readyAt int64) bool {
+	return isTerminalNonSuccessAgent(agent) && readyAt > 0 && agent.FinishedAt > 0 && agent.FinishedAt <= readyAt
+}
+
+func isTerminalNonSuccessAgent(agent db.AgentRun) bool {
+	switch strings.ToUpper(strings.TrimSpace(agent.Status)) {
+	case "FAILED", "ABORTED":
+		return true
+	default:
+		return false
+	}
+}
+
+func effectivePlanningStatus(planning *db.PlanningSession, evals []db.PlanningEvaluation, graphs []db.PlanningTaskGraph, events []db.RunEvent) string {
+	if planning == nil {
+		return "none recorded"
+	}
+	status := strings.ToUpper(strings.TrimSpace(planning.Status))
+	if status == "" {
+		status = planning.Status
+	}
+	recovered := planningFailureRecovered(events, planning.ID)
+	if status == "FAILED" && recovered && planningEvidenceCompleted(evals, graphs) {
+		return "COMPLETED (recovered from prior failure)"
+	}
+	if status == "COMPLETED" && recovered {
+		return "COMPLETED (recovered from prior failure)"
+	}
+	return planning.Status
+}
+
+func planningFailureRecovered(events []db.RunEvent, planningSessionID string) bool {
+	var failedID int64
+	recovered := false
+	for _, event := range events {
+		switch event.Event {
+		case "planning_failed":
+			failedID = event.ID
+			recovered = false
+		case "planning_recovered":
+			if event.Detail == "" || event.Detail == planningSessionID {
+				recovered = true
+				failedID = 0
+			}
+		case "planning_completed":
+			if failedID != 0 && event.ID > failedID && (event.Detail == "" || event.Detail == planningSessionID) {
+				recovered = true
+				failedID = 0
+			}
+		}
+	}
+	return recovered
+}
+
+func planningEvidenceCompleted(evals []db.PlanningEvaluation, graphs []db.PlanningTaskGraph) bool {
+	if len(graphs) == 0 {
+		return false
+	}
+	lastGraph := graphs[len(graphs)-1]
+	if strings.ToUpper(strings.TrimSpace(lastGraph.Status)) != "COMPLETED" {
+		return false
+	}
+	if len(evals) == 0 {
+		return true
+	}
+	lastEval := evals[len(evals)-1]
+	verdict := strings.ToUpper(strings.TrimSpace(lastEval.Verdict))
+	return (verdict == "PASS" || verdict == "APPROVED") && !lastEval.NeedsUserInput
 }
 
 func formatUnix(ts int64) string {

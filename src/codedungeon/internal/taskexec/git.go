@@ -1,17 +1,18 @@
 package taskexec
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 type ShellGit struct {
 	Policy SafetyPolicy
+	Runner tooladapter.CommandRunner
 }
 
 func (g ShellGit) Head(ctx context.Context, repo string) (string, error) {
@@ -47,7 +48,7 @@ func (g ShellGit) Diff(ctx context.Context, repo string) (string, error) {
 }
 
 func (g ShellGit) Commit(ctx context.Context, repo, message string) error {
-	if _, err := g.run(ctx, repo, "add", "-A"); err != nil {
+	if _, err := g.run(ctx, repo, "add", gitAddAllArgs()...); err != nil {
 		return err
 	}
 	out, err := g.run(ctx, repo, "diff", "--cached", "--quiet")
@@ -67,15 +68,11 @@ func (g ShellGit) LatestSemverTag(ctx context.Context, repo string) (string, err
 	if err := g.Policy.ValidateGit("tag"); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, "git", "tag", "--list", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname")
-	cmd.Dir = repo
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git tag list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	out, err := g.run(ctx, repo, "tag", "--list", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname")
+	if err != nil {
+		return "", err
 	}
-	for _, line := range strings.Split(stdout.String(), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if semverRE.MatchString(line) {
 			return line, nil
@@ -94,16 +91,24 @@ func (g ShellGit) run(ctx context.Context, repo, subcommand string, args ...stri
 		return "", err
 	}
 	cmdArgs := append([]string{subcommand}, args...)
-	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
-	cmd.Dir = repo
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		return stdout.String(), fmt.Errorf("git %s failed: %w: %s", subcommand, err, strings.TrimSpace(stderr.String()))
+	runner := g.Runner
+	if runner == nil {
+		runner = tooladapter.NewSystemRunner()
 	}
-	return stdout.String(), nil
+	result, err := runner.Run(ctx, tooladapter.Command{Dir: repo, Name: "git", Args: cmdArgs})
+	if err != nil {
+		return result.Stdout, fmt.Errorf("git %s failed: %w", subcommand, err)
+	}
+	return result.Stdout, nil
+}
+
+func gitAddAllArgs() []string {
+	return []string{
+		"-A", "--", ".",
+		":(exclude).codedungeon/*.db",
+		":(exclude).codedungeon/*.db-journal",
+		":(exclude).codedungeon/logs/**",
+	}
 }
 
 var semverRE = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)

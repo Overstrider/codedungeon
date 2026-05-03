@@ -1,7 +1,6 @@
 package qa
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +15,7 @@ import (
 
 	artifactreg "github.com/loldinis/codedungeon/internal/artifacts"
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 const defaultTimeoutSeconds = 600
@@ -364,38 +363,13 @@ func safeCWD(root, rel string) string {
 }
 
 func runShell(ctx context.Context, dir string, timeout time.Duration, command string) (string, string, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(timeoutCtx, "cmd", "/c", command)
-	} else {
-		cmd = exec.CommandContext(timeoutCtx, "sh", "-c", command)
-	}
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if timeoutCtx.Err() == context.DeadlineExceeded {
-		err = fmt.Errorf("command timed out after %s", timeout)
-	}
-	return stdout.String(), stderr.String(), err
+	result, err := tooladapter.NewSystemRunner().RunShell(ctx, dir, command, timeout)
+	return result.Stdout, result.Stderr, err
 }
 
 func runExec(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, string, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(timeoutCtx, name, args...)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if timeoutCtx.Err() == context.DeadlineExceeded {
-		err = fmt.Errorf("command timed out after %s", timeout)
-	}
-	return stdout.String(), stderr.String(), err
+	result, err := tooladapter.NewSystemRunner().Run(ctx, tooladapter.Command{Dir: dir, Name: name, Args: args, Timeout: timeout})
+	return result.Stdout, result.Stderr, err
 }
 
 func finalizeResult(req Request, result Result) (Result, error) {
@@ -659,21 +633,11 @@ func newSessionID() string {
 }
 
 func exitCodeFromError(err error) int {
-	var exitErr *exec.ExitError
-	if err != nil && strings.Contains(fmt.Sprintf("%T", err), "ExitError") {
-		if ok := asExitError(err, &exitErr); ok {
-			return exitErr.ExitCode()
-		}
+	var toolErr tooladapter.ToolError
+	if tooladapter.AsToolError(err, &toolErr) && toolErr.ExitCode > 0 {
+		return toolErr.ExitCode
 	}
 	return 1
-}
-
-func asExitError(err error, target **exec.ExitError) bool {
-	if e, ok := err.(*exec.ExitError); ok {
-		*target = e
-		return true
-	}
-	return false
 }
 
 func firstPositive(values ...int) int {

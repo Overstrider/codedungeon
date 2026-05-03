@@ -382,8 +382,8 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	if !payload.OK || payload.ArtifactsInstalled == 0 {
 		t.Fatalf("setup payload = %+v, want ok with artifacts", payload)
 	}
-	if payload.CodexMultiAgentV2 != "skipped" {
-		t.Fatalf("codex_multi_agent_v2 = %q, want skipped", payload.CodexMultiAgentV2)
+	if payload.CodexMultiAgentV2 != "project-local-only" {
+		t.Fatalf("codex_multi_agent_v2 = %q, want project-local-only", payload.CodexMultiAgentV2)
 	}
 	if payload.Models["reasoning"] != "gpt-5.5" || payload.Models["reasoning_effort"] != "xhigh" {
 		t.Fatalf("reasoning model config = %#v, want gpt-5.5/xhigh", payload.Models)
@@ -403,6 +403,8 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		filepath.Join(".codex", "config.toml"),
 		filepath.Join(".codex", "agents", "cd_dev_worker.toml"),
 		filepath.Join(".agents", "skills", "codedungeon", "SKILL.md"),
+		filepath.Join(".agents", "skills", "compass-cartographer", "SKILL.md"),
+		filepath.Join(".agents", "skills", "task-maker", "SKILL.md"),
 		filepath.Join(".agents", "skills", "main-quest", "SKILL.md"),
 		filepath.Join(".agents", "skills", "side-quest", "SKILL.md"),
 		filepath.Join(".agents", "skills", "one-shot", "SKILL.md"),
@@ -429,6 +431,85 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		if !strings.Contains(string(agents), required) {
 			t.Fatalf("AGENTS.md missing %q:\n%s", required, agents)
 		}
+	}
+}
+
+func TestClaudeSetupIsProjectLocalAndDoesNotWriteHome(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	goCache := filepath.Join(t.TempDir(), "gocache")
+
+	cmd := exec.Command("go", "run", ".", "setup", "--target", root, "--yes")
+	cmd.Dir = filepath.Clean("..")
+	cmd.Env = append(os.Environ(),
+		"CODEDUNGEON_PROVIDER=claude",
+		"HOME="+fakeHome,
+		"USERPROFILE="+fakeHome,
+		"GOCACHE="+goCache,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("claude setup failed: %v\n%s", err, out)
+	}
+	var payload struct {
+		OK                 bool   `json:"ok"`
+		ProjectLocal       bool   `json:"project_local"`
+		GlobalPlugin       string `json:"global_plugin"`
+		CodexMultiAgentV2  string `json:"codex_multi_agent_v2"`
+		ArtifactsInstalled int    `json:"artifacts_installed"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("setup output is not JSON: %v\n%s", err, out)
+	}
+	if !payload.OK || !payload.ProjectLocal || payload.ArtifactsInstalled == 0 {
+		t.Fatalf("setup payload = %+v, want project-local ok with artifacts", payload)
+	}
+	if payload.GlobalPlugin != "disabled-project-local" {
+		t.Fatalf("global_plugin = %q, want disabled-project-local", payload.GlobalPlugin)
+	}
+	if payload.CodexMultiAgentV2 != "project-local-only" {
+		t.Fatalf("codex_multi_agent_v2 = %q, want project-local-only", payload.CodexMultiAgentV2)
+	}
+	for _, path := range []string{
+		"CLAUDE.md",
+		filepath.Join(".codedungeon", "codedungeon.db"),
+		filepath.Join(".codedungeon", "commands", "main-quest.md"),
+		filepath.Join(".codedungeon", "commands", "codedungeon-test-loop.md"),
+		filepath.Join(".codedungeon", "commands", "task-maker.md"),
+		filepath.Join(".claude", "bin", "codedungeon.exe"),
+		filepath.Join(".claude", "commands", "main-quest.md"),
+		filepath.Join(".claude", "commands", "task-maker.md"),
+		filepath.Join(".claude", "agents", "dragon-architect-planner.md"),
+		filepath.Join(".claude", "skills", "grimoire-cli", "SKILL.md"),
+		filepath.Join(".claude", "settings.json"),
+	} {
+		assertFileExists(t, filepath.Join(root, path))
+	}
+	assertNoFilesUnder(t, fakeHome)
+}
+
+func assertNoFilesUnder(t *testing.T, root string) {
+	t.Helper()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return
+	} else if err != nil {
+		t.Fatalf("stat fake home: %v", err)
+	}
+	var files []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("setup wrote files under fake home %s: %v", root, files)
 	}
 }
 

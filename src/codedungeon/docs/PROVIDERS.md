@@ -33,10 +33,6 @@ type Provider interface {
     PlansDir() string
     ReviewsDir() string
 
-    PluginDir() string
-    PluginManifest(version string) []byte
-    HasPluginSystem() bool
-
     HomeGuardPaths() []string
     DefaultModels() ModelConfig
     ModelAlternatives() []ModelConfig
@@ -45,7 +41,7 @@ type Provider interface {
 }
 ```
 
-Keep provider implementations small and declarative. They should describe paths, names, models, plugin support, and runtime capabilities.
+Keep provider implementations small and declarative. They should describe project-local paths, names, models, and runtime capabilities.
 
 ## Prompt Packs
 
@@ -56,7 +52,7 @@ Current packs:
 - Claude: `internal/prompts/files/`
 - Codex: `internal/prompts/codex-files/`
 
-The pack controls install paths through `prompts.ArtifactsFor(providerName)`. Codex skills intentionally install under `.agents/skills`, while Codex agents install under `.codex/agents`. Codex config enables `multi_agent_v2`, and setup also runs `codex features enable multi_agent_v2` unless `--skip-global` is passed, because current Codex CLI builds require the feature flag for project custom agents and do not reliably honor it from project-local config alone. Do not set `agents.max_threads` or `agents.max_depth` in the project config while this flag is enabled; current Codex builds reject that combination and the Codex defaults are already 6 and 1. Editable command playbooks and phase prompts install under `.codedungeon/commands` and `.codedungeon/phases` for all providers. Claude also gets thin `.claude/commands` wrappers so slash-command discovery keeps working without storing editable playbook content in the provider directory.
+The pack controls install paths through `prompts.ArtifactsFor(providerName)`. Codex skills intentionally install under `.agents/skills`, while Codex agents install under `.codex/agents`. Codex config enables `multi_agent_v2` project-locally through `.codex/config.toml`; runtime Codex launches that need the agent system pass `--enable multi_agent_v2` on the command line instead of mutating user-global feature flags. Do not set `agents.max_threads` or `agents.max_depth` in the project config while this flag is enabled; current Codex builds reject that combination and the Codex defaults are already 6 and 1. Editable command playbooks and phase prompts install under `.codedungeon/commands` and `.codedungeon/phases` for all providers. Claude also gets thin `.claude/commands` wrappers so slash-command discovery keeps working without storing editable playbook content in the provider directory.
 
 ## Adding a Provider
 

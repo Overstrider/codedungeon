@@ -1,20 +1,14 @@
 package cmd
 
 import (
-	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/manifest"
-	"github.com/loldinis/codedungeon/internal/osadapter"
-	"github.com/loldinis/codedungeon/internal/prompts"
 	"github.com/loldinis/codedungeon/internal/provider"
 )
 
@@ -55,10 +49,10 @@ func buildModelTiers() []struct {
 func SetupCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "setup",
-		Short: "One-step project + global setup (interactive)",
+		Short: "One-step project-local setup (interactive)",
 		Long: `Download the binary, run 'codedungeon setup' in your git project — done.
-Initializes the project DB, installs provider-native bootstrap files plus .codedungeon runtime artifacts, and lets you pick model tiers interactively.
-Providers with global setup needs also install provider support.`,
+Initializes the project DB, installs provider-native project files plus .codedungeon runtime artifacts, and lets you pick model tiers interactively.
+No user-home plugins, global feature flags, or shell PATH changes are installed.`,
 		RunE: runSetup,
 	}
 	c.Flags().String("target", "", "project root (default: CWD)")
@@ -67,7 +61,7 @@ Providers with global setup needs also install provider support.`,
 	c.Flags().String("fast", "", "fast model ID (skip interactive selection)")
 	c.Flags().String("fast-effort", "", "fast effort (skip interactive selection)")
 	c.Flags().Bool("force", false, "overwrite existing setup")
-	c.Flags().Bool("skip-global", false, "skip global provider setup")
+	c.Flags().Bool("skip-global", false, "compatibility no-op; setup is always project-local")
 	c.Flags().BoolP("yes", "y", false, "accept all defaults, no interactive prompts")
 	return c
 }
@@ -159,52 +153,19 @@ func runSetupWithOptions(opts setupOptions) error {
 		}
 	}
 
-	// ---- Step 2: Global provider setup ----
+	// ---- Step 2: Provider setup policy ----
 	if interactive {
 		fmt.Fprintln(tuiOut)
-		printStep(2, totalSteps, "Global provider setup...")
+		printStep(2, totalSteps, "Provider setup policy...")
 	}
 
-	globalStatus := ""
-	if !skipGlobal {
-		status, err := installGlobalPlugin()
-		if err != nil {
-			globalStatus = "failed: " + err.Error()
-			if interactive {
-				printWarn("Plugin install failed: " + err.Error())
-				printWarn("CLI works, but provider-native command shortcuts may not be available.")
-			}
-		} else {
-			globalStatus = status
-			if interactive {
-				printOK("Plugin:", provider.Detect().PluginDir()+" ["+status+"]")
-			}
-		}
-	} else {
-		globalStatus = "skipped"
-		if interactive {
-			printDetail("Skipped (--skip-global)")
-		}
-	}
-
-	codexFeatureStatus := ""
-	if provider.Detect().Name() == "codex" {
+	globalStatus := "disabled-project-local"
+	codexFeatureStatus := "project-local-only"
+	if interactive {
+		printDetail("Global provider plugins: disabled")
+		printDetail("Codex multi_agent_v2: project config + per-run --enable only")
 		if skipGlobal {
-			codexFeatureStatus = "skipped"
-		} else {
-			status, err := enableCodexMultiAgentV2()
-			if err != nil {
-				codexFeatureStatus = "failed: " + err.Error()
-				if interactive {
-					printWarn("Codex custom agents feature flag failed: " + err.Error())
-					printWarn("Start Codex with '--enable multi_agent_v2' if custom subagents are rejected.")
-				}
-			} else {
-				codexFeatureStatus = status
-				if interactive {
-					printOK("Codex custom agents:", status)
-				}
-			}
+			printDetail("--skip-global accepted for compatibility; no global setup exists")
 		}
 	}
 
@@ -288,6 +249,7 @@ func runSetupWithOptions(opts setupOptions) error {
 				"db":                   dbPath,
 				"global_plugin":        globalStatus,
 				"codex_multi_agent_v2": codexFeatureStatus,
+				"project_local":        true,
 			})
 		}
 	}
@@ -325,6 +287,7 @@ func runSetupWithOptions(opts setupOptions) error {
 	} else {
 		_ = EmitJSON(map[string]any{
 			"ok":                   true,
+			"project_local":        true,
 			"project_root":         result.ProjectRoot,
 			"bin":                  result.BinPath,
 			"db":                   result.DBPath,
@@ -342,94 +305,4 @@ func runSetupWithOptions(opts setupOptions) error {
 	}
 
 	return nil
-}
-
-func enableCodexMultiAgentV2() (string, error) {
-	if _, err := exec.LookPath("codex"); err != nil {
-		return "", fmt.Errorf("codex CLI not found: %w", err)
-	}
-	cmd := exec.Command("codex", "features", "enable", "multi_agent_v2")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg != "" {
-			return "", fmt.Errorf("%w: %s", err, msg)
-		}
-		return "", err
-	}
-	return "enabled", nil
-}
-
-func installGlobalPlugin() (string, error) {
-	p := provider.Detect()
-	if !p.HasPluginSystem() {
-		return "skipped (no plugin system)", nil
-	}
-	plugDir := p.PluginDir()
-	binDir := filepath.Join(plugDir, "bin")
-	skillDir := filepath.Join(plugDir, "skills", "grimoire-cli")
-	manifestDir := filepath.Join(plugDir, ".claude-plugin")
-
-	for _, d := range []string{binDir, skillDir, manifestDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return "", fmt.Errorf("mkdir %s: %w", d, err)
-		}
-	}
-
-	srcBin, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve binary: %w", err)
-	}
-
-	ext := osadapter.Detect().ExecutableExt()
-	dstBin := filepath.Join(binDir, "codedungeon"+ext)
-
-	status := "installed"
-	if existing, err := os.Stat(dstBin); err == nil && existing.Size() > 0 {
-		if filesMatch(srcBin, dstBin) {
-			status = "up to date"
-		} else {
-			status = "updated"
-		}
-	}
-
-	if status != "up to date" {
-		if err := copyFile(srcBin, dstBin, 0o755); err != nil {
-			return "", fmt.Errorf("copy binary: %w", err)
-		}
-	}
-
-	skillContent, err := prompts.GetRaw("skills/grimoire-cli/SKILL.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded SKILL.md: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), skillContent, 0o644); err != nil {
-		return "", fmt.Errorf("write SKILL.md: %w", err)
-	}
-
-	pluginJSON := p.PluginManifest(versionString())
-	if err := os.WriteFile(filepath.Join(manifestDir, "plugin.json"), pluginJSON, 0o644); err != nil {
-		return "", fmt.Errorf("write plugin.json: %w", err)
-	}
-
-	return status, nil
-}
-
-func filesMatch(a, b string) bool {
-	ha := fileHash(a)
-	hb := fileHash(b)
-	return ha != "" && ha == hb
-}
-
-func fileHash(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
 }

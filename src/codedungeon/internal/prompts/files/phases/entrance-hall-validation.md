@@ -46,13 +46,12 @@ else
     echo '{"error":"no git repo","action":"user-must-init-git","hint":"codedungeon only runs in a git project; run: git init && git commit --allow-empty -m init"}'
     exit 2
   fi
-  # Invoke the plugin-shipped binary to self-copy into the project.
-  "$HOME/.claude/plugins/local/codedungeon/bin/codedungeon" bootstrap
-  CD=./.claude/bin/codedungeon
+  echo "Status BLOCKED: run project-local codedungeon setup before Phase 0"
+  exit 2
 fi
 ```
 
-If `bootstrap` returns `{"error":"refuse: ... ~/.claude ..."}` the agent is in the wrong directory — `cd` to the real project root first.
+If `bootstrap` returns a provider-home-config refusal, the agent is in the wrong directory; `cd` to the real project root first.
 
 ## Step 0.1: Validate Input
 
@@ -70,8 +69,7 @@ If `bootstrap` returns `{"error":"refuse: ... ~/.claude ..."}` the agent is in t
 ```bash
 PLAYWRIGHT_SKILL_PATH=""
 for p in \
-  ".claude/skills/crystal-ball-e2e/SKILL.md" \
-  "$HOME/.claude/plugins/local/codedungeon/skills/crystal-ball-e2e/SKILL.md"; do
+  ".claude/skills/crystal-ball-e2e/SKILL.md"; do
   [ -f "$p" ] && PLAYWRIGHT_SKILL_PATH="$p" && break
 done
 ```

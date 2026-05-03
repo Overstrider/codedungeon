@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -102,6 +103,11 @@ func RunBootstrapWithConfig(target string, cfg provider.ModelConfig, force bool)
 		"model_reasoning_effort": cfg.ReasoningEffort,
 		"model_fast":             cfg.Fast,
 		"model_fast_effort":      cfg.FastEffort,
+	}
+	if provider.Detect().Name() == "claude" && strings.TrimSpace(cfg.Reasoning) != "" && strings.TrimSpace(cfg.Reasoning) == strings.TrimSpace(cfg.Fast) {
+		meta["model_lock"] = strings.TrimSpace(cfg.Reasoning)
+	} else {
+		meta["model_lock"] = ""
 	}
 	for k, v := range meta {
 		if err := s.SetMeta(k, v); err != nil {

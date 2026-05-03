@@ -105,7 +105,7 @@ func CodeReviewCmd() *cobra.Command {
 				result, err = codereview.Execute(context.Background(), req, runner)
 			}
 			if err != nil {
-				return EmitErr("code-review failed: "+err.Error(), "")
+				return emitCodeReviewFailure(outDir, err)
 			}
 			commentID := ""
 			if post {
@@ -144,7 +144,7 @@ func CodeReviewCmd() *cobra.Command {
 	c.Flags().String("target-context-mode", "auto", "target context collection: auto, full, compact")
 	c.Flags().Int("max-target-context-bytes", 256*1024, "max auto-collected target context bytes before compact mode")
 	c.Flags().String("out", "", "output directory for review artifacts")
-	c.Flags().String("runner", "codex", "review runner: codex or files")
+	c.Flags().String("runner", "auto", "review runner: auto, codex, claude, or files")
 	c.Flags().String("input-dir", "", "input fixture directory for --runner files")
 	c.Flags().Bool("post", false, "post review.md to the target PR when URL is a GitHub PR")
 	c.Flags().String("project-rules-status", "", "PROJECT_RULES_STATUS override")
@@ -153,10 +153,47 @@ func CodeReviewCmd() *cobra.Command {
 	return c
 }
 
+func emitCodeReviewFailure(outDir string, reviewErr error) error {
+	msg := "code-review failed: " + reviewErr.Error()
+	payload := map[string]any{
+		"ok":    false,
+		"error": msg,
+	}
+	if failure, err := readReviewFailureArtifact(filepath.Join(outDir, "review-failure.json")); err == nil {
+		payload["attempt_id"] = failure.AttemptID
+		payload["failure_kind"] = failure.FailureKind
+		payload["failure_path"] = failure.FailurePath
+		payload["persona"] = failure.Persona
+		payload["retry_after"] = failure.RetryAfter
+		payload["resume_command"] = failure.ResumeCommand
+	}
+	_ = EmitJSON(payload)
+	return fmt.Errorf("%s", msg)
+}
+
+func readReviewFailureArtifact(path string) (codereview.ReviewFailure, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return codereview.ReviewFailure{}, err
+	}
+	var failure codereview.ReviewFailure
+	if err := json.Unmarshal(body, &failure); err != nil {
+		return codereview.ReviewFailure{}, err
+	}
+	return failure, nil
+}
+
 func codeReviewRunner(name, inputDir string) (codereview.Runner, error) {
-	switch strings.TrimSpace(name) {
-	case "", "codex":
+	runnerName := strings.TrimSpace(name)
+	if runnerName == "" || runnerName == "auto" {
+		runnerName = provider.Detect().Name()
+	}
+	switch runnerName {
+	case "codex", "codex-cli":
 		return codereview.CodexRunner{WorkDir: currentProjectRoot()}, nil
+	case "claude", "claude-code", "claude-ce":
+		root := currentProjectRoot()
+		return codereview.ClaudeRunner{WorkDir: root, Model: configuredModelAtRoot(root, "fast", provider.Claude{}.DefaultModels().Fast)}, nil
 	case "files":
 		return codereview.FilesRunner{InputDir: inputDir}, nil
 	default:

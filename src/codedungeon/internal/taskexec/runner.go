@@ -5,9 +5,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 type FilesRunner struct {
@@ -31,6 +32,7 @@ func (r FilesRunner) RunTask(_ context.Context, req AgentRequest) (AgentResult, 
 
 type CodexRunner struct {
 	WorkDir string
+	Runner  tooladapter.CommandRunner
 }
 
 func (r CodexRunner) RunTask(ctx context.Context, req AgentRequest) (AgentResult, error) {
@@ -45,17 +47,20 @@ func (r CodexRunner) RunTask(ctx context.Context, req AgentRequest) (AgentResult
 		return AgentResult{}, err
 	}
 	lastMessage := filepath.Join(req.OutputDir, fmt.Sprintf("attempt-%02d-last-message.txt", req.Attempt))
-	cmd := exec.CommandContext(ctx, "codex", "exec",
-		"--cd", workDir,
-		"--sandbox", "workspace-write",
-		"--enable", "multi_agent_v2",
-		"--output-last-message", lastMessage,
-		"-")
-	cmd.Stdin = strings.NewReader(ExecutionPrompt(req))
-	cmd.Stdout = os.Stdout
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	runner := r.Runner
+	if runner == nil {
+		runner = tooladapter.NewSystemRunner()
+	}
+	_, err := runner.Run(ctx, tooladapter.Command{
+		Dir:    workDir,
+		Name:   "codex",
+		Args:   []string{"exec", "--cd", workDir, "--sandbox", "workspace-write", "--enable", "multi_agent_v2", "--output-last-message", lastMessage, "-"},
+		Stdin:  ExecutionPrompt(req),
+		Stdout: os.Stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
 		return AgentResult{}, fmt.Errorf("codex task worker failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	result, err := readJSONFile[AgentResult](req.ResultPath)

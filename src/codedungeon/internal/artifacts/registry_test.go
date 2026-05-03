@@ -105,3 +105,18 @@ func TestRegistryRegistersDirectoryWithoutHash(t *testing.T) {
 		t.Fatalf("directory artifact = %+v", registered)
 	}
 }
+
+func TestKindForPathAtRootResolvesRelativeDirectory(t *testing.T) {
+	root := t.TempDir()
+	rel := filepath.Join(".codedungeon", "reviews", "adv-review")
+	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := KindForPathAtRoot(root, rel); got != "directory" {
+		t.Fatalf("kind for relative directory = %q, want directory", got)
+	}
+	if got := KindForPathAtRoot(root, filepath.Join(".codedungeon", "reports", "run-1.md")); got != "markdown" {
+		t.Fatalf("kind for missing markdown path = %q, want markdown", got)
+	}
+}

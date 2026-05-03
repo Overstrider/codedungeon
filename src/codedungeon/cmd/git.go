@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/provider"
+	"github.com/loldinis/codedungeon/internal/tooladapter"
 )
 
 var protectedBranches = []string{"main", "master", "develop", "dev", "staging", "production", "release"}
@@ -23,19 +24,14 @@ func GitCmd() *cobra.Command {
 	return c
 }
 
-// run delegates to the OS adapter. Resolves well-known tools (git / gh) via
-// FindTool so Windows hints like C:\tools\gh\gh.exe are honored even when the
-// tool is not on PATH.
+// run delegates to the typed tool adapter. It is kept as a package-level helper
+// because several legacy command paths and tests still inject through it.
 func run(repo string, args ...string) (string, string, error) {
-	ad := osadapter.Detect()
-	tool := args[0]
-	switch tool {
-	case "git", "gh":
-		if resolved, err := ad.FindTool(tool); err == nil {
-			tool = resolved
-		}
+	if len(args) == 0 {
+		return "", "", fmt.Errorf("missing command")
 	}
-	return ad.RunExec(repo, tool, args[1:]...)
+	result, err := tooladapter.NewSystemRunner().Run(context.Background(), tooladapter.Command{Dir: repo, Name: args[0], Args: args[1:]})
+	return strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr), err
 }
 
 func currentBranch(repo string) (string, error) {

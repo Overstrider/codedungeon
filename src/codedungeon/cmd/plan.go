@@ -111,7 +111,7 @@ func planRunCmd() *cobra.Command {
 				return EmitErr(execErr.Error(), "")
 			}
 			if req.RunID != 0 {
-				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_" + strings.ToLower(result.Status), Detail: req.SessionID})
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_" + strings.ToLower(planningStatusOrCompleted(result.Status)), Detail: req.SessionID})
 			}
 			return EmitJSON(result)
 		},
@@ -169,6 +169,7 @@ func planResumeCmd() *cobra.Command {
 			if session.Status == taskplanning.StatusCompleted {
 				return EmitErr("planning session already completed", session.ID)
 			}
+			wasFailed := session.Status == taskplanning.StatusFailed
 			req, err := readPlanningRequest(filepath.Join(session.OutputDir, "planning-request.json"))
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -186,7 +187,16 @@ func planResumeCmd() *cobra.Command {
 				execErr = persistErr
 			}
 			if execErr != nil {
+				if req.RunID != 0 {
+					_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_failed", Detail: execErr.Error()})
+				}
 				return EmitErr(execErr.Error(), "")
+			}
+			if req.RunID != 0 {
+				if wasFailed {
+					_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_recovered", Detail: session.ID})
+				}
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_" + strings.ToLower(planningStatusOrCompleted(result.Status)), Detail: session.ID})
 			}
 			return EmitJSON(result)
 		},
@@ -488,7 +498,7 @@ func addPlanningRunFlags(c *cobra.Command) {
 }
 
 func addPlanningRunnerFlags(c *cobra.Command) {
-	c.Flags().String("runner", "codex", "planning runner: codex or files")
+	c.Flags().String("runner", "", "planning runner: provider default, claude, codex, or files")
 	c.Flags().String("input-dir", "", "input fixture directory for --runner files")
 }
 
@@ -556,13 +566,29 @@ func planningRequestFromFlags(c *cobra.Command, fallbackProjectContext string) (
 }
 
 func planningRunner(name, inputDir string) (taskplanning.Runner, error) {
+	if strings.TrimSpace(name) == "" || strings.EqualFold(strings.TrimSpace(name), "provider") {
+		name = defaultPlanningRunnerName(provider.Detect().Name())
+	}
 	switch strings.TrimSpace(name) {
-	case "", "codex":
+	case "codex":
 		return taskplanning.CodexRunner{WorkDir: currentProjectRoot()}, nil
+	case "claude":
+		root := currentProjectRoot()
+		model := configuredModelAtRoot(root, "reasoning", provider.Claude{}.DefaultModels().Reasoning)
+		return taskplanning.ClaudeRunner{WorkDir: root, Model: model}, nil
 	case "files":
 		return taskplanning.FilesRunner{InputDir: inputDir}, nil
 	default:
 		return nil, fmt.Errorf("unknown planning runner %q", name)
+	}
+}
+
+func defaultPlanningRunnerName(providerName string) string {
+	switch strings.TrimSpace(providerName) {
+	case "claude", "claude-code", "claude-ce":
+		return "claude"
+	default:
+		return "codex"
 	}
 }
 
@@ -619,6 +645,13 @@ func persistPlanningSessionStart(s *db.Store, req taskplanning.Request) error {
 		Status:               taskplanning.StatusRunning,
 		OutputDir:            req.OutputDir,
 	})
+}
+
+func planningStatusOrCompleted(status string) string {
+	if strings.TrimSpace(status) == "" {
+		return taskplanning.StatusCompleted
+	}
+	return status
 }
 
 func persistPlanningResult(s *db.Store, req taskplanning.Request, result taskplanning.Result, execErr error) error {

@@ -45,7 +45,7 @@ Steps:
 - Use the existing run created by `codedungeon run`; do not call `phase init` or create a second run.
 - Execute pre-final phases in order: `0`, `1`, `2'`, `3.5`, `4`, `5`, `5.5`, `5.6`, `6`. Do not execute Phase `7` manually; `codedungeon run finalize` closes Phase 7 after gates pass.
 - For each phase, use `./.codex/bin/codedungeon spawn-prompt <phase>` and the matching Codex subagent when useful.
-- If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
+- If Codex rejects a custom `agent_type`, stop with a blocker; project `.codex/config.toml` and non-interactive Codex invocations already enable `multi_agent_v2`.
 - Preserve the emitted `agent_type` when spawning subagents. Record `model` and `reasoning_effort` in telemetry/prompt context; do not force model overrides when Codex rejects that combination.
 - Keep all state changes in codedungeon commands.
 - Do not skip review or test phases unless the DB records the skip reason.

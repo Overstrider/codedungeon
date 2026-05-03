@@ -195,7 +195,7 @@ func EmitJSON(val any) error {
 
 // EmitErr prints a generic error JSON + returns it so cobra exits 1.
 func EmitErr(msg string, hint string) error {
-	_ = EmitJSON(map[string]any{"error": msg, "hint": hint})
+	_ = EmitJSON(map[string]any{"ok": false, "error": msg, "hint": hint})
 	return fmt.Errorf("%s", msg)
 }
 
@@ -214,7 +214,7 @@ func EmitPreflightErr(err error) error {
 		hint = "invoke `codedungeon bootstrap --target <abs path>`"
 		action = "bootstrap"
 	}
-	_ = EmitJSON(map[string]any{"error": msg, "hint": hint, "action": action})
+	_ = EmitJSON(map[string]any{"ok": false, "error": msg, "hint": hint, "action": action})
 	return fmt.Errorf("%s", msg)
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/provider"
+	"github.com/loldinis/codedungeon/internal/recovery"
 )
 
 func cleanupDirsMap(root string) map[string]string {
@@ -35,13 +36,15 @@ settings, codedungeon.db, or .git.`,
 			doPlans, _ := c.Flags().GetBool("plans")
 			doReviews, _ := c.Flags().GetBool("reviews")
 			doState, _ := c.Flags().GetBool("state")
+			doSessions, _ := c.Flags().GetBool("sessions")
+			confirm, _ := c.Flags().GetBool("confirm")
 			feature, _ := c.Flags().GetString("feature")
 			dry, _ := c.Flags().GetBool("dry-run")
 
 			root := currentProjectRoot()
 			dirs := cleanupDirsMap(root)
 
-			if !all && !doTasks && !doPlans && !doReviews && !doState && feature == "" {
+			if !all && !doTasks && !doPlans && !doReviews && !doState && !doSessions && feature == "" {
 				inv := inventory(root)
 				return EmitJSON(map[string]any{"ok": true, "mode": "inventory", "inventory": inv})
 			}
@@ -67,6 +70,7 @@ settings, codedungeon.db, or .git.`,
 
 			var deleted []string
 			var errors []string
+			var skipped []recovery.CleanupHint
 			if feature != "" {
 				fp := filepath.Join(dirs["tasks"], feature)
 				if dry {
@@ -97,10 +101,17 @@ settings, codedungeon.db, or .git.`,
 					}
 				}
 			}
+			if doSessions {
+				sessionDeleted, sessionSkipped, sessionErrors := cleanupExecutionSessions(c, root, dry, confirm)
+				deleted = append(deleted, sessionDeleted...)
+				skipped = append(skipped, sessionSkipped...)
+				errors = append(errors, sessionErrors...)
+			}
 			return EmitJSON(map[string]any{
 				"ok":      len(errors) == 0,
 				"mode":    modeLabel(dry),
 				"deleted": deleted,
+				"skipped": skipped,
 				"errors":  errors,
 				"summary": fmt.Sprintf("%d paths processed", len(deleted)),
 			})
@@ -111,9 +122,52 @@ settings, codedungeon.db, or .git.`,
 	c.Flags().Bool("plans", false, fmt.Sprintf("delete %s/*", p.PlanDir()))
 	c.Flags().Bool("reviews", false, fmt.Sprintf("delete %s/*", p.ReviewsDir()))
 	c.Flags().Bool("state", false, fmt.Sprintf("delete %s/*", p.StateDir()))
+	c.Flags().Bool("sessions", false, "delete safe terminal execution session output directories")
+	c.Flags().Bool("confirm", false, "confirm deletion for safety-sensitive cleanup targets")
 	c.Flags().String("feature", "", fmt.Sprintf("delete only %s/<NAME>/", p.TasksDir()))
 	c.Flags().Bool("dry-run", false, "don't delete; just list what would be deleted")
 	return c
+}
+
+func cleanupExecutionSessions(c *cobra.Command, root string, dry, confirm bool) ([]string, []recovery.CleanupHint, []string) {
+	if !dry && !confirm {
+		return nil, nil, []string{"--confirm is required for --sessions without --dry-run"}
+	}
+	store, err := OpenDB(c)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	defer store.Close()
+	run, err := store.CurrentRun()
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	if run == nil {
+		return nil, nil, []string{"no active run"}
+	}
+	candidates, err := recovery.ExecutionCleanupCandidates(store, run.ID, root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	var deleted []string
+	var skipped []recovery.CleanupHint
+	var errors []string
+	for _, candidate := range candidates {
+		if !candidate.SafeToDelete {
+			skipped = append(skipped, candidate)
+			continue
+		}
+		if dry {
+			deleted = append(deleted, "DRY: "+candidate.Path)
+			continue
+		}
+		if err := os.RemoveAll(candidate.Path); err != nil {
+			errors = append(errors, err.Error())
+			continue
+		}
+		deleted = append(deleted, candidate.Path)
+	}
+	return deleted, skipped, errors
 }
 
 func modeLabel(dry bool) string {

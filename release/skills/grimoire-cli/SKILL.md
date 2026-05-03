@@ -1,15 +1,14 @@
 ---
 name: grimoire-cli
-description: codedungeon is a project-scoped deterministic Go CLI for the codedungeon pipeline. M2M-only. Requires a git project. Refuses to run under ~/.claude or /root/.claude. First invocation auto-bootstraps a copy into <project>/.claude/bin/. Use for phase lifecycle, handoffs, repo discovery, review pipeline, plan parsing, git/gh wrappers, QA validation, report rendering, cleanup, and prompt retrieval. Call codedungeon instead of narrating deterministic algorithms in prose.
+description: codedungeon is a project-scoped deterministic Go CLI for the codedungeon pipeline. M2M-only. Requires a git project. Refuses to run inside provider home config directories. First invocation auto-bootstraps a copy into <project>/.claude/bin/. Use for phase lifecycle, handoffs, repo discovery, review pipeline, plan parsing, git/gh wrappers, QA validation, report rendering, cleanup, and prompt retrieval. Call codedungeon instead of narrating deterministic algorithms in prose.
 ---
 
 # codedungeon
 
 Single Go binary. SQLite (FTS5) backend + embedded prompts. Project-only.
 
-**Two binary locations** (identical content):
-- Shipped master: `$HOME/.claude/plugins/local/codedungeon/bin/codedungeon`
-- Project-local (after bootstrap): `<project>/.claude/bin/codedungeon`
+**Binary location**:
+- Project-local: `<project>/.claude/bin/codedungeon`
 
 **State file**: `<project>/.codedungeon/codedungeon.db` (per-project SQLite, FTS5-indexed). Markdown (`pipeline-state.md`, `phase-{N}-output.md`) are rendered VIEWS.
 
@@ -21,15 +20,21 @@ Before any other command, make sure codedungeon is alive in this project:
 if [ -x .claude/bin/codedungeon ] && [ -f .codedungeon/codedungeon.db ]; then
   CD=./.claude/bin/codedungeon
 else
-  # Requires .git at project root.
-  [ -d .git ] || [ -f .git ] || { echo '{"error":"no-git","hint":"git init first"}'; exit 2; }
-  "$HOME/.claude/plugins/local/codedungeon/bin/codedungeon" bootstrap
-  CD=./.claude/bin/codedungeon
+  echo '{"error":"codedungeon-not-setup","hint":"run project-local codedungeon setup from the git project root"}'
+  exit 2
 fi
 ```
 
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
 **Hard refusals** (exit 1 with JSON `{"error":...,"hint":...,"action":...}`):
-- `refuse: ... ~/.claude ...` → CWD is under a home .claude (user or root). cd out.
+- `refuse: ... provider home config ...` → CWD is under a user-global provider config directory. cd out.
 - `refuse: ... no .git ...` → project has no git repo. `git init` first.
 
 ## Domains

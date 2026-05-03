@@ -3,6 +3,7 @@ package codereview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,45 +34,81 @@ func Execute(ctx context.Context, req Request, runner Runner) (Result, error) {
 	if err := validateRequest(req); err != nil {
 		return Result{}, err
 	}
-	if err := os.MkdirAll(filepath.Join(req.OutputDir, "personas"), 0o755); err != nil {
+	attempt := newReviewAttempt(req.OutputDir)
+	if err := clearPublishedReviewArtifacts(req.OutputDir); err != nil {
 		return Result{}, err
 	}
-	if err := writeJSON(filepath.Join(req.OutputDir, "review-request.json"), req); err != nil {
+	if err := os.MkdirAll(attempt.PersonaDir, 0o755); err != nil {
 		return Result{}, err
+	}
+	if err := writeAttemptManifest(req.OutputDir, attempt, "RUNNING"); err != nil {
+		return Result{}, err
+	}
+	for _, path := range []string{filepath.Join(req.OutputDir, "review-request.json"), attempt.RequestPath} {
+		if err := writeJSON(path, req); err != nil {
+			return Result{}, err
+		}
 	}
 
 	reviews := make([]PersonaReview, 0, len(personas))
 	for _, persona := range personas {
-		outPath := filepath.Join(req.OutputDir, "personas", persona+".json")
+		outPath := filepath.Join(attempt.PersonaDir, persona+".json")
+		if err := removeStaleArtifact(outPath); err != nil {
+			return Result{}, err
+		}
 		if err := runner.RunPersona(ctx, req, persona, outPath); err != nil {
+			if writeErr := writeReviewFailure(req.OutputDir, attempt, persona, err); writeErr != nil {
+				return Result{}, fmt.Errorf("persona %s failed: %w; write review failure: %v", persona, err, writeErr)
+			}
 			return Result{}, fmt.Errorf("persona %s failed: %w", persona, err)
 		}
 		review, err := readPersonaReview(outPath)
 		if err != nil {
+			if writeErr := writeReviewFailure(req.OutputDir, attempt, persona, err); writeErr != nil {
+				return Result{}, fmt.Errorf("%w; write review failure: %v", err, writeErr)
+			}
 			return Result{}, err
 		}
 		if err := ValidatePersonaReview(review, req.ProjectRules); err != nil {
+			if writeErr := writeReviewFailure(req.OutputDir, attempt, persona, err); writeErr != nil {
+				return Result{}, fmt.Errorf("%w; write review failure: %v", err, writeErr)
+			}
 			return Result{}, err
 		}
 		reviews = append(reviews, review)
 	}
 
-	decisionPath := filepath.Join(req.OutputDir, "review-decision.json")
+	decisionPath := filepath.Join(attempt.Dir, "review-decision.json")
+	if err := removeStaleArtifact(decisionPath); err != nil {
+		return Result{}, err
+	}
 	if err := runner.RunAdjudicator(ctx, req, reviews, decisionPath); err != nil {
+		if writeErr := writeReviewFailure(req.OutputDir, attempt, "adjudicator", err); writeErr != nil {
+			return Result{}, fmt.Errorf("review-decision failed: %w; write review failure: %v", err, writeErr)
+		}
 		return Result{}, fmt.Errorf("review-decision failed: %w", err)
 	}
 	decision, err := readDecision(decisionPath)
 	if err != nil {
+		if writeErr := writeReviewFailure(req.OutputDir, attempt, "adjudicator", err); writeErr != nil {
+			return Result{}, fmt.Errorf("%w; write review failure: %v", err, writeErr)
+		}
 		return Result{}, err
 	}
 	findings := collectFindings(reviews)
 	if err := ValidateDecision(decision, reviews, findings); err != nil {
+		if writeErr := writeReviewFailure(req.OutputDir, attempt, "adjudicator", err); writeErr != nil {
+			return Result{}, fmt.Errorf("%w; write review failure: %v", err, writeErr)
+		}
 		return Result{}, err
 	}
 
 	result := Result{
 		URL:               req.URL,
 		Verdict:           decision.Verdict,
+		AttemptID:         attempt.ID,
+		AttemptDir:        attempt.Dir,
+		PersonaDir:        attempt.PersonaDir,
 		ProjectRules:      req.ProjectRules,
 		Personas:          reviews,
 		Decision:          decision,
@@ -89,16 +126,27 @@ func Execute(ctx context.Context, req Request, runner Runner) (Result, error) {
 	}
 	result.Summary = summary
 	markdown := RenderSummaryMarkdown(summary)
-	if err := os.WriteFile(result.ReviewMDPath, []byte(markdown), 0o644); err != nil {
-		return Result{}, err
+	for _, path := range []string{filepath.Join(attempt.Dir, "review.md"), result.ReviewMDPath} {
+		if err := os.WriteFile(path, []byte(markdown), 0o644); err != nil {
+			return Result{}, err
+		}
 	}
-	if err := writeJSON(result.ReviewSummaryPath, summary); err != nil {
-		return Result{}, err
+	for _, path := range []string{filepath.Join(attempt.Dir, "review-summary.json"), result.ReviewSummaryPath} {
+		if err := writeJSON(path, summary); err != nil {
+			return Result{}, err
+		}
 	}
-	if err := writeJSON(result.ResultJSONPath, result); err != nil {
-		return Result{}, err
+	for _, path := range []string{filepath.Join(attempt.Dir, "review-result.json"), result.ResultJSONPath} {
+		if err := writeJSON(path, result); err != nil {
+			return Result{}, err
+		}
 	}
-	if err := writeJSON(result.ReviewJSONPath, result); err != nil {
+	for _, path := range []string{filepath.Join(attempt.Dir, "review.json"), result.ReviewJSONPath} {
+		if err := writeJSON(path, result); err != nil {
+			return Result{}, err
+		}
+	}
+	if err := writeAttemptManifest(req.OutputDir, attempt, "COMPLETED"); err != nil {
 		return Result{}, err
 	}
 	return result, nil
@@ -291,8 +339,8 @@ func validateFinding(f reviewpipe.Finding) error {
 	if strings.TrimSpace(f.Title) == "" {
 		return fmt.Errorf("title is required")
 	}
-	if !substantive(f.EvidenceQuote) {
-		return fmt.Errorf("evidence_quote is required and must be substantive")
+	if !evidenceQuotePresent(f.EvidenceQuote) {
+		return fmt.Errorf("evidence_quote is required and must be a concrete source or diff excerpt")
 	}
 	return nil
 }
@@ -333,6 +381,29 @@ func substantive(value string) bool {
 	return len(compact) >= 80
 }
 
+func evidenceQuotePresent(value string) bool {
+	compact := strings.Join(strings.Fields(value), " ")
+	if len(compact) < 4 {
+		return false
+	}
+	lower := strings.ToLower(compact)
+	for _, placeholder := range []string{
+		"substantive source/diff evidence",
+		"verbatim source or log excerpt",
+		"exact verbatim quote",
+		"exact quote",
+		"source quote",
+		"todo",
+		"n/a",
+		"none",
+	} {
+		if lower == placeholder {
+			return false
+		}
+	}
+	return true
+}
+
 func nonEmptyStrings(values []string) []string {
 	var out []string
 	for _, value := range values {
@@ -359,4 +430,106 @@ func writeJSON(path string, value interface{}) error {
 	}
 	body = append(body, '\n')
 	return os.WriteFile(path, body, 0o644)
+}
+
+type reviewAttempt struct {
+	ID          string `json:"attempt_id"`
+	Dir         string `json:"attempt_dir"`
+	PersonaDir  string `json:"persona_dir"`
+	RequestPath string `json:"request_path"`
+	StartedAt   string `json:"started_at"`
+}
+
+func newReviewAttempt(outputDir string) reviewAttempt {
+	id := time.Now().UTC().Format("20060102T150405.000000000Z")
+	dir := filepath.Join(outputDir, "attempts", id)
+	return reviewAttempt{
+		ID:          id,
+		Dir:         dir,
+		PersonaDir:  filepath.Join(dir, "personas"),
+		RequestPath: filepath.Join(dir, "review-request.json"),
+		StartedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func clearPublishedReviewArtifacts(outputDir string) error {
+	for _, name := range []string{
+		"review.md",
+		"review.json",
+		"review-result.json",
+		"review-summary.json",
+		"review-decision.json",
+		"review-failure.json",
+	} {
+		if err := removeStaleArtifact(filepath.Join(outputDir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeAttemptManifest(outputDir string, attempt reviewAttempt, status string) error {
+	manifest := map[string]any{
+		"attempt_id":   attempt.ID,
+		"status":       status,
+		"attempt_dir":  attempt.Dir,
+		"persona_dir":  attempt.PersonaDir,
+		"request_path": attempt.RequestPath,
+		"started_at":   attempt.StartedAt,
+		"updated_at":   time.Now().UTC().Format(time.RFC3339),
+	}
+	return writeJSON(filepath.Join(outputDir, "current-attempt.json"), manifest)
+}
+
+func writeReviewFailure(outputDir string, attempt reviewAttempt, persona string, err error) error {
+	failurePath := filepath.Join(attempt.Dir, "review-failure.json")
+	failure := ReviewFailure{
+		OK:            false,
+		AttemptID:     attempt.ID,
+		Status:        "FAILED",
+		FailureKind:   classifyFailureKind(err),
+		Persona:       strings.TrimSpace(persona),
+		Message:       strings.TrimSpace(err.Error()),
+		FailurePath:   failurePath,
+		ResumeCommand: "codedungeon code-review",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+	var providerErr ProviderFailureError
+	if errors.As(err, &providerErr) {
+		failure.RetryAfter = providerErr.RetryAfter
+	}
+	if err := writeAttemptManifest(outputDir, attempt, "FAILED"); err != nil {
+		return err
+	}
+	if err := writeJSON(failurePath, failure); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(outputDir, "review-failure.json"), failure)
+}
+
+func classifyFailureKind(err error) FailureKind {
+	var providerErr ProviderFailureError
+	if errors.As(err, &providerErr) && providerErr.Kind != "" {
+		return providerErr.Kind
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "rate_limit") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "out_of_credits") || strings.Contains(lower, "429"):
+		return FailureProviderRateLimit
+	case strings.Contains(lower, "auth") || strings.Contains(lower, "api key") || strings.Contains(lower, "unauthorized"):
+		return FailureProviderAuth
+	case strings.Contains(lower, "context window") || strings.Contains(lower, "context length") || strings.Contains(lower, "maximum context"):
+		return FailureProviderContext
+	case strings.Contains(lower, "provider") || strings.Contains(lower, "claude") || strings.Contains(lower, "codex"):
+		return FailureProviderProcess
+	default:
+		return FailureReviewValidation
+	}
+}
+
+func removeStaleArtifact(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale review artifact %s: %w", path, err)
+	}
+	return nil
 }

@@ -3,7 +3,7 @@
 Use codedungeon as the deterministic workflow kernel. Preserve the phase flow, DB state, handoff schema, review JSON, and task contracts.
 
 Project artifacts:
-- Workflow skills: `.agents/skills/codedungeon/`, `.agents/skills/main-quest/`, `.agents/skills/side-quest/`, `.agents/skills/one-shot/`, `.agents/skills/code-review/`
+- Workflow skills: `.agents/skills/codedungeon/`, `.agents/skills/main-quest/`, `.agents/skills/side-quest/`, `.agents/skills/one-shot/`, `.agents/skills/code-review/`, `.agents/skills/task-maker/`
 - Editable command playbooks for reference: `.codedungeon/commands/`
 - Phase instructions: `.codedungeon/phases/`
 - Codex subagents: `.codex/agents/`
@@ -17,8 +17,9 @@ Default workflow:
 - Read `.codedungeon/project-rules.compact.md` when present before planning, executing, reviewing, or reporting completion.
 - Include `PROJECT_RULES_STATUS`, `PROJECT_RULES_DIGEST`, and `PROJECT_RULES_READ` in every plan, task, review, phase handoff, and final report.
 - Keep compatibility aliases available: `$main-quest`, `$side-quest`, `$one-shot`.
+- Use `$task-maker` to clarify an ambiguous request and prepare a reviewed English `$codedungeon --full` prompt before starting a full run. It persists `.codedungeon/task-maker/sessions/<session>/request.json`, `design.md`, `prompt.txt`, and `output.md` through `./.codex/bin/codedungeon task-maker render`; it must not dispatch `$codedungeon --full` unless the user explicitly asks after reviewing the prompt.
 - Use `$code-review`, `$codedungeon-test-loop`, and `$cleanup-tasks` for standalone review/test/cleanup flows.
-- If Codex rejects a custom `agent_type`, run `codex features enable multi_agent_v2` or restart Codex with `--enable multi_agent_v2`.
+- If Codex rejects a custom `agent_type`, stop with a blocker; project `.codex/config.toml` and non-interactive Codex invocations already enable `multi_agent_v2`.
 - Use `./.codex/bin/codedungeon phase info` before changing phase state.
 - Use `./.codex/bin/codedungeon spawn-prompt <phase>` to compose runtime phase context.
 - Preserve the emitted `agent_type` when using Codex subagents. Record `model` and `reasoning_effort` in telemetry/prompt context; do not force model overrides when Codex rejects that combination.

@@ -107,6 +107,8 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		".agents/skills/side-quest/SKILL.md":            false,
 		".agents/skills/one-shot/SKILL.md":              false,
 		".agents/skills/code-review/SKILL.md":           false,
+		".agents/skills/task-maker/SKILL.md":            false,
+		".agents/skills/compass-cartographer/SKILL.md":  false,
 		".agents/skills/codedungeon-test-loop/SKILL.md": false,
 		".agents/skills/cleanup-tasks/SKILL.md":         false,
 	}
@@ -133,6 +135,28 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 	for path, seen := range want {
 		if !seen {
 			t.Fatalf("missing codex artifact install path %q", path)
+		}
+	}
+}
+
+func TestCodexPhaseZeroRequiresDeterministicCartographer(t *testing.T) {
+	raw, err := GetRawFor("codex", "phases/entrance-hall-validation.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"codedungeon map",
+		"docs/CODEBASE_MAP.md",
+		"PHASE_0_COMPLETE",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("codex phase 0 missing %q:\n%s", required, body)
+		}
+	}
+	for _, forbidden := range []string{"sonnet", "Explore subagents", "Task tool"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("codex phase 0 should not depend on Claude-style exploration %q:\n%s", forbidden, body)
 		}
 	}
 }
@@ -226,6 +250,75 @@ func TestCodexCommandSkillsArePrimaryWorkflowSurface(t *testing.T) {
 		}
 		if strings.Contains(body, "slash command") {
 			t.Fatalf("skill %s should not describe itself as a slash command", name)
+		}
+	}
+}
+
+func TestCodexTaskMakerSkillContract(t *testing.T) {
+	raw, err := GetRawFor("codex", "skills/task-maker/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"name: task-maker",
+		"one material question per turn",
+		"final output is always in English",
+		"must not start `$codedungeon --full` automatically",
+		"codedungeon task-maker render",
+		"# Task Maker Output",
+		"## Minimal Design",
+		"## Run Full Prompt",
+		"## Command",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("task-maker skill missing %q:\n%s", required, body)
+		}
+	}
+}
+
+func TestClaudeTaskMakerCommandContract(t *testing.T) {
+	raw, err := GetRawFor("claude", "commands/task-maker.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"/task-maker",
+		"one material question per turn",
+		"final output is always in English",
+		"codedungeon task-maker render",
+		"--surface claude",
+		"/codedungeon --full",
+		"must not start `/codedungeon --full` automatically",
+		"# Task Maker Output",
+		"## Minimal Design",
+		"## Run Full Prompt",
+		"## Command",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("claude task-maker command missing %q:\n%s", required, body)
+		}
+	}
+}
+
+func TestClaudeTaskMakerArtifactsInstallPlaybookAndWrapper(t *testing.T) {
+	arts, err := ArtifactsFor("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		".codedungeon/commands/task-maker.md": false,
+		".claude/commands/task-maker.md":      false,
+	}
+	for _, a := range arts {
+		if _, ok := want[a.InstallPath]; ok {
+			want[a.InstallPath] = true
+		}
+	}
+	for path, seen := range want {
+		if !seen {
+			t.Fatalf("missing claude task-maker artifact install path %q", path)
 		}
 	}
 }
@@ -788,4 +881,94 @@ func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T
 			}
 		}
 	}
+}
+
+func TestRuntimePromptArtifactsDoNotReferenceGlobalInstallSurfaces(t *testing.T) {
+	for _, providerName := range []string{"claude", "codex"} {
+		arts, err := ArtifactsFor(providerName)
+		if err != nil {
+			t.Fatalf("artifacts for %s: %v", providerName, err)
+		}
+		for _, a := range arts {
+			body := string(a.Content)
+			for _, forbidden := range []string{
+				"plugins/local/codedungeon",
+				".claude-plugin",
+				"$HOME/.claude",
+				"~/.local/bin",
+				"codex features enable multi_agent_v2",
+			} {
+				if strings.Contains(body, forbidden) {
+					t.Fatalf("%s:%s contains forbidden global/runtime reference %q", providerName, a.RelPath, forbidden)
+				}
+			}
+		}
+	}
+}
+
+func TestClaudeWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
+	for _, rel := range []string{
+		"commands/main-quest.md",
+		"commands/side-quest.md",
+		"commands/one-shot.md",
+		"commands/codedungeon-loop.md",
+		"commands/codedungeon-test-loop.md",
+		"skills/grimoire-cli/SKILL.md",
+	} {
+		raw, err := GetRawFor("claude", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"./.claude/bin/codedungeon",
+			"Do not write review reports manually",
+			"Do not write final reports manually",
+			"codedungeon code-review",
+			"--url",
+			"--post",
+			"codedungeon qa run --phase 6 --fresh",
+			"codedungeon run finalize",
+			"READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("claude:%s missing deterministic gate instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+
+	for _, rel := range []string{
+		"commands/code-review.md",
+	} {
+		raw, err := GetRawFor("claude", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"./.claude/bin/codedungeon",
+			"Do not write review reports manually",
+			"codedungeon code-review",
+			"standalone module",
+			"final adjudicator",
+			"legacy `review run` output are invalid",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("claude:%s missing deterministic review instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+}
+
+func TestClaudeArtifactsInstallProjectSettingsFile(t *testing.T) {
+	arts, err := ArtifactsFor("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range arts {
+		if a.InstallPath == ".claude/settings.json" && a.Kind == "provider-config" {
+			return
+		}
+	}
+	t.Fatal("claude artifacts should include project-scoped .claude/settings.json provider config")
 }

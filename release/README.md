@@ -59,11 +59,13 @@ curl -fsSL https://raw.githubusercontent.com/Overstrider/codedungeon/main/releas
 The provider is built into the binary. Normal use should not depend on `CODEDUNGEON_PROVIDER`.
 
 - `codedungeon-codex` installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
-- `codedungeon-claude` installs `.claude/*`, `.codedungeon/*`, the Claude plugin, and `CLAUDE.md`.
+- `codedungeon-claude` installs `.claude/*`, `.codedungeon/*`, and `CLAUDE.md`; it does not install or depend on external plugin directories.
 
 Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, execution sessions, reports, PR memory, and Project Rules files. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
 
 The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+
+Both providers install Task Maker as a pre-run helper for rough or ambiguous requests: `$task-maker` for Codex and `/task-maker` for Claude Code. It asks short clarifying questions, persists `.codedungeon/task-maker/sessions/<session>/request.json`, `design.md`, `prompt.txt`, and `output.md` through `codedungeon task-maker render --surface <provider>`, and prints a reviewed `$codedungeon --full "<prompt>"` or `/codedungeon --full "<prompt>"` command without starting the full workflow automatically.
 
 Run Project Rules discovery before the first real task: `$codedungeon --rules` for Codex or `/codedungeon --rules` for Claude Code. The workflow drafts `.codedungeon/project-rules.md`, waits for user confirmation, then generates approved compact rules for subsequent planning, execution, review, and reporting.
 
@@ -75,6 +77,7 @@ Workflow guide:
 - `--lite`: compact task-splitting workflow for simple single-repo work with a prior plan in `.codedungeon/plans/*.md`.
 - `--full`: full phase lifecycle for complex or multi-repo work.
 - `--rules`: deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact `.codedungeon/project-rules.compact.md`.
+- `$task-maker` or `/task-maker`: pre-run design and prompt helper for `$codedungeon --full` or `/codedungeon --full`.
 
 Rules commands:
 

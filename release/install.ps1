@@ -2,6 +2,7 @@
 param(
     [ValidateSet('codex','claude','claude-code','claude-ce')]
     [string]$Provider,
+    [string]$Target,
     [switch]$Yes
 )
 
@@ -18,6 +19,19 @@ function Normalize-Provider {
     }
 }
 
+function Resolve-ProjectTarget {
+    param([string]$Requested)
+    if ($Requested) {
+        $Root = & git -C $Requested rev-parse --show-toplevel 2>$null
+    } else {
+        $Root = & git rev-parse --show-toplevel 2>$null
+    }
+    if ($LASTEXITCODE -ne 0 -or -not $Root) {
+        throw "run from a git project or pass -Target <project-root>"
+    }
+    return $Root.Trim()
+}
+
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $Provider) {
     if ($Yes) {
@@ -26,6 +40,7 @@ if (-not $Provider) {
     $Provider = Read-Host "Provider [codex/claude]"
 }
 $Provider = Normalize-Provider $Provider
+$Target = Resolve-ProjectTarget $Target
 
 if (-not [Environment]::Is64BitOperatingSystem) {
     throw "unsupported Windows architecture: 32-bit"
@@ -37,55 +52,28 @@ if (-not (Test-Path -LiteralPath $Src)) {
     throw "binary missing: $Src"
 }
 
-$DestDir = Join-Path $HOME ".local/bin"
+$DestDir = Join-Path $Target ".codedungeon/bin"
 New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 $DestBin = Join-Path $DestDir "codedungeon-$Provider.exe"
 Copy-Item -LiteralPath $Src -Destination $DestBin -Force
 Write-Host "[OK] copied binary -> $DestBin"
 
-if ($Provider -eq 'claude') {
-    $Plug = Join-Path $HOME ".claude/plugins/local/codedungeon"
-    $PlugBinDir = Join-Path $Plug "bin"
-    $PlugSkillDir = Join-Path $Plug "skills/grimoire-cli"
-    $ManifestDir = Join-Path $Plug ".claude-plugin"
-    New-Item -ItemType Directory -Force -Path $PlugBinDir, $PlugSkillDir, $ManifestDir | Out-Null
-
-    $PluginBin = Join-Path $PlugBinDir "codedungeon.exe"
-    Copy-Item -LiteralPath $Src -Destination $PluginBin -Force
-    Write-Host "[OK] plugin binary -> $PluginBin"
-
-    Copy-Item -LiteralPath (Join-Path $Here "skills/grimoire-cli/SKILL.md") -Destination (Join-Path $PlugSkillDir "SKILL.md") -Force
-    Write-Host "[OK] skill -> $PlugSkillDir"
-
-    @'
-{
-  "name": "codedungeon",
-  "version": "2.0.0",
-  "description": "Deterministic Go CLI for project pipelines: phase state, review, repo discovery, QA, code-review, task decomposition. SQLite FTS5 backend, embedded prompts.",
-  "author": { "name": "loldinis" }
-}
-'@ | Set-Content -LiteralPath (Join-Path $ManifestDir "plugin.json") -Encoding UTF8
-    Write-Host "[OK] manifest -> $(Join-Path $ManifestDir "plugin.json")"
-} else {
-    Write-Host "[OK] Codex provider selected; no global Claude plugin installed"
+Write-Host "[OK] running project-local setup in $Target"
+$OldProvider = $env:CODEDUNGEON_PROVIDER
+$env:CODEDUNGEON_PROVIDER = $Provider
+try {
+    & $DestBin setup --target $Target --yes
+} finally {
+    $env:CODEDUNGEON_PROVIDER = $OldProvider
 }
 
 Write-Host ""
 Write-Host "=== Install complete ==="
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "  1. cd into any git project"
-Write-Host "  2. codedungeon-$Provider setup"
+Write-Host "Project binary:"
+Write-Host "  $DestBin"
 if ($Provider -eq 'codex') {
-    Write-Host "  3. Codex workflow router becomes available:"
-    Write-Host "     `$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
-    Write-Host "     Recommended first run: `$codedungeon --rules"
-    Write-Host "     Compatibility aliases: `$main-quest, `$side-quest, `$one-shot"
+    Write-Host "Codex workflow router is installed under .agents/skills/codedungeon."
 } else {
-    Write-Host "  3. Claude Code workflow router becomes available:"
-    Write-Host "     /codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>"
-    Write-Host "     Recommended first run: /codedungeon --rules"
-    Write-Host "     Compatibility aliases: /main-quest, /side-quest, /one-shot"
+    Write-Host "Claude Code workflow router is available as /codedungeon."
 }
-
-& $DestBin version --human

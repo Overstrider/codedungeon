@@ -41,11 +41,12 @@ func TestInstallersAndDocsExposeProviderChoice(t *testing.T) {
 		},
 		"release/install.sh": {
 			"claude-code|claude-ce",
-			"PLUGIN_BIN=\"$PLUG/bin/codedungeon\"",
+			".codedungeon/bin",
+			"setup --target",
 		},
 		"release/install.ps1": {
 			"codedungeon-$Provider",
-			"codedungeon.exe",
+			".codedungeon/bin",
 		},
 		"README.md": {
 			"codedungeon-codex",
@@ -77,18 +78,12 @@ func TestReleaseV2MetadataAndGuidance(t *testing.T) {
 			"codedungeon-claude.exe",
 		},
 		"release/install.sh": {
-			`"version": "2.0.0"`,
-			"$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
-			"$codedungeon --rules",
-			"/codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
-			"/codedungeon --rules",
+			".codedungeon/bin",
+			"setup --target",
 		},
 		"release/install.ps1": {
-			`"version": "2.0.0"`,
-			"`$codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
-			"`$codedungeon --rules",
-			"/codedungeon --full|--lite|--oneshot|--auto|--rules <prompt>",
-			"/codedungeon --rules",
+			".codedungeon/bin",
+			"setup --target",
 		},
 		"README.md": {
 			"Repository maintenance is main-only",

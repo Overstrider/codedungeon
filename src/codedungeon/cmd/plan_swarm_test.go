@@ -103,6 +103,114 @@ func TestPlanRunCommandPersistsPlanningSessionAndTasks(t *testing.T) {
 	}
 }
 
+func TestObservePlanningStatusShowsRecoveredCompletion(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := store.CreateRun(&db.Run{Feature: "Recovered planning", Mode: "FULL", ProjectMode: "SINGLE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(root, ".codedungeon", "task-planning", "recovered")
+	if err := store.UpsertPlanningSession(db.PlanningSession{
+		ID:              "plan-recovered",
+		RunID:           runID,
+		Mode:            "FULL",
+		Prompt:          "Recovered planning",
+		HumanGatePolicy: "ask",
+		Status:          taskplanning.StatusFailed,
+		OutputDir:       outDir,
+		FailureMessage:  "first provider attempt failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InsertRunEvent(db.RunEvent{RunID: runID, Event: "planning_failed", Detail: "first provider attempt failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InsertPlanningEvaluation(db.PlanningEvaluation{
+		SessionID: "plan-recovered",
+		RunID:     runID,
+		Verdict:   "PASS",
+		Score:     0.95,
+		FullJSON:  `{"verdict":"PASS"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InsertPlanningTaskGraph(db.PlanningTaskGraph{
+		SessionID: "plan-recovered",
+		RunID:     runID,
+		Version:   1,
+		Status:    taskplanning.StatusCompleted,
+		GraphJSON: `{"version":1,"tasks":[]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InsertRunEvent(db.RunEvent{RunID: runID, Event: "planning_completed", Detail: "plan-recovered"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RenderObserveReport(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(report, "Status: COMPLETED (recovered from prior failure)") {
+		t.Fatalf("observe report should show effective recovered planning status:\n%s", report)
+	}
+}
+
+func TestEffectivePlanningStatusDoesNotRecoverAfterLaterFailure(t *testing.T) {
+	status := effectivePlanningStatus(
+		&db.PlanningSession{ID: "plan-recovered", Status: taskplanning.StatusFailed},
+		[]db.PlanningEvaluation{{Verdict: "PASS", Score: 0.95}},
+		[]db.PlanningTaskGraph{{Version: 1, Status: taskplanning.StatusCompleted}},
+		[]db.RunEvent{
+			{ID: 1, Event: "planning_failed", Detail: "first attempt failed"},
+			{ID: 2, Event: "planning_recovered", Detail: "plan-recovered"},
+			{ID: 3, Event: "planning_completed", Detail: "plan-recovered"},
+			{ID: 4, Event: "planning_failed", Detail: "later attempt failed"},
+		},
+	)
+	if status != taskplanning.StatusFailed {
+		t.Fatalf("status = %q, want latest failure to remain visible", status)
+	}
+}
+
+func TestDefaultPlanningRunnerNameFollowsProvider(t *testing.T) {
+	cases := map[string]string{
+		"claude":     "claude",
+		"claude-ce":  "claude",
+		"codex":      "codex",
+		"codex-cli":  "codex",
+		"unexpected": "codex",
+		"":           "codex",
+	}
+	for providerName, want := range cases {
+		if got := defaultPlanningRunnerName(providerName); got != want {
+			t.Fatalf("defaultPlanningRunnerName(%q) = %q, want %q", providerName, got, want)
+		}
+	}
+}
+
 func TestPlanRunAutoRepairAndPromotePublishesBinaryReadyArtifacts(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
