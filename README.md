@@ -574,4 +574,4 @@ review.
 
 ## License
 
-Apache-2.0.
+AGPL-3.0-only. See [LICENSE](LICENSE).
