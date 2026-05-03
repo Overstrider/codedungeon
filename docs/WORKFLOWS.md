@@ -89,14 +89,15 @@ CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI.
 1. Final build/check/test verification is produced by the QA module. Agents may run explicit checks with `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"` and subsequent `codedungeon qa run --phase 6 --cmd "<cmd>"`; `codedungeon run finalize` also invokes `codedungeon qa run --auto` behavior automatically when the active Phase 6 ledger is missing or failing.
 2. The branch is pushed.
 3. A GitHub PR exists or is reused.
-4. Adversarial review personas write outputs such as `findings-saboteur.json`, `review-manifest.json` records personas/base/head/PR/timestamp, and `codedungeon review run` generates `review.md` and `review.json`.
-5. Code review is posted to the PR with `codedungeon review post`, which posts the latest validated review evidence directory and records comment id, URL, author, and body hash.
-6. The final review verdict is `APPROVED`.
-7. `codedungeon run finalize` closes eligible final phases, verifies gates, generates the final report from DB evidence, records Phase 7, and leaves the PR open for human review.
+4. Standalone CodeDungeon code review runs with `codedungeon code-review --url <pr-url> --project-context <path> --task-context <path> --out .codedungeon/code-review --post`, writes persona/adjudication artifacts, records review evidence, and posts the concise final review comment to the PR.
+5. The final review verdict is `APPROVED`.
+6. `codedungeon run finalize` closes eligible final phases, verifies gates, generates the final report from DB evidence, records Phase 7, and leaves the PR open for human review.
 
 If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, never `READY_FOR_USER_REVIEW`.
 
-Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon review run`, `codedungeon review post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. QA evidence is session-scoped under `.codedungeon/qa/sessions/<qa-session-id>/` with request/result JSON, preflight data, logs, checks, findings, and summaries. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
+Lower-level `codedungeon review run` and `codedungeon review post` remain available for legacy adversarial pipeline evidence, but they are not the normal final approval surface for current workflows.
+
+Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon code-review --post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. QA evidence is session-scoped under `.codedungeon/qa/sessions/<qa-session-id>/` with request/result JSON, preflight data, logs, checks, findings, and summaries. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
 
 Runtime evidence is also indexed in the artifact registry. Use `codedungeon artifacts list --latest-run` to inspect evidence rows, `codedungeon artifacts verify --latest-run` to detect missing or drifted files, and `codedungeon artifacts backfill --run <run-id>` to index evidence from older or interrupted runs.
 
@@ -199,7 +200,7 @@ Use `one-shot` instead when task splitting would be overhead.
 
 It stores phase state, plans, handoffs, tasks, reviews, and reports in `.codedungeon/` so interrupted work can resume and past PR work remains inspectable.
 
-Phase 5 requires approved review evidence and a pushed GitHub PR branch. Phase 6 requires a passing active verification ledger produced by `codedungeon qa run`; when `codedungeon run finalize` finds the ledger missing or failing, it runs workflow QA automatically in `auto` mode and writes the Phase 6 evidence itself. Explicit reruns can still use `--fresh` to supersede earlier records. Phase 7 is closed by `codedungeon run finalize` after prior phases, review evidence, recorded PR review-post evidence, verification ledger, `codedungeon git verify`, and report rendering all pass. `codedungeon git verify` rejects arbitrary marker comments and merged PRs.
+Phase 5 requires approved standalone code-review evidence and a pushed GitHub PR branch. Phase 6 requires a passing active verification ledger produced by `codedungeon qa run`; when `codedungeon run finalize` finds the ledger missing or failing, it runs workflow QA automatically in `auto` mode and writes the Phase 6 evidence itself. Explicit reruns can still use `--fresh` to supersede earlier records. Phase 7 is closed by `codedungeon run finalize` after prior phases, review evidence, recorded PR review-post evidence, verification ledger, `codedungeon git verify`, and report rendering all pass. `codedungeon git verify` rejects arbitrary marker comments and merged PRs.
 
 `codedungeon qa detect-framework --path .` detects single projects and common monorepos. For monorepos it returns `framework: monorepo` with component commands in `components` and `run_cmds`.
 

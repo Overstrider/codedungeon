@@ -1,6 +1,10 @@
-# codedungeon v2.0.0 release
+# CodeDungeon v2.0.0 Release
 
 Precompiled provider-specific binaries for Codex CLI and Claude Code.
+
+CodeDungeon installs a provider-native workflow router, standalone modules, and
+durable `.codedungeon/` state. The promoted agent-facing entry points are
+`$codedungeon` for Codex and `/codedungeon` for Claude Code.
 
 ## Contents
 
@@ -27,6 +31,7 @@ Bash:
 ```bash
 ./install.sh --provider codex
 ./install.sh --provider claude
+./install.sh --provider codex --target /path/to/project
 ```
 
 PowerShell:
@@ -34,9 +39,15 @@ PowerShell:
 ```powershell
 .\install.ps1 -Provider codex
 .\install.ps1 -Provider claude
+.\install.ps1 -Provider codex -Target C:\path\to\project
 ```
 
-Provider selection is required. `claude-code` and `claude-ce` are accepted as legacy aliases and normalize to `claude`.
+Provider selection is required. `claude-code` and `claude-ce` are accepted as
+legacy aliases and normalize to `claude`.
+
+The release installer copies the selected provider binary to
+`.codedungeon/bin/codedungeon-<provider>` and then runs project-local setup. It
+does not modify shell PATH, user-home plugins, or global provider feature flags.
 
 ## Download One Binary
 
@@ -56,52 +67,116 @@ curl -fsSL https://raw.githubusercontent.com/Overstrider/codedungeon/main/releas
 
 ## Provider Behavior
 
-The provider is built into the binary. Normal use should not depend on `CODEDUNGEON_PROVIDER`.
+The provider is built into the binary. Normal use should choose by binary name
+instead of depending on `CODEDUNGEON_PROVIDER`.
 
-- `codedungeon-codex` installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
-- `codedungeon-claude` installs `.claude/*`, `.codedungeon/*`, and `CLAUDE.md`; it does not install or depend on external plugin directories.
+Codex setup installs:
 
-Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands, phases, tasks, plans, state handoffs, reviews, execution sessions, reports, PR memory, and Project Rules files. Provider directories keep only provider-native bootstrap files and Claude slash-command wrappers.
+- `.codex/bin/codedungeon`
+- `.codex/agents/*`
+- `.codex/config.toml` with project-local `multi_agent_v2` config
+- `.agents/skills/*`
+- `AGENTS.md`
+- `.codedungeon/commands/*`, `.codedungeon/phases/*`, and runtime state
 
-The promoted workflow surface is `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Codex and `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>` for Claude Code. Without a flag, the router selects automatically and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>`.
+Claude setup installs:
 
-Both providers install Task Maker as a pre-run helper for rough or ambiguous requests: `$task-maker` for Codex and `/task-maker` for Claude Code. It asks short clarifying questions, persists `.codedungeon/task-maker/sessions/<session>/request.json`, `design.md`, `prompt.txt`, and `output.md` through `codedungeon task-maker render --surface <provider>`, and prints a reviewed `$codedungeon --full "<prompt>"` or `/codedungeon --full "<prompt>"` command without starting the full workflow automatically.
+- `.claude/bin/codedungeon`
+- `.claude/agents/*`
+- `.claude/skills/*`
+- `.claude/commands/*` wrappers
+- `CLAUDE.md`
+- `.codedungeon/commands/*`, `.codedungeon/phases/*`, and runtime state
 
-Run Project Rules discovery before the first real task: `$codedungeon --rules` for Codex or `/codedungeon --rules` for Claude Code. The workflow drafts `.codedungeon/project-rules.md`, waits for user confirmation, then generates approved compact rules for subsequent planning, execution, review, and reporting.
+Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands,
+phases, tasks, plans, state handoffs, reviews, code-review evidence, QA sessions,
+execution sessions, reports, memory, PR evidence, Project Rules files, and the
+runtime artifact registry.
 
-Compatibility aliases remain installed: `$one-shot`, `$side-quest`, `$main-quest` for Codex and `/one-shot`, `/side-quest`, `/main-quest` for Claude Code. Standalone review remains `$code-review` or `/code-review`.
+## Workflow Router
 
-Workflow guide:
+Promoted provider-native surfaces:
 
-- `--oneshot`: smallest PR-producing workflow; creates or switches to `feat/<slug>`, then runs guard, commits, pushes, creates or reuses a PR, and runs review.
-- `--lite`: compact task-splitting workflow for simple single-repo work with a prior plan in `.codedungeon/plans/*.md`.
-- `--full`: full phase lifecycle for complex or multi-repo work.
-- `--rules`: deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact `.codedungeon/project-rules.compact.md`.
-- `$task-maker` or `/task-maker`: pre-run design and prompt helper for `$codedungeon --full` or `/codedungeon --full`.
-
-Rules commands:
-
-```bash
-codedungeon-<provider> rules status
-codedungeon-<provider> rules lint
-codedungeon-<provider> hooks install --provider codex --mode warn
-codedungeon-<provider> hooks install --provider claude --mode warn
+```text
+$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>
+/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>
 ```
 
-Workflows read approved compact rules and carry `PROJECT_RULES_STATUS`, `PROJECT_RULES_DIGEST`, and `PROJECT_RULES_READ` in handoffs and reports.
+Without a mode flag, the router selects automatically and prints:
 
-`one-shot` runs `codedungeon git guard` only after switching to a feature branch because guard rejects protected branches such as `main`.
+```text
+CODEDUNGEON_MODE_SELECTED: <mode> - <reason>
+```
 
-CodeDungeon completion is PR-centered and verification-gated. Code-writing workflows require a GitHub remote and authenticated `gh`; there is no local-only completion path. QA can run standalone with `codedungeon qa run --auto` or concrete checks such as `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`. A workflow reaches `READY_FOR_USER_REVIEW` only when build/check/test verification is recorded, the branch is pushed, a PR exists and remains open, adversarial review is generated by `codedungeon review run`, and the review is posted with `codedungeon review post` from the latest validated review evidence directory. `codedungeon run finalize` invokes QA automatically when Phase 6 evidence is missing or failing, then records Phase 7 after all gates pass; hand-written review or final reports are not gate evidence. The user performs final review and merge.
+Mode summary:
 
-Agent telemetry is informational evidence. Workflows record subagent lifecycles with `codedungeon trace agent-start` and `codedungeon trace agent-end`; `codedungeon observe agents` and `codedungeon observe report` summarize the run timeline without replacing QA, review, PR, or report gates.
+- `--rules`: deep-read the repo, draft `.codedungeon/project-rules.md`, wait for
+  user confirmation, then approve and compact rules.
+- `--oneshot`: smallest PR-producing workflow for a scoped change.
+- `--lite`: compact task workflow for simple work with a prior plan.
+- `--full`: full phase lifecycle for complex or multi-repo work.
+- `--auto`: explicit automatic mode selection.
 
-Standalone task execution is available through `codedungeon execute task --task <task.json> --project-context <path-or-text>`. It executes one task contract at a time, writes attempt snapshots under `.codedungeon/execute/sessions/`, requires explicit `--resume <id>` for continuation, expires sessions after 24 hours by default, and supports `--reset-session`. `.ralphrc` and `CODEDUNGEON_EXEC_*` env vars configure timeouts, iterations, auto-commit, opt-in auto-push, opt-in incremental semver tags, and allowed tools.
+Compatibility aliases remain installed:
 
-Review cycles run up to 9 times. Cycles 1-3 use full adversarial mode; cycles 4-9 use reduced mode with fast model/effort and focus on fixes/new diff.
+- Codex: `$one-shot`, `$side-quest`, `$main-quest`
+- Claude: `/one-shot`, `/side-quest`, `/main-quest`
+
+Task Maker is installed as `$task-maker` or `/task-maker`. It clarifies a rough
+request, persists `request.json`, `design.md`, `prompt.txt`, and `output.md`
+under `.codedungeon/task-maker/sessions/<session>/`, and prints a reviewed
+`$codedungeon --full "<prompt>"` or `/codedungeon --full "<prompt>"` command
+without starting the workflow automatically.
+
+Standalone review is `$code-review` or `/code-review`; the underlying CLI module
+is:
+
+```bash
+codedungeon-<provider> code-review --url <pr-url> --project-context <path> --task-context <path> --out .codedungeon/code-review --post
+```
+
+## Gates
+
+Code-writing workflows are PR-centered and verification-gated. They require a
+GitHub `origin` remote and authenticated `gh`; there is no local-only completion
+path. A workflow reaches `READY_FOR_USER_REVIEW` only after:
+
+- QA records passing verification evidence.
+- The branch is pushed.
+- A PR exists and remains open.
+- Standalone CodeDungeon code-review records and posts review evidence.
+- `codedungeon git verify` accepts the PR/review state.
+- `codedungeon run finalize` renders the final report from DB evidence.
+
+The user performs final review and merge.
+
+## Useful Module Commands
+
+```bash
+codedungeon-<provider> setup --yes
+codedungeon-<provider> migrate
+codedungeon-<provider> status
+codedungeon-<provider> rules status
+codedungeon-<provider> rules lint
+codedungeon-<provider> task-maker render --surface codex --input <request.json> --out <dir> --print
+codedungeon-<provider> plan run --prompt "<prompt>" --project-context .codedungeon/project-rules.compact.md
+codedungeon-<provider> execute task --task <task.json> --project-context .codedungeon/project-rules.compact.md
+codedungeon-<provider> qa run --auto --fresh
+codedungeon-<provider> code-review --url <pr-url> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plan/PLAN.md --post
+codedungeon-<provider> artifacts list --latest-run
+codedungeon-<provider> artifacts verify --latest-run
+codedungeon-<provider> observe report
+codedungeon-<provider> run finalize --dry-run
+```
+
+See `../README.md` for the complete module reference and
+`../docs/WORKFLOWS.md` for workflow behavior.
 
 ## Upgrade
 
-Replace the `release/` directory, rerun the provider installer, then run `codedungeon-<provider> migrate` inside existing projects when prompted.
+Replace the `release/` directory, rerun the provider installer, then run
+`codedungeon-<provider> migrate` inside existing projects when prompted.
 
-For the full safe upgrade flow, including what is preserved and when to use `install --dry-run` or `install --force`, see [`../docs/MIGRATING.md`](../docs/MIGRATING.md).
+For the full safe upgrade flow, including what is preserved and when to use
+`install --dry-run` or `install --force`, see
+[`../docs/MIGRATING.md`](../docs/MIGRATING.md).
