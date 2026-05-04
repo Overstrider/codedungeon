@@ -1,6 +1,11 @@
 # Pre-existing plugin snapshot, kept for reference - not versioned.
 OLD/
 
+# Local-only project/runtime folders.
+scripts/
+examples/
+.*/
+
 # Go build artifacts (binaries live in release/bin, committed)
 *.out
 *.log
@@ -14,42 +19,3 @@ OLD/
 
 # Pre-purge tarballs (created by the refactor flow; ephemeral)
 /tmp/cd-*
-
-# Local generated smoke/e2e workspaces; never version these large artifacts.
-.tmp/
-examples/v4/
-examples/v5/
-examples/v6/
-examples/v7/
-examples/v8/
-examples/v9/
-
-# Legacy provider-local codedungeon state from old consumer projects.
-.claude/codedungeon.db*
-.claude/loldinis-state/
-.claude/state/
-.claude/plan/
-.claude/tasks/
-.claude/codereview/
-.codex/codedungeon.db*
-.codex/state/
-.codex/plan/
-.codex/tasks/
-.codex/codereview/
-
-# SQLite transient files; .codedungeon itself is intentionally versionable.
-.codedungeon/*.db-journal
-examples/*/.codedungeon/*.db-journal
-
-# Example projects' provider-native generated bootstrap files.
-examples/*/.claude/bin/
-examples/*/.claude/codedungeon.db*
-examples/*/.claude/tasks/
-examples/*/.claude/codereview/
-examples/*/.claude/agents/
-examples/*/.claude/skills/
-examples/*/.claude/commands/
-examples/*/.claude/phases/
-
-# Nested example repos: keep local .git (codedungeon needs it) but never track it in outer repo
-examples/*/.git/
