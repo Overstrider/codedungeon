@@ -4,11 +4,29 @@
 > installation instructions. Send this repository URL to your Codex or Claude
 > Code agent; it will set itself up.
 
-CodeDungeon is a provider-native workflow kernel for AI coding agents. It is not
-just a `run` command: it installs Codex and Claude command surfaces, routes work
-through repeatable workflows, exposes each workflow module as a standalone CLI,
-stores durable state under `.codedungeon/`, and gates completion on QA, review,
-PR, and final-report evidence.
+## Agent-First M2M CLI
+
+CodeDungeon is a machine-to-machine (M2M) CLI workflow kernel for Codex and
+Claude Code. It is built for agents to call commands, not for humans to manually
+follow setup docs. Humans can use it directly, but the default path is: send an
+agent this repository URL, then let it run the CLI.
+
+It is more than a prompt pack. The binary installs provider-native surfaces,
+routes work through repeatable workflows, stores durable SQLite state under
+`.codedungeon/`, and gates completion on QA, code review, GitHub PR state,
+artifact integrity, and final-report evidence.
+
+Why agents use it:
+
+- Project-local setup for Codex or Claude without global provider changes.
+- Deterministic modules for rules, task shaping, planning, execution, QA,
+  review, artifacts, telemetry, recovery, and finalization.
+- Durable state for interrupted work: runs, phases, handoffs, tasks, findings,
+  QA sessions, review evidence, and registered artifacts.
+- PR-centered workflow gates that stop agents from claiming work is complete
+  until branch, PR, verification, review, and report evidence are present.
+- Provider-native command surfaces with a shared workflow kernel: `$codedungeon`
+  for Codex and `/codedungeon` for Claude Code.
 
 ## Mental Model
 
