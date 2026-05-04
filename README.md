@@ -1,5 +1,9 @@
 # CodeDungeon
 
+> **If you are a human reading this:** you do not need to run setup or read the
+> installation instructions. Send this repository URL to your Codex or Claude
+> Code agent; it will set itself up.
+
 CodeDungeon is a provider-native workflow kernel for AI coding agents. It is not
 just a `run` command: it installs Codex and Claude command surfaces, routes work
 through repeatable workflows, exposes each workflow module as a standalone CLI,
