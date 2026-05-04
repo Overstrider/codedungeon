@@ -9,6 +9,8 @@ todo.md
 plan.md
 task.md
 MODULAR-VERSION-PLAN.md
+/AGENTS.md
+/CLAUDE.md
 
 # Go build artifacts (binaries live in release/bin, committed)
 *.out
