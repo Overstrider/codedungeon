@@ -252,9 +252,6 @@ func mediaTypeForPath(path, artifactType string) string {
 		return "inode/directory"
 	}
 	ext := strings.ToLower(filepath.Ext(path))
-	if mt := mime.TypeByExtension(ext); mt != "" {
-		return mt
-	}
 	switch ext {
 	case ".md":
 		return "text/markdown"
@@ -265,6 +262,9 @@ func mediaTypeForPath(path, artifactType string) string {
 	case ".patch", ".diff":
 		return "text/x-diff"
 	default:
+		if mt := mime.TypeByExtension(ext); mt != "" {
+			return mt
+		}
 		return "application/octet-stream"
 	}
 }

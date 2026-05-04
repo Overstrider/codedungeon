@@ -168,6 +168,9 @@ func ListFor(providerName string) ([]string, error) {
 		if e.IsDir() {
 			continue
 		}
+		if e.Name() == "AGENTS.md" {
+			continue
+		}
 		if _, ok := pack.installPath(e.Name()); ok {
 			continue
 		}
@@ -220,7 +223,7 @@ func (p pack) installPath(rel string) (string, bool) {
 	}
 	switch {
 	case rel == "AGENTS.md":
-		return rel, true
+		return "", false
 	case rel == "config.toml":
 		return ".codex/config.toml", true
 	case strings.HasPrefix(rel, "agents/"):

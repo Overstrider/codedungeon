@@ -20,8 +20,8 @@ import (
 // ErrHomeConfig is returned when the CWD is under a provider's home config dir.
 var ErrHomeConfig = errors.New("refuse: codedungeon must not run inside the provider's home config directory - use a project directory")
 
-// ErrNoGit is returned when the project root has no .git/.
-var ErrNoGit = errors.New("refuse: project root has no .git - codedungeon requires a git repository")
+// ErrNoGit is returned when the target is not inside a git worktree.
+var ErrNoGit = errors.New("refuse: target is not inside a git worktree - codedungeon requires git")
 
 // ErrNoProject is returned when no project root could be resolved.
 var ErrNoProject = errors.New("no project root found - invoke `codedungeon bootstrap` with --target")
@@ -72,10 +72,20 @@ func IsHomeConfig(path string) bool {
 	return false
 }
 
-// HasGit returns true if dir has .git (dir OR file — gitfile is valid for worktrees/submodules).
+// HasGit returns true if dir has .git (dir OR file - gitfile is valid for worktrees/submodules).
 func HasGit(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, ".git"))
 	return err == nil
+}
+
+// IsGitWorkTree returns true when dir is inside a git worktree. Unlike
+// HasGit, this intentionally accepts subprojects inside a larger worktree.
+func IsGitWorkTree(dir string) bool {
+	if HasGit(dir) {
+		return true
+	}
+	out, _, err := run(dir, "git", "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
 }
 
 // GuardHomeConfig refuses if CWD is under the provider's home config dir.
@@ -96,8 +106,7 @@ func GuardGit() error {
 	if err != nil {
 		return err
 	}
-	root := ResolveProjectRoot(cwd)
-	if !HasGit(root) {
+	if !IsGitWorkTree(cwd) {
 		return ErrNoGit
 	}
 	return nil
@@ -126,8 +135,7 @@ func OpenDB(c *cobra.Command) (*db.Store, error) {
 	}
 	path, _ := c.Flags().GetString("db")
 	if path == "" {
-		cwd, _ := os.Getwd()
-		root := ResolveProjectRoot(cwd)
+		root := currentProjectRoot()
 		p := provider.Detect()
 		if err := migrateLegacyRuntimeState(root, p); err != nil {
 			return nil, err
@@ -208,7 +216,7 @@ func EmitPreflightErr(err error) error {
 		hint = "cd into a project directory that is NOT under the provider's home config directory"
 		action = "change-directory"
 	case errors.Is(err, ErrNoGit):
-		hint = "run `git init` in the project root, OR invoke `codedungeon bootstrap --target <path>`"
+		hint = "run `git init` in the intended project directory or pass --target to a directory inside a git worktree"
 		action = "init-git-or-bootstrap"
 	case errors.Is(err, ErrNoProject):
 		hint = "invoke `codedungeon bootstrap --target <abs path>`"

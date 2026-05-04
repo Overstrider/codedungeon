@@ -18,7 +18,7 @@ EXEMPT (write normal): code blocks, FILE CONTENTS (arcplan, plans, tasks, CLAUDE
 
 ## Inputs
 - `$ARGUMENTS` — user's feature prompt
-- root `CLAUDE.md` (optional; discover fills it)
+- root `CLAUDE.md` (optional; discover may return insertion guidance, but does not edit it)
 - per-repo `CLAUDE.md` files
 - per-repo `docs/CODEBASE_MAP.md` (cartographer)
 
@@ -80,14 +80,14 @@ Missing skill is non-blocking. Log + continue.
 
 ```bash
 # A run already exists under autonomous custody. Do not call phase init here.
-codedungeon repo discover --write-claude-md --persist > /tmp/discover.json
+codedungeon repo discover --persist > /tmp/discover.json
 cat /tmp/discover.json
 ```
 
 The command:
 - Auto-classifies: `BOOTSTRAP` (empty root), `SINGLE` (manifest at root, no sub-manifests), `MULTI` (sub-manifests found).
 - Persists REPO_MAP into active run.
-- Upserts `## Repositories` table in root CLAUDE.md.
+- Does not mutate root CLAUDE.md/AGENTS.md. If provider instruction updates are needed, use the returned `agent_config_instruction` content for the installer agent to insert.
 
 Parse `project_mode` from the JSON. If `BOOTSTRAP`, prompt the user for stack:
 
@@ -154,7 +154,7 @@ Salvar `TEST_AUTH_MISSING_REPOS` (será lido em Phase 4 para injetar TASK-001).
 codedungeon phase done 0 \
   --summary "repos=$(jq -r '.repo_map | length' /tmp/discover.json); mode=$MODE; project_mode=$PROJECT_MODE" \
   --decisions "playwright=$PLAYWRIGHT_SKILL_PATH" \
-  --artifacts "CLAUDE.md" ".codedungeon/codedungeon.db" \
+  --artifacts ".codedungeon/codedungeon.db" \
   --next ".codedungeon/plan/arcplan.md (Phase 1)" \
   --promise "PHASE_0_COMPLETE: $(jq -r '.project_mode' /tmp/discover.json), $(jq -r '.repo_map | length' /tmp/discover.json) repos"
 ```

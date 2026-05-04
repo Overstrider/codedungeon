@@ -22,14 +22,15 @@ function Normalize-Provider {
 function Resolve-ProjectTarget {
     param([string]$Requested)
     if ($Requested) {
-        $Root = & git -C $Requested rev-parse --show-toplevel 2>$null
+        $TargetPath = (Resolve-Path -LiteralPath $Requested).Path
     } else {
-        $Root = & git rev-parse --show-toplevel 2>$null
+        $TargetPath = (Get-Location).Path
     }
-    if ($LASTEXITCODE -ne 0 -or -not $Root) {
+    $Inside = & git -C $TargetPath rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0 -or $Inside.Trim() -ne 'true') {
         throw "run from a git project or pass -Target <project-root>"
     }
-    return $Root.Trim()
+    return $TargetPath
 }
 
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path

@@ -92,7 +92,6 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"AGENTS.md":                                     false,
 		".codex/config.toml":                            false,
 		".codex/agents/cd_dev_worker.toml":              false,
 		".codedungeon/commands/main-quest.md":           false,
@@ -127,6 +126,9 @@ func TestCodexArtifactsAreProviderNative(t *testing.T) {
 		}
 		if strings.HasPrefix(a.InstallPath, ".codex/commands/") {
 			t.Fatalf("codex commands must not install under .codex/commands, got %q", a.InstallPath)
+		}
+		if a.InstallPath == "AGENTS.md" || a.Kind == "project-instructions" {
+			t.Fatalf("provider instruction files must be emitted as setup guidance, not installed artifacts: %+v", a)
 		}
 		if _, ok := want[a.InstallPath]; ok {
 			want[a.InstallPath] = true

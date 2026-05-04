@@ -43,10 +43,12 @@ func TestInstallersAndDocsExposeProviderChoice(t *testing.T) {
 			"claude-code|claude-ce",
 			".codedungeon/bin",
 			"setup --target",
+			"--is-inside-work-tree",
 		},
 		"release/install.ps1": {
 			"codedungeon-$Provider",
 			".codedungeon/bin",
+			"--is-inside-work-tree",
 		},
 		"README.md": {
 			"codedungeon-codex",
@@ -66,6 +68,9 @@ func TestInstallersAndDocsExposeProviderChoice(t *testing.T) {
 				t.Fatalf("%s missing %q", file, want)
 			}
 		}
+		if strings.HasPrefix(file, "release/install.") && strings.Contains(text, "--show-toplevel") {
+			t.Fatalf("%s must not use git show-toplevel to choose install target", file)
+		}
 	}
 }
 
@@ -80,10 +85,12 @@ func TestReleaseV2MetadataAndGuidance(t *testing.T) {
 		"release/install.sh": {
 			".codedungeon/bin",
 			"setup --target",
+			"--is-inside-work-tree",
 		},
 		"release/install.ps1": {
 			".codedungeon/bin",
 			"setup --target",
+			"--is-inside-work-tree",
 		},
 		"README.md": {
 			"Repository maintenance is main-only",

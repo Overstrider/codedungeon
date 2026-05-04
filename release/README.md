@@ -76,8 +76,8 @@ Codex setup installs:
 - `.codex/agents/*`
 - `.codex/config.toml` with project-local `multi_agent_v2` config
 - `.agents/skills/*`
-- `AGENTS.md`
 - `.codedungeon/commands/*`, `.codedungeon/phases/*`, and runtime state
+- an `agent_config_instruction` block describing what to insert in `AGENTS.md`
 
 Claude setup installs:
 
@@ -85,8 +85,8 @@ Claude setup installs:
 - `.claude/agents/*`
 - `.claude/skills/*`
 - `.claude/commands/*` wrappers
-- `CLAUDE.md`
 - `.codedungeon/commands/*`, `.codedungeon/phases/*`, and runtime state
+- an `agent_config_instruction` block describing what to insert in `CLAUDE.md`
 
 Mutable runtime state lives in `.codedungeon/`: SQLite DB, editable commands,
 phases, tasks, plans, state handoffs, reviews, code-review evidence, QA sessions,
@@ -116,6 +116,8 @@ Mode summary:
 - `--lite`: compact task workflow for simple work with a prior plan.
 - `--full`: full phase lifecycle for complex or multi-repo work.
 - `--auto`: explicit automatic mode selection.
+
+Run Project Rules discovery before the first real task.
 
 Compatibility aliases remain installed:
 

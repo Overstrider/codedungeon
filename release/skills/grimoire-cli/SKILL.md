@@ -20,7 +20,7 @@ Before any other command, make sure codedungeon is alive in this project:
 if [ -x .claude/bin/codedungeon ] && [ -f .codedungeon/codedungeon.db ]; then
   CD=./.claude/bin/codedungeon
 else
-  echo '{"error":"codedungeon-not-setup","hint":"run project-local codedungeon setup from the git project root"}'
+  echo '{"error":"codedungeon-not-setup","hint":"run project-local codedungeon setup from the intended project directory"}'
   exit 2
 fi
 ```

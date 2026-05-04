@@ -19,17 +19,18 @@ import (
 
 // BootstrapResult holds the outcome of a RunBootstrap call.
 type BootstrapResult struct {
-	ProjectRoot        string
-	BinPath            string
-	DBPath             string
-	OS                 string
-	PromptsSeeded      []string
-	ArtifactsInstalled int
-	CDVersion          string
-	Reasoning          string
-	ReasoningEffort    string
-	Fast               string
-	FastEffort         string
+	ProjectRoot            string
+	BinPath                string
+	DBPath                 string
+	OS                     string
+	PromptsSeeded          []string
+	ArtifactsInstalled     int
+	CDVersion              string
+	Reasoning              string
+	ReasoningEffort        string
+	Fast                   string
+	FastEffort             string
+	AgentConfigInstruction agentConfigInstruction
 }
 
 // RunBootstrap performs the core project-level bootstrap.
@@ -115,24 +116,19 @@ func RunBootstrapWithConfig(target string, cfg provider.ModelConfig, force bool)
 		}
 	}
 
-	// Upsert codedungeon quick-reference in provider instruction file (best-effort).
-	agentConfig := filepath.Join(target, p.AgentConfigFile())
-	if err := upsertCodedungeonSection(agentConfig); err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] %s upsert failed: %v\n", p.AgentConfigFile(), err)
-	}
-
 	return &BootstrapResult{
-		ProjectRoot:        target,
-		BinPath:            binPath,
-		DBPath:             dbPath,
-		OS:                 ad.OS(),
-		PromptsSeeded:      seeded,
-		ArtifactsInstalled: artifactsInstalled,
-		CDVersion:          versionString(),
-		Reasoning:          cfg.Reasoning,
-		ReasoningEffort:    cfg.ReasoningEffort,
-		Fast:               cfg.Fast,
-		FastEffort:         cfg.FastEffort,
+		ProjectRoot:            target,
+		BinPath:                binPath,
+		DBPath:                 dbPath,
+		OS:                     ad.OS(),
+		PromptsSeeded:          seeded,
+		ArtifactsInstalled:     artifactsInstalled,
+		CDVersion:              versionString(),
+		Reasoning:              cfg.Reasoning,
+		ReasoningEffort:        cfg.ReasoningEffort,
+		Fast:                   cfg.Fast,
+		FastEffort:             cfg.FastEffort,
+		AgentConfigInstruction: codedungeonAgentConfigInstruction(),
 	}, nil
 }
 
@@ -163,7 +159,7 @@ Requires .git at the target (or --init-git to create one - not default).`,
 			if IsHomeConfig(target) {
 				return EmitPreflightErr(ErrHomeConfig)
 			}
-			if !HasGit(target) {
+			if !IsGitWorkTree(target) {
 				return EmitPreflightErr(ErrNoGit)
 			}
 
@@ -203,6 +199,7 @@ Requires .git at the target (or --init-git to create one - not default).`,
 					"fast":             result.Fast,
 					"fast_effort":      result.FastEffort,
 				},
+				"agent_config_instruction": result.AgentConfigInstruction,
 			})
 		},
 	}
@@ -220,8 +217,7 @@ Requires .git at the target (or --init-git to create one - not default).`,
 // Called by bootstrap. Standalone path (without bootstrap) = `codedungeon install`.
 func installEmbeddedArtifacts(s *db.Store) error {
 	cwd, _ := os.Getwd()
-	root := ResolveProjectRoot(cwd)
-	return installEmbeddedArtifactsAt(s, root)
+	return installEmbeddedArtifactsAt(s, ResolveCodeDungeonInstallRoot(cwd))
 }
 
 func installEmbeddedArtifactsAt(s *db.Store, root string) error {

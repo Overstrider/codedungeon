@@ -163,7 +163,38 @@ func projectPath(root, rel string) string {
 
 func currentProjectRoot() string {
 	cwd, _ := os.Getwd()
-	return ResolveProjectRoot(cwd)
+	return ResolveCodeDungeonRoot(cwd)
+}
+
+func ResolveCodeDungeonRoot(start string) string {
+	if root, ok := resolveCodeDungeonDBRoot(start); ok {
+		return root
+	}
+	return ResolveProjectRoot(start)
+}
+
+func ResolveCodeDungeonInstallRoot(start string) string {
+	absStart, _ := filepath.Abs(start)
+	if root, ok := resolveCodeDungeonDBRoot(absStart); ok {
+		return root
+	}
+	return absStart
+}
+
+func resolveCodeDungeonDBRoot(start string) (string, bool) {
+	dir, _ := filepath.Abs(start)
+	dbRel := provider.Detect().DBPath()
+	for i := 0; i < 64; i++ {
+		if _, err := os.Stat(filepath.Join(dir, dbRel)); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
 }
 
 func migrateLegacyDBTriplet(root, legacyRoot, runtimeDBRel, providerName, stamp string) error {

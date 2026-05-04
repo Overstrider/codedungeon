@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/loldinis/codedungeon/internal/db"
+	"github.com/loldinis/codedungeon/internal/osadapter"
 	"github.com/loldinis/codedungeon/internal/prompts"
 	"github.com/loldinis/codedungeon/internal/provider"
 )
@@ -250,6 +251,38 @@ func TestSetupYesIsIdempotentWhenAlreadyBootstrapped(t *testing.T) {
 	}
 }
 
+func TestSetupUsesLiteralTargetInsideParentGitWorktree(t *testing.T) {
+	outer := t.TempDir()
+	runGit(t, outer, "init")
+	target := filepath.Join(outer, "realms", "codedungeon")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runSetupWithOptions(setupOptions{Target: target, Yes: true, SkipGlobal: true}); err != nil {
+		t.Fatalf("setup inside parent worktree failed: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(target, ".codedungeon", "codedungeon.db"))
+	assertFileExists(t, filepath.Join(target, ".claude", "bin", "codedungeon"+osadapter.Detect().ExecutableExt()))
+	if _, err := os.Stat(filepath.Join(outer, ".codedungeon")); !os.IsNotExist(err) {
+		t.Fatalf("setup wrote runtime state to parent git root: %v", err)
+	}
+}
+
+func TestResolveCodeDungeonInstallRootDefaultsToLiteralStartInsideParentWorktree(t *testing.T) {
+	outer := t.TempDir()
+	runGit(t, outer, "init")
+	target := filepath.Join(outer, "realms", "codedungeon")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ResolveCodeDungeonInstallRoot(target); got != target {
+		t.Fatalf("ResolveCodeDungeonInstallRoot = %q, want literal target %q", got, target)
+	}
+}
+
 func TestClaudeSetupArchivesLegacyCommandsAndInstallsWrappers(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
@@ -362,6 +395,10 @@ func TestSetupArchivesRenamedWorkflowArtifacts(t *testing.T) {
 func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
+	customAgents := "# Existing AGENTS\n\nKeep this project guidance.\n"
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(customAgents), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := exec.Command("go", "run", ".", "setup", "--target", root, "--yes", "--skip-global")
 	cmd.Dir = filepath.Clean("..")
@@ -371,12 +408,13 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		t.Fatalf("codex setup failed: %v\n%s", err, out)
 	}
 	var payload struct {
-		OK                 bool              `json:"ok"`
-		ArtifactsInstalled int               `json:"artifacts_installed"`
-		CodexMultiAgentV2  string            `json:"codex_multi_agent_v2"`
-		Models             map[string]string `json:"models"`
+		OK                 bool                   `json:"ok"`
+		ArtifactsInstalled int                    `json:"artifacts_installed"`
+		CodexMultiAgentV2  string                 `json:"codex_multi_agent_v2"`
+		Models             map[string]string      `json:"models"`
+		AgentConfig        agentConfigInstruction `json:"agent_config_instruction"`
 	}
-	if err := json.Unmarshal(out, &payload); err != nil {
+	if err := unmarshalSetupJSON(out, &payload); err != nil {
 		t.Fatalf("setup output is not JSON: %v\n%s", err, out)
 	}
 	if !payload.OK || payload.ArtifactsInstalled == 0 {
@@ -392,7 +430,6 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		t.Fatalf("fast model config = %#v, want gpt-5.5/medium", payload.Models)
 	}
 	for _, path := range []string{
-		"AGENTS.md",
 		filepath.Join(".codedungeon", "codedungeon.db"),
 		filepath.Join(".codedungeon", "README.md"),
 		filepath.Join(".codedungeon", "commands", "main-quest.md"),
@@ -421,6 +458,12 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if string(agents) != customAgents {
+		t.Fatalf("AGENTS.md was modified:\n%s", agents)
+	}
+	if payload.AgentConfig.Path != "AGENTS.md" || payload.AgentConfig.Section != "## codedungeon" {
+		t.Fatalf("missing agent config instruction: %+v", payload.AgentConfig)
+	}
 	for _, required := range []string{
 		"$codedungeon --rules",
 		".codedungeon/project-rules.compact.md",
@@ -428,8 +471,8 @@ func TestCodexSetupInstallsProviderArtifacts(t *testing.T) {
 		"PROJECT_RULES_DIGEST",
 		"PROJECT_RULES_READ",
 	} {
-		if !strings.Contains(string(agents), required) {
-			t.Fatalf("AGENTS.md missing %q:\n%s", required, agents)
+		if !strings.Contains(payload.AgentConfig.Content, required) {
+			t.Fatalf("agent config instruction missing %q:\n%s", required, payload.AgentConfig.Content)
 		}
 	}
 }
@@ -439,6 +482,12 @@ func TestClaudeSetupIsProjectLocalAndDoesNotWriteHome(t *testing.T) {
 	runGit(t, root, "init")
 	fakeHome := filepath.Join(t.TempDir(), "home")
 	goCache := filepath.Join(t.TempDir(), "gocache")
+	goModCache := filepath.Join(t.TempDir(), "gomodcache")
+	goConfig := filepath.Join(t.TempDir(), "goconfig")
+	customClaude := "# Existing CLAUDE\n\nKeep this project guidance.\n"
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte(customClaude), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := exec.Command("go", "run", ".", "setup", "--target", root, "--yes")
 	cmd.Dir = filepath.Clean("..")
@@ -447,19 +496,23 @@ func TestClaudeSetupIsProjectLocalAndDoesNotWriteHome(t *testing.T) {
 		"HOME="+fakeHome,
 		"USERPROFILE="+fakeHome,
 		"GOCACHE="+goCache,
+		"GOMODCACHE="+goModCache,
+		"GOTELEMETRY=off",
+		"XDG_CONFIG_HOME="+goConfig,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("claude setup failed: %v\n%s", err, out)
 	}
 	var payload struct {
-		OK                 bool   `json:"ok"`
-		ProjectLocal       bool   `json:"project_local"`
-		GlobalPlugin       string `json:"global_plugin"`
-		CodexMultiAgentV2  string `json:"codex_multi_agent_v2"`
-		ArtifactsInstalled int    `json:"artifacts_installed"`
+		OK                 bool                   `json:"ok"`
+		ProjectLocal       bool                   `json:"project_local"`
+		GlobalPlugin       string                 `json:"global_plugin"`
+		CodexMultiAgentV2  string                 `json:"codex_multi_agent_v2"`
+		ArtifactsInstalled int                    `json:"artifacts_installed"`
+		AgentConfig        agentConfigInstruction `json:"agent_config_instruction"`
 	}
-	if err := json.Unmarshal(out, &payload); err != nil {
+	if err := unmarshalSetupJSON(out, &payload); err != nil {
 		t.Fatalf("setup output is not JSON: %v\n%s", err, out)
 	}
 	if !payload.OK || !payload.ProjectLocal || payload.ArtifactsInstalled == 0 {
@@ -472,12 +525,11 @@ func TestClaudeSetupIsProjectLocalAndDoesNotWriteHome(t *testing.T) {
 		t.Fatalf("codex_multi_agent_v2 = %q, want project-local-only", payload.CodexMultiAgentV2)
 	}
 	for _, path := range []string{
-		"CLAUDE.md",
 		filepath.Join(".codedungeon", "codedungeon.db"),
 		filepath.Join(".codedungeon", "commands", "main-quest.md"),
 		filepath.Join(".codedungeon", "commands", "codedungeon-test-loop.md"),
 		filepath.Join(".codedungeon", "commands", "task-maker.md"),
-		filepath.Join(".claude", "bin", "codedungeon.exe"),
+		filepath.Join(".claude", "bin", "codedungeon"+osadapter.Detect().ExecutableExt()),
 		filepath.Join(".claude", "commands", "main-quest.md"),
 		filepath.Join(".claude", "commands", "task-maker.md"),
 		filepath.Join(".claude", "agents", "dragon-architect-planner.md"),
@@ -485,6 +537,16 @@ func TestClaudeSetupIsProjectLocalAndDoesNotWriteHome(t *testing.T) {
 		filepath.Join(".claude", "settings.json"),
 	} {
 		assertFileExists(t, filepath.Join(root, path))
+	}
+	claude, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(claude) != customClaude {
+		t.Fatalf("CLAUDE.md was modified:\n%s", claude)
+	}
+	if payload.AgentConfig.Path != "CLAUDE.md" || payload.AgentConfig.Section != "## codedungeon" {
+		t.Fatalf("missing agent config instruction: %+v", payload.AgentConfig)
 	}
 	assertNoFilesUnder(t, fakeHome)
 }
@@ -511,6 +573,23 @@ func assertNoFilesUnder(t *testing.T, root string) {
 	if len(files) != 0 {
 		t.Fatalf("setup wrote files under fake home %s: %v", root, files)
 	}
+}
+
+func unmarshalSetupJSON(out []byte, payload any) error {
+	if err := json.Unmarshal(out, payload); err == nil {
+		return nil
+	}
+	text := string(out)
+	idx := strings.LastIndex(text, "\n{")
+	if idx < 0 {
+		idx = strings.Index(text, "{")
+	} else {
+		idx++
+	}
+	if idx < 0 {
+		return json.Unmarshal(out, payload)
+	}
+	return json.Unmarshal([]byte(text[idx:]), payload)
 }
 
 func assertFileExists(t *testing.T, path string) {

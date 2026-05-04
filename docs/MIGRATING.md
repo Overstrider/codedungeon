@@ -40,7 +40,7 @@ It updates CodeDungeon-owned artifacts such as:
 - `.claude/agents/*`
 - `.claude/skills/*`
 - `.claude/commands/*` wrappers
-- `AGENTS.md` or `CLAUDE.md` CodeDungeon sections
+- `agent_config_instruction` guidance for `AGENTS.md` or `CLAUDE.md`
 
 It also records artifact metadata in the database so later `status`, `install`, and `migrate` commands can detect drift.
 

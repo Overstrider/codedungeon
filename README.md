@@ -157,10 +157,10 @@ Codex setup installs:
 - `.codex/config.toml` with project-local `multi_agent_v2` config
 - `.agents/skills/*`, including `codedungeon`, `task-maker`, `code-review`,
   `one-shot`, `side-quest`, and `main-quest`
-- `AGENTS.md`
 - `.codedungeon/commands/*` editable playbooks
 - `.codedungeon/phases/*` phase prompts
 - `.codedungeon/codedungeon.db` and runtime directories
+- an `agent_config_instruction` block describing what to insert in `AGENTS.md`
 
 Runtime Codex launches that need custom agents pass `--enable multi_agent_v2`
 directly. Setup does not persist user-global Codex feature flags.
@@ -171,10 +171,10 @@ Claude setup installs:
 - `.claude/skills/*`
 - `.claude/commands/*` thin slash-command wrappers
 - `.claude/bin/codedungeon`
-- `CLAUDE.md`
 - `.codedungeon/commands/*` editable playbooks
 - `.codedungeon/phases/*` phase prompts
 - `.codedungeon/codedungeon.db` and runtime directories
+- an `agent_config_instruction` block describing what to insert in `CLAUDE.md`
 
 Both providers share `.codedungeon/` for mutable state:
 
@@ -539,11 +539,11 @@ used.
 Current packs:
 
 - Codex pack `codedungeon-codex`: `.codex/agents`, `.codex/config.toml`,
-  `.agents/skills`, `AGENTS.md`, `.codedungeon/commands`, and
-  `.codedungeon/phases`.
+  `.agents/skills`, `.codedungeon/commands`, and `.codedungeon/phases`.
 - Claude pack `codedungeon-claude`: `.claude/agents`, `.claude/skills`,
-  `.claude/commands` wrappers, `CLAUDE.md`, `.codedungeon/commands`, and
-  `.codedungeon/phases`.
+  `.claude/commands` wrappers, `.codedungeon/commands`, and `.codedungeon/phases`.
+  Provider instruction files are never overwritten; setup returns insertion
+  guidance for the installer agent.
 
 See [src/codedungeon/docs/PROVIDERS.md](src/codedungeon/docs/PROVIDERS.md) for
 provider extension details.
@@ -570,14 +570,13 @@ should choose by binary name and not rely on `CODEDUNGEON_PROVIDER`.
 
 ## Maintainer Policy
 
-This repository is maintained directly on `main`. Maintainers should follow
+Repository maintenance is main-only. Maintainers should follow
 [docs/MAINTAINER_POLICY.md](docs/MAINTAINER_POLICY.md): update relevant docs,
 run validation, rebuild release artifacts when required, commit on `main`, and
 push `main` to `origin`.
 
-That policy applies to this repository. Installed CodeDungeon workflows for user
-projects remain PR-centered and may create or reuse feature branches before
-review.
+That policy applies to this repository; installed CodeDungeon workflows remain PR-centered for user
+projects and may create or reuse feature branches before review.
 
 ## Docs
 

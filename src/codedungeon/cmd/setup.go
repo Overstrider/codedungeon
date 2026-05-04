@@ -133,9 +133,9 @@ func runSetupWithOptions(opts setupOptions) error {
 		return EmitPreflightErr(ErrHomeConfig)
 	}
 
-	if !HasGit(target) {
+	if !IsGitWorkTree(target) {
 		if interactive {
-			printErr("No git repository found. Run 'git init' first.")
+			printErr("Target is not inside a git worktree. Run 'git init' first.")
 		}
 		return EmitPreflightErr(ErrNoGit)
 	}
@@ -243,13 +243,14 @@ func runSetupWithOptions(opts setupOptions) error {
 				return EmitErr("already bootstrapped: "+dbPath, "use --force to overwrite")
 			}
 			return EmitJSON(map[string]any{
-				"ok":                   true,
-				"already_bootstrapped": true,
-				"project_root":         target,
-				"db":                   dbPath,
-				"global_plugin":        globalStatus,
-				"codex_multi_agent_v2": codexFeatureStatus,
-				"project_local":        true,
+				"ok":                       true,
+				"already_bootstrapped":     true,
+				"project_root":             target,
+				"db":                       dbPath,
+				"global_plugin":            globalStatus,
+				"codex_multi_agent_v2":     codexFeatureStatus,
+				"project_local":            true,
+				"agent_config_instruction": codedungeonAgentConfigInstruction(),
 			})
 		}
 	}
@@ -283,6 +284,7 @@ func runSetupWithOptions(opts setupOptions) error {
 			printDetail("Codex workflow skills are installed under .agents/skills.")
 			printDetail("Recommended next step: $codedungeon --rules")
 		}
+		printDetail(fmt.Sprintf("Insert or refresh the CodeDungeon section in %s manually; setup did not edit it.", provider.Detect().AgentConfigFile()))
 		fmt.Fprintln(tuiOut)
 	} else {
 		_ = EmitJSON(map[string]any{
@@ -301,6 +303,7 @@ func runSetupWithOptions(opts setupOptions) error {
 				"fast":             result.Fast,
 				"fast_effort":      result.FastEffort,
 			},
+			"agent_config_instruction": result.AgentConfigInstruction,
 		})
 	}
 

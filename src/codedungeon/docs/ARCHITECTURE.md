@@ -29,8 +29,8 @@ Embedded prompt packs live in `internal/prompts/`:
 
 The shared phase lifecycle stays provider-agnostic. Provider-native mechanics live in the pack content:
 
-- Codex installs `.codex/agents/*.toml`, `.codex/config.toml` with `multi_agent_v2`, `AGENTS.md`, `.agents/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Runtime Codex launches that need custom agents pass `--enable multi_agent_v2` directly; setup never persists user-global feature flags. The project config leaves `agents.max_threads` and `agents.max_depth` unset so current Codex builds can use their defaults while the feature flag is active.
-- Claude installs `.claude/agents/*`, `.claude/commands/*` wrappers, `.claude/skills/*`, `CLAUDE.md`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`.
+- Codex installs `.codex/agents/*.toml`, `.codex/config.toml` with `multi_agent_v2`, `.agents/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Runtime Codex launches that need custom agents pass `--enable multi_agent_v2` directly; setup never persists user-global feature flags. The project config leaves `agents.max_threads` and `agents.max_depth` unset so current Codex builds can use their defaults while the feature flag is active. Setup emits `agent_config_instruction` guidance for `AGENTS.md` instead of editing it.
+- Claude installs `.claude/agents/*`, `.claude/commands/*` wrappers, `.claude/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Setup emits `agent_config_instruction` guidance for `CLAUDE.md` instead of editing it.
 
 Commands, command wrappers, agents, skills, and phase prompts are tracked as installed artifacts with provider, pack id, pack version, install path, kind, logical name, sha256, and user-modified state.
 
@@ -69,9 +69,9 @@ Release builds produce provider-specific binaries. The provider is baked into th
 Installers:
 
 - root `install.sh` and `install.ps1` wrap release installers.
-- `release/install.sh` and `release/install.ps1` detect or accept a git project target, copy the selected provider binary to `<project>/.codedungeon/bin/codedungeon-<provider>`, then run project-local setup from that binary.
-- Claude project setup installs `.claude/*`, `.codedungeon/*`, and `CLAUDE.md`.
-- Codex project setup installs `.codex/*`, `.agents/skills/*`, `.codedungeon/*`, and `AGENTS.md`.
+- `release/install.sh` and `release/install.ps1` use `--target` or the current directory literally, validate that it is inside a git worktree, copy the selected provider binary to `<project>/.codedungeon/bin/codedungeon-<provider>`, then run project-local setup from that binary.
+- Claude project setup installs `.claude/*` and `.codedungeon/*`, then emits guidance for `CLAUDE.md`.
+- Codex project setup installs `.codex/*`, `.agents/skills/*`, and `.codedungeon/*`, then emits guidance for `AGENTS.md`.
 
 ## Adding Work
 

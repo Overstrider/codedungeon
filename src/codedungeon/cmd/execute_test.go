@@ -782,7 +782,7 @@ func writePlannerGraphFixture(t *testing.T, dir string) {
         "write_scope": ["README.md"],
         "wave": 1,
         "acceptance_criteria": ["first task passes"],
-        "verification_commands": ["Write-Output ok"],
+        "verification_commands": ["echo ok"],
         "risk_notes": ["fixture"]
       },
       {
@@ -795,7 +795,7 @@ func writePlannerGraphFixture(t *testing.T, dir string) {
         "depends_on": ["TASK-001"],
         "wave": 2,
         "acceptance_criteria": ["second task passes"],
-        "verification_commands": ["Write-Output ok"],
+        "verification_commands": ["echo ok"],
         "risk_notes": ["fixture"]
       }
     ]

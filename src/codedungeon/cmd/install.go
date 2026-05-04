@@ -101,8 +101,7 @@ func StatusCmd() *cobra.Command {
 			}
 
 			rows := []map[string]any{}
-			cwd, _ := os.Getwd()
-			root := ResolveProjectRoot(cwd)
+			root := currentProjectRoot()
 			for _, a := range arts {
 				status := "synced"
 				installPath := a.InstallPath
@@ -163,7 +162,7 @@ func runInstall(c *cobra.Command) error {
 
 func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 	cwd, _ := os.Getwd()
-	root := ResolveProjectRoot(cwd)
+	root := ResolveCodeDungeonInstallRoot(cwd)
 	embedded, err := prompts.Artifacts()
 	if err != nil {
 		return EmitErr(err.Error(), "")
@@ -218,12 +217,13 @@ func runInstallWith(c *cobra.Command, s *db.Store, force, dry bool) error {
 		wrote = append(wrote, a.InstallPath)
 	}
 	return EmitJSON(map[string]any{
-		"ok":            true,
-		"mode":          modeLbl(dry),
-		"wrote":         len(wrote),
-		"skipped":       len(skipped),
-		"forced":        len(forced),
-		"skipped_paths": skipped,
+		"ok":                       true,
+		"mode":                     modeLbl(dry),
+		"wrote":                    len(wrote),
+		"skipped":                  len(skipped),
+		"forced":                   len(forced),
+		"skipped_paths":            skipped,
+		"agent_config_instruction": codedungeonAgentConfigInstruction(),
 	})
 }
 

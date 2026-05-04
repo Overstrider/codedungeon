@@ -36,6 +36,31 @@ type RepoEntry struct {
 	HasSource     bool   `json:"has_source"`
 }
 
+type agentConfigInstruction struct {
+	Path    string `json:"path"`
+	Section string `json:"section"`
+	Mode    string `json:"mode"`
+	Content string `json:"content"`
+}
+
+func codedungeonAgentConfigInstruction() agentConfigInstruction {
+	return agentConfigInstruction{
+		Path:    provider.Detect().AgentConfigFile(),
+		Section: "## codedungeon",
+		Mode:    "append_or_replace_section",
+		Content: renderCodedungeonSection(),
+	}
+}
+
+func repositoriesAgentConfigInstruction(repos []RepoEntry) agentConfigInstruction {
+	return agentConfigInstruction{
+		Path:    provider.Detect().AgentConfigFile(),
+		Section: "## Repositories",
+		Mode:    "append_or_replace_section",
+		Content: renderRepoTable(repos),
+	}
+}
+
 func RepoCmd() *cobra.Command {
 	c := &cobra.Command{Use: "repo", Short: "Discover and resolve repos in a project"}
 	c.AddCommand(repoDiscoverCmd())
@@ -62,12 +87,11 @@ func repoDiscoverCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 
-			// Optionally upsert the provider instruction file.
+			// Optionally return provider instruction guidance. CodeDungeon does
+			// not mutate AGENTS.md/CLAUDE.md during install/discovery.
 			if (writeAgentConfig || writeClaudeMD) && len(result.RepoMap) > 0 {
-				if err := upsertRepositoriesTable(filepath.Join(root, provider.Detect().AgentConfigFile()), result.RepoMap); err != nil {
-					// Non-fatal: log + continue.
-					fmt.Fprintf(os.Stderr, "[WARN] %s upsert failed: %v\n", provider.Detect().AgentConfigFile(), err)
-				}
+				instruction := repositoriesAgentConfigInstruction(result.RepoMap)
+				result.AgentConfigInstruction = &instruction
 			}
 
 			// Optionally persist to DB (if a run exists).
@@ -94,7 +118,7 @@ func repoDiscoverCmd() *cobra.Command {
 		},
 	}
 	c.Flags().String("root", "", "project root (default: cwd)")
-	c.Flags().Bool("write-agent-config", false, "upsert '## Repositories' in the provider instruction file at root")
+	c.Flags().Bool("write-agent-config", false, "include '## Repositories' provider instruction guidance in JSON output")
 	c.Flags().Bool("write-claude-md", false, "deprecated alias for --write-agent-config")
 	c.Flags().Bool("persist", true, "persist REPO_MAP into the active run (if any)")
 	return c
@@ -102,10 +126,11 @@ func repoDiscoverCmd() *cobra.Command {
 
 // DiscoverResult is the final JSON of `codedungeon repo discover`.
 type DiscoverResult struct {
-	OK          bool        `json:"ok"`
-	Root        string      `json:"root"`
-	ProjectMode string      `json:"project_mode"` // SINGLE | MULTI | BOOTSTRAP
-	RepoMap     []RepoEntry `json:"repo_map"`
+	OK                     bool                    `json:"ok"`
+	Root                   string                  `json:"root"`
+	ProjectMode            string                  `json:"project_mode"` // SINGLE | MULTI | BOOTSTRAP
+	RepoMap                []RepoEntry             `json:"repo_map"`
+	AgentConfigInstruction *agentConfigInstruction `json:"agent_config_instruction,omitempty"`
 }
 
 func discover(root string) (*DiscoverResult, error) {
@@ -336,9 +361,9 @@ func repoCheckTestAuthCmd() *cobra.Command {
 	return c
 }
 
-// upsertRepositoriesTable writes or replaces the `## Repositories` section
-// in the given CLAUDE.md path. If the file doesn't exist, it's created.
-// Preserves all other sections.
+// upsertRepositoriesTable is retained for old tests/compatibility helpers.
+// Install and discovery flows now return agent_config_instruction instead of
+// mutating AGENTS.md/CLAUDE.md.
 func upsertRepositoriesTable(path string, repos []RepoEntry) error {
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -377,8 +402,9 @@ func upsertRepositoriesTable(path string, repos []RepoEntry) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-// upsertCodedungeonSection writes or replaces the `## codedungeon` section
-// in the given CLAUDE.md path. If the file doesn't exist, it's created.
+// upsertCodedungeonSection is retained for old tests/compatibility helpers.
+// Install and bootstrap flows now return agent_config_instruction instead of
+// mutating AGENTS.md/CLAUDE.md.
 func upsertCodedungeonSection(path string) error {
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {

@@ -129,6 +129,7 @@ func TestClaudeRunnerCompletionCheckAcceptsValidPersonaArtifact(t *testing.T) {
 		t.Fatalf("calls = %d, want 1", len(recorder.calls))
 	}
 
+	time.Sleep(10 * time.Millisecond)
 	writeReviewArtifact(t, outPath, PersonaReview{
 		Persona:             "security",
 		Verdict:             VerdictApproved,

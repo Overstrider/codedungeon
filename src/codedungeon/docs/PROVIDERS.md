@@ -93,6 +93,6 @@ mkdir /tmp/cd-smoke && cd /tmp/cd-smoke
 git init
 codedungeon-codex setup --yes
 test -f .codedungeon/codedungeon.db
-test -f AGENTS.md
 test -d .agents/skills
+# setup returns agent_config_instruction for AGENTS.md; it does not write it.
 ```

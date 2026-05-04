@@ -23,17 +23,25 @@ normalize_provider() {
 
 detect_target() {
     local requested="${1:-}"
+    local target
     if [[ -n "$requested" ]]; then
-        git -C "$requested" rev-parse --show-toplevel 2>/dev/null || {
+        target="$(cd "$requested" && pwd -P)" || {
+            echo "[ERROR] target does not exist: $requested" >&2
+            exit 1
+        }
+        git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
             echo "[ERROR] target is not inside a git project: $requested" >&2
             exit 1
         }
+        echo "$target"
         return
     fi
-    git rev-parse --show-toplevel 2>/dev/null || {
+    target="$(pwd -P)"
+    git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
         echo "[ERROR] run from a git project or pass --target <project-root>" >&2
         exit 1
     }
+    echo "$target"
 }
 
 while [[ $# -gt 0 ]]; do
