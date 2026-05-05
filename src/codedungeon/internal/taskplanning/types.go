@@ -34,23 +34,26 @@ type Request struct {
 }
 
 type Result struct {
-	OK             bool                 `json:"ok"`
-	SessionID      string               `json:"session_id"`
-	RunID          int64                `json:"run_id,omitempty"`
-	Status         string               `json:"status"`
-	NeedsUserInput bool                 `json:"needs_user_input"`
-	OutputDir      string               `json:"output_dir"`
-	RequestPath    string               `json:"request_path"`
-	BlackboardPath string               `json:"blackboard_path"`
-	EvaluationPath string               `json:"evaluation_path,omitempty"`
-	TaskGraphPath  string               `json:"task_graph_path,omitempty"`
-	MasterPath     string               `json:"master_path,omitempty"`
-	Agents         []AgentOutput        `json:"agents"`
-	Evaluation     *Evaluation          `json:"evaluation,omitempty"`
-	TaskGraph      *TaskGraph           `json:"task_graph,omitempty"`
-	Artifacts      []string             `json:"artifacts"`
-	ProjectRules   ProjectRulesEnvelope `json:"project_rules"`
-	Metadata       map[string]any       `json:"metadata,omitempty"`
+	OK                bool                 `json:"ok"`
+	SessionID         string               `json:"session_id"`
+	RunID             int64                `json:"run_id,omitempty"`
+	Status            string               `json:"status"`
+	NeedsUserInput    bool                 `json:"needs_user_input"`
+	OutputDir         string               `json:"output_dir"`
+	RequestPath       string               `json:"request_path"`
+	BlackboardPath    string               `json:"blackboard_path"`
+	EvaluationPath    string               `json:"evaluation_path,omitempty"`
+	TaskGraphPath     string               `json:"task_graph_path,omitempty"`
+	MasterPath        string               `json:"master_path,omitempty"`
+	Agents            []AgentOutput        `json:"agents"`
+	Evaluation        *Evaluation          `json:"evaluation,omitempty"`
+	TaskGraph         *TaskGraph           `json:"task_graph,omitempty"`
+	Artifacts         []string             `json:"artifacts"`
+	ProjectRules      ProjectRulesEnvelope `json:"project_rules"`
+	Metadata          map[string]any       `json:"metadata,omitempty"`
+	PromotionMode     string               `json:"promotion_mode,omitempty"`
+	PromotedRepos     []string             `json:"promoted_repos,omitempty"`
+	PromotedArtifacts []string             `json:"promoted_artifacts,omitempty"`
 }
 
 type AgentRequest struct {

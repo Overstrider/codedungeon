@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -87,18 +89,24 @@ func planRunCmd() *cobra.Command {
 			promote, _ := c.Flags().GetBool("promote")
 			promoteRepo, _ := c.Flags().GetString("promote-repo")
 			if execErr == nil && promote && result.TaskGraph != nil {
-				if promoteRepo == "" {
-					promoteRepo = promotionRepoFromGraph(*result.TaskGraph)
+				feature := req.Prompt
+				if run != nil && run.Feature != "" {
+					feature = run.Feature
 				}
-				promoted, promoteErr := promotePlanningArtifacts(currentProjectRoot(), result.OutputDir, promoteRepo)
+				promotion, promoteErr := promotePlanningArtifacts(currentProjectRoot(), result.OutputDir, promoteRepo, feature)
 				if promoteErr != nil {
 					execErr = promoteErr
 				} else {
-					result.Artifacts = append(result.Artifacts, promoted...)
+					result.Artifacts = append(result.Artifacts, promotion.Artifacts...)
+					result.PromotionMode = promotion.Mode
+					result.PromotedRepos = promotion.Repos
+					result.PromotedArtifacts = promotion.Artifacts
 					if result.Metadata == nil {
 						result.Metadata = map[string]any{}
 					}
-					result.Metadata["promoted_artifacts"] = promoted
+					result.Metadata["promotion_mode"] = promotion.Mode
+					result.Metadata["promoted_repos"] = promotion.Repos
+					result.Metadata["promoted_artifacts"] = promotion.Artifacts
 				}
 			}
 			if persistErr := persistPlanningResult(s, req, result, execErr); persistErr != nil && execErr == nil {
@@ -108,7 +116,7 @@ func planRunCmd() *cobra.Command {
 				if req.RunID != 0 {
 					_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_failed", Detail: execErr.Error()})
 				}
-				return EmitErr(execErr.Error(), "")
+				return EmitCustodyErr(execErr.Error(), planningRecoveryCommands(req, promote, promoteRepo))
 			}
 			if req.RunID != 0 {
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_" + strings.ToLower(planningStatusOrCompleted(result.Status)), Detail: req.SessionID})
@@ -240,18 +248,26 @@ func planPromoteCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			from, _ := c.Flags().GetString("from")
 			repo, _ := c.Flags().GetString("repo")
+			feature, _ := c.Flags().GetString("feature")
 			if strings.TrimSpace(from) == "" {
 				return EmitErr("--from is required", "")
 			}
-			artifacts, err := promotePlanningArtifacts(currentProjectRoot(), from, repo)
+			promotion, err := promotePlanningArtifacts(currentProjectRoot(), from, repo, feature)
 			if err != nil {
-				return EmitErr(err.Error(), "")
+				return EmitCustodyErr(err.Error(), promotionRecoveryCommands(from, repo, feature))
 			}
-			return EmitJSON(map[string]any{"ok": true, "artifacts": artifacts})
+			return EmitJSON(map[string]any{
+				"ok":                 true,
+				"artifacts":          promotion.Artifacts,
+				"promotion_mode":     promotion.Mode,
+				"promoted_repos":     promotion.Repos,
+				"promoted_artifacts": promotion.Artifacts,
+			})
 		},
 	}
 	c.Flags().String("from", "", "task-planning output directory")
 	c.Flags().String("repo", "", "repo key from task graph; defaults to the only rendered repo")
+	c.Flags().String("feature", "", "feature directory for multi-repo promotion (defaults to output directory slug)")
 	return c
 }
 
@@ -928,55 +944,68 @@ func mirrorPlanningLegacyArtifacts(root, feature string, result taskplanning.Res
 	return artifacts, nil
 }
 
-func promotePlanningArtifacts(root, outputDir, repo string) ([]string, error) {
+type planningPromotion struct {
+	Mode      string
+	Repos     []string
+	Artifacts []string
+}
+
+func promotePlanningArtifacts(root, outputDir, repo, feature string) (planningPromotion, error) {
 	outputDir = filepath.Clean(outputDir)
 	if strings.TrimSpace(repo) == "" {
-		detected, err := detectPromotableRepo(outputDir)
+		repos, err := detectPromotableRepos(outputDir)
 		if err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
-		repo = detected
+		if len(repos) > 1 {
+			return promoteAllPlanningRepos(root, outputDir, feature, repos)
+		}
+		repo = repos[0]
 	}
+	return promoteSinglePlanningRepo(root, outputDir, repo)
+}
+
+func promoteSinglePlanningRepo(root, outputDir, repo string) (planningPromotion, error) {
 	repoDir := filepath.Join(outputDir, "tasks", filepath.Clean(repo))
 	if repo == "." {
 		repoDir = filepath.Join(outputDir, "tasks")
 	}
 	if _, err := os.Stat(repoDir); err != nil {
-		return nil, fmt.Errorf("planning repo artifacts not found for %q: %w", repo, err)
+		return planningPromotion{}, fmt.Errorf("planning repo artifacts not found for %q: %w", repo, err)
 	}
 
 	var artifacts []string
 	planDir := projectPath(root, provider.Detect().PlanDir())
 	tasksDir := projectPath(root, provider.Detect().TasksDir())
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
-		return nil, err
+		return planningPromotion{}, err
 	}
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
-		return nil, err
+		return planningPromotion{}, err
 	}
 	if src := filepath.Join(outputDir, "MASTER.md"); fileExists(src) {
 		dst := filepath.Join(planDir, "MASTER.md")
 		if err := copyFile(src, dst, 0o644); err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
 		artifacts = append(artifacts, dst)
 	}
 	if src := filepath.Join(repoDir, "PLAN.md"); fileExists(src) {
 		dst := filepath.Join(planDir, "PLAN.md")
 		if err := copyFile(src, dst, 0o644); err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
 		artifacts = append(artifacts, dst)
 	}
 	existing, _ := filepath.Glob(filepath.Join(tasksDir, "task-*.md"))
 	for _, path := range existing {
 		if err := os.Remove(path); err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
 	}
 	entries, err := os.ReadDir(repoDir)
 	if err != nil {
-		return nil, err
+		return planningPromotion{}, err
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "TASK-") || !strings.HasSuffix(entry.Name(), ".md") {
@@ -985,57 +1014,151 @@ func promotePlanningArtifacts(root, outputDir, repo string) ([]string, error) {
 		src := filepath.Join(repoDir, entry.Name())
 		body, err := os.ReadFile(src)
 		if err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
 		id := strings.TrimSuffix(entry.Name(), ".md")
 		dst := filepath.Join(tasksDir, strings.ToLower(id)+"-"+slugify(planningTaskTitle(id, string(body)))+".md")
 		if err := os.WriteFile(dst, body, 0o644); err != nil {
-			return nil, err
+			return planningPromotion{}, err
 		}
 		artifacts = append(artifacts, dst)
 	}
-	return artifacts, nil
+	return planningPromotion{Mode: "single_repo", Repos: []string{repo}, Artifacts: artifacts}, nil
 }
 
-func promotionRepoFromGraph(graph taskplanning.TaskGraph) string {
-	seen := map[string]bool{}
-	for _, task := range graph.Tasks {
-		seen[task.Repo] = true
+func promoteAllPlanningRepos(root, outputDir, feature string, repos []string) (planningPromotion, error) {
+	featureSlug := slugifyFeature(feature)
+	if strings.TrimSpace(feature) == "" {
+		featureSlug = slugifyFeature(filepath.Base(filepath.Clean(outputDir)))
 	}
-	if len(seen) != 1 {
-		return ""
+	if featureSlug == "" {
+		featureSlug = "task-planning"
 	}
-	for repo := range seen {
-		return repo
+	planDir := projectPath(root, provider.Detect().PlanDir())
+	tasksDir := projectPath(root, provider.Detect().TasksDir())
+	featureDir := filepath.Join(tasksDir, featureSlug)
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return planningPromotion{}, err
 	}
-	return ""
+	if err := os.MkdirAll(featureDir, 0o755); err != nil {
+		return planningPromotion{}, err
+	}
+	var artifacts []string
+	if src := filepath.Join(outputDir, "MASTER.md"); fileExists(src) {
+		dst := filepath.Join(planDir, "MASTER.md")
+		if err := copyFile(src, dst, 0o644); err != nil {
+			return planningPromotion{}, err
+		}
+		artifacts = append(artifacts, dst)
+	}
+	for _, repo := range repos {
+		repoDir := filepath.Join(outputDir, "tasks", filepath.Clean(repo))
+		if repo == "." {
+			repoDir = filepath.Join(outputDir, "tasks")
+		}
+		if _, err := os.Stat(repoDir); err != nil {
+			return planningPromotion{}, fmt.Errorf("planning repo artifacts not found for %q: %w", repo, err)
+		}
+		repoSlug := slugify(repo)
+		if repoSlug == "" || repo == "." {
+			repoSlug = "root"
+		}
+		dstRepoDir := filepath.Join(featureDir, repoSlug)
+		if err := os.MkdirAll(dstRepoDir, 0o755); err != nil {
+			return planningPromotion{}, err
+		}
+		if src := filepath.Join(repoDir, "PLAN.md"); fileExists(src) {
+			dst := filepath.Join(dstRepoDir, "PLAN.md")
+			if err := copyFile(src, dst, 0o644); err != nil {
+				return planningPromotion{}, err
+			}
+			artifacts = append(artifacts, dst)
+		}
+		entries, err := os.ReadDir(repoDir)
+		if err != nil {
+			return planningPromotion{}, err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasPrefix(entry.Name(), "TASK-") {
+				continue
+			}
+			if !strings.HasSuffix(entry.Name(), ".md") && !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			src := filepath.Join(repoDir, entry.Name())
+			dst := filepath.Join(dstRepoDir, entry.Name())
+			if err := copyFile(src, dst, 0o644); err != nil {
+				return planningPromotion{}, err
+			}
+			artifacts = append(artifacts, dst)
+		}
+	}
+	return planningPromotion{Mode: "multi_repo_all", Repos: repos, Artifacts: artifacts}, nil
 }
 
-func detectPromotableRepo(outputDir string) (string, error) {
+func detectPromotableRepos(outputDir string) ([]string, error) {
 	tasksDir := filepath.Join(outputDir, "tasks")
 	if fileExists(filepath.Join(tasksDir, "PLAN.md")) {
-		return ".", nil
-	}
-	entries, err := os.ReadDir(tasksDir)
-	if err != nil {
-		return "", err
+		return []string{"."}, nil
 	}
 	var repos []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	err := filepath.WalkDir(tasksDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if fileExists(filepath.Join(tasksDir, entry.Name(), "PLAN.md")) {
-			repos = append(repos, entry.Name())
+		if entry.IsDir() || entry.Name() != "PLAN.md" {
+			return nil
 		}
-	}
-	if len(repos) == 1 {
-		return repos[0], nil
+		repoDir := filepath.Dir(path)
+		rel, err := filepath.Rel(tasksDir, repoDir)
+		if err != nil {
+			return err
+		}
+		if rel != "." {
+			repos = append(repos, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(repos) == 0 {
-		return "", fmt.Errorf("no promotable planning repo found in %s", tasksDir)
+		return nil, fmt.Errorf("no promotable planning repo found in %s", tasksDir)
 	}
-	return "", fmt.Errorf("multiple planning repos found (%s); pass --repo or --promote-repo", strings.Join(repos, ", "))
+	sort.Strings(repos)
+	return repos, nil
+}
+
+func promotionRecoveryCommands(outputDir, repo, feature string) []string {
+	cmd := "codedungeon plan promote --from " + strconv.Quote(filepath.Clean(outputDir))
+	if strings.TrimSpace(feature) != "" {
+		cmd += " --feature " + strconv.Quote(feature)
+	}
+	if strings.TrimSpace(repo) != "" {
+		cmd += " --repo " + strconv.Quote(repo)
+	}
+	return []string{cmd, "codedungeon plan status"}
+}
+
+func planningRecoveryCommands(req taskplanning.Request, promote bool, promoteRepo string) []string {
+	cmd := "codedungeon plan run --prompt " + strconv.Quote(req.Prompt)
+	if strings.TrimSpace(req.Mode) != "" {
+		cmd += " --mode " + strconv.Quote(req.Mode)
+	}
+	if strings.TrimSpace(req.OutputDir) != "" {
+		cmd += " --out " + strconv.Quote(req.OutputDir)
+	}
+	cmd += " --project-context <project-context-path-or-text>"
+	if req.AutoRepair {
+		cmd += " --auto-repair"
+	}
+	if promote {
+		cmd += " --promote"
+	}
+	if strings.TrimSpace(promoteRepo) != "" {
+		cmd += " --promote-repo " + strconv.Quote(promoteRepo)
+	}
+	return []string{"codedungeon plan status", cmd}
 }
 
 func planningTaskTitle(id, body string) string {

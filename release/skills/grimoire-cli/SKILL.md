@@ -12,6 +12,10 @@ Single Go binary. SQLite (FTS5) backend + embedded prompts. Project-only.
 
 **State file**: `<project>/.codedungeon/codedungeon.db` (per-project SQLite, FTS5-indexed). Markdown (`pipeline-state.md`, `phase-{N}-output.md`) are rendered VIEWS.
 
+Run `codedungeon kernel` to inspect the machine-readable workflow kernel
+manifest: provider surfaces, modes, deterministic modules, gates, durable state
+paths, project-local scope, and license.
+
 ## First-run bootstrap (agent responsibility)
 
 Before any other command, make sure codedungeon is alive in this project:

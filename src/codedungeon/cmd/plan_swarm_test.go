@@ -299,6 +299,221 @@ func TestPlanRunAutoRepairAndPromotePublishesBinaryReadyArtifacts(t *testing.T) 
 	}
 }
 
+func TestPlanRunPromoteAllReposForMultiRepoGraph(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateRun(&db.Run{Feature: "Multi Repo Checkout", Mode: "FULL", ProjectMode: "MULTI"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	projectContext := filepath.Join(root, "project-context.md")
+	writeFile(t, projectContext, strings.Repeat("Project context for backend portal app CodeDungeon planning with shared custody. ", 2))
+	inputDir := filepath.Join(root, "fixtures")
+	writePlanningFixtures(t, inputDir)
+	writeMultiRepoTaskSplitterFixture(t, inputDir)
+	outDir := filepath.Join(root, ".codedungeon", "task-planning", "multi-repo-checkout")
+	writeFile(t, filepath.Join(root, ".codedungeon", "tasks", "task-999-existing-flat.md"), "keep me\n")
+
+	cmd := PlanCmd()
+	cmd.SetArgs([]string{
+		"run",
+		"--prompt", "Multi Repo Checkout",
+		"--mode", "full",
+		"--project-context", projectContext,
+		"--project-rules-status", "approved",
+		"--project-rules-digest", "rules-digest",
+		"--project-rules-read", "yes",
+		"--runner", "files",
+		"--input-dir", inputDir,
+		"--out", outDir,
+		"--promote",
+	})
+	out := captureStdout(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal plan run output: %v\n%s", err, out)
+	}
+	if payload["promotion_mode"] != "multi_repo_all" {
+		t.Fatalf("promotion_mode = %v, want multi_repo_all\n%s", payload["promotion_mode"], out)
+	}
+	if len(payload["promoted_repos"].([]any)) != 3 {
+		t.Fatalf("promoted_repos = %v, want backend portal app", payload["promoted_repos"])
+	}
+
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "plan", "MASTER.md"))
+	for _, tc := range []struct {
+		repo string
+		task string
+	}{
+		{"backend", "TASK-001.md"},
+		{"portal", "TASK-002.md"},
+		{"app", "TASK-003.md"},
+	} {
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "multi-repo-checkout", tc.repo, "PLAN.md"))
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "multi-repo-checkout", tc.repo, tc.task))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codedungeon", "plan", "PLAN.md")); err == nil {
+		t.Fatalf("multi-repo promotion must not overwrite flat PLAN.md")
+	}
+	assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "task-999-existing-flat.md"))
+}
+
+func TestPlanPromoteMultiRepoFeatureAndExplicitRepoModes(t *testing.T) {
+	graph := taskplanning.TaskGraph{
+		Version: 1,
+		Tasks: []taskplanning.TaskSpec{
+			{ID: "TASK-001", Repo: "backend", Kind: "dev", Title: "Backend API", Objective: "Update backend.", WriteScope: []string{"backend/api.go"}, Wave: 1, AcceptanceCriteria: []string{"backend works"}, VerificationCommands: []string{"go test ./..."}},
+			{ID: "TASK-002", Repo: "portal", Kind: "dev", Title: "Portal UI", Objective: "Update portal.", WriteScope: []string{"portal/app.tsx"}, Wave: 1, AcceptanceCriteria: []string{"portal works"}, VerificationCommands: []string{"npm test"}},
+			{ID: "TASK-003", Repo: "app", Kind: "dev", Title: "Mobile App", Objective: "Update app.", WriteScope: []string{"app/Main.kt"}, Wave: 1, AcceptanceCriteria: []string{"app works"}, VerificationCommands: []string{"./gradlew test"}},
+		},
+	}
+
+	t.Run("all repos with feature", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		oldWD, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chdir(oldWD) })
+		if err := os.Chdir(root); err != nil {
+			t.Fatal(err)
+		}
+		outDir := filepath.Join(root, "multi-output")
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := taskplanning.RenderArtifacts(outDir, graph, taskplanning.ProjectRulesEnvelope{Status: "approved", Digest: "rules-digest", Read: "yes"}); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := PlanCmd()
+		cmd.SetArgs([]string{"promote", "--from", outDir, "--feature", "Tetoz Multi Repo"})
+		out := captureStdout(t, func() {
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+		})
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("unmarshal promote output: %v\n%s", err, out)
+		}
+		if payload["promotion_mode"] != "multi_repo_all" {
+			t.Fatalf("promotion_mode = %v, want multi_repo_all", payload["promotion_mode"])
+		}
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "tetoz-multi-repo", "backend", "PLAN.md"))
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "tetoz-multi-repo", "portal", "TASK-002.md"))
+		if _, err := os.Stat(filepath.Join(root, ".codedungeon", "plan", "PLAN.md")); err == nil {
+			t.Fatalf("multi-repo promote must not write flat PLAN.md")
+		}
+	})
+
+	t.Run("explicit repo keeps single-repo promotion", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		oldWD, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chdir(oldWD) })
+		if err := os.Chdir(root); err != nil {
+			t.Fatal(err)
+		}
+		outDir := filepath.Join(root, "multi-output")
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := taskplanning.RenderArtifacts(outDir, graph, taskplanning.ProjectRulesEnvelope{Status: "approved", Digest: "rules-digest", Read: "yes"}); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := PlanCmd()
+		cmd.SetArgs([]string{"promote", "--from", outDir, "--repo", "backend"})
+		out := captureStdout(t, func() {
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+		})
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("unmarshal promote output: %v\n%s", err, out)
+		}
+		if payload["promotion_mode"] != "single_repo" {
+			t.Fatalf("promotion_mode = %v, want single_repo", payload["promotion_mode"])
+		}
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "plan", "PLAN.md"))
+		assertFileExists(t, filepath.Join(root, ".codedungeon", "tasks", "task-001-backend-api.md"))
+		if _, err := os.Stat(filepath.Join(root, ".codedungeon", "tasks", "tetoz-multi-repo", "portal", "PLAN.md")); err == nil {
+			t.Fatalf("explicit repo promotion should not promote all repos")
+		}
+	})
+}
+
+func TestPlanPromoteFailureEmitsCustodyStatus(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := PlanCmd()
+	cmd.SetArgs([]string{"promote", "--from", filepath.Join(root, "missing-output"), "--feature", "broken feature"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = cmd.Execute()
+	})
+	if execErr == nil {
+		t.Fatal("expected promotion failure")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal failure output: %v\n%s", err, out)
+	}
+	if payload["custody_status"] != "NO_CODEDUNGEON_DELIVERY_CREATED" {
+		t.Fatalf("custody_status = %v, want NO_CODEDUNGEON_DELIVERY_CREATED", payload["custody_status"])
+	}
+	commands, ok := payload["recovery_commands"].([]any)
+	if !ok || len(commands) == 0 || !strings.Contains(commands[0].(string), "codedungeon plan promote --from") {
+		t.Fatalf("recovery_commands = %#v, want exact promote command", payload["recovery_commands"])
+	}
+}
+
 func TestPlanValidateCommandRejectsInvalidGraph(t *testing.T) {
 	root := t.TempDir()
 	graphPath := filepath.Join(root, "task-graph.json")
@@ -342,6 +557,23 @@ func writePlanningFixtures(t *testing.T, dir string) {
 			Tasks: []taskplanning.TaskSpec{
 				{ID: "TASK-001", Repo: "codedungeon", Kind: "dev", Title: "Add schema", Objective: "Persist planning state.", WriteScope: []string{"internal/db/schema.sql"}, Wave: 1, ParallelGroup: "schema", OwnerRole: "backend", AcceptanceCriteria: []string{"schema migrated"}, VerificationCommands: []string{"go test ./internal/db"}},
 				{ID: "TASK-002", Repo: "codedungeon", Kind: "dev", Title: "Add command", Objective: "Expose planning command.", DependsOn: []string{"TASK-001"}, WriteScope: []string{"cmd/plan.go"}, Wave: 2, ParallelGroup: "cli", OwnerRole: "backend", AcceptanceCriteria: []string{"command emits result"}, VerificationCommands: []string{"go test ./cmd"}},
+			},
+		},
+	})
+}
+
+func writeMultiRepoTaskSplitterFixture(t *testing.T, dir string) {
+	t.Helper()
+	common := taskplanning.ProjectRulesEnvelope{Status: "approved", Digest: "rules-digest", Read: "yes"}
+	writePlanningJSON(t, filepath.Join(dir, "task_splitter.json"), taskplanning.AgentOutput{
+		Role: "task_splitter", Provider: "test", Model: "fake", SessionID: "session-splitter",
+		Confidence: 0.88, Summary: "Split into three repos.", ProjectRules: common,
+		TaskGraph: &taskplanning.TaskGraph{
+			Version: 1,
+			Tasks: []taskplanning.TaskSpec{
+				{ID: "TASK-001", Repo: "backend", Kind: "dev", Title: "Backend API", Objective: "Update backend API.", WriteScope: []string{"backend/api.go"}, Wave: 1, AcceptanceCriteria: []string{"backend works"}, VerificationCommands: []string{"go test ./..."}},
+				{ID: "TASK-002", Repo: "portal", Kind: "dev", Title: "Portal UI", Objective: "Update portal UI.", WriteScope: []string{"portal/app.tsx"}, Wave: 1, AcceptanceCriteria: []string{"portal works"}, VerificationCommands: []string{"npm test"}},
+				{ID: "TASK-003", Repo: "app", Kind: "dev", Title: "Mobile App", Objective: "Update mobile app.", WriteScope: []string{"app/Main.kt"}, Wave: 1, AcceptanceCriteria: []string{"app works"}, VerificationCommands: []string{"./gradlew test"}},
 			},
 		},
 	})

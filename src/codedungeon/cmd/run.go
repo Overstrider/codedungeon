@@ -138,16 +138,16 @@ func runStartE(c *cobra.Command, _ []string) error {
 		return EmitJSON(map[string]any{"ok": true, "dry_run": true, "run_id": runID, "session_id": sessionID, "mode": mode, "branch": branch, "resumed": resumed, "project_rules": rulesStatus, "prompt": childPrompt})
 	}
 
-	if err := executeProviderChild(root, mode, childPrompt, runID, sessionID, token); err != nil {
+	if err := providerChildExecutor(root, mode, childPrompt, runID, sessionID, token); err != nil {
 		report, recovered, recoverErr := recoverAfterProviderChildFailure(root, s, runID, sessionID, token, runnerAgentID, err)
 		if recoverErr != nil {
-			return EmitErr("codedungeon runner failed: "+err.Error()+"; recovery failed: "+recoverErr.Error(), strings.Join(finalizeDiagnosticCommands(recoverErr), "\n"))
+			return EmitCustodyErr("codedungeon runner failed: "+err.Error()+"; recovery failed: "+recoverErr.Error(), runnerRecoveryCommands(recoverErr))
 		}
 		if recovered {
 			fmt.Print(report)
 			return nil
 		}
-		return EmitErr("codedungeon runner failed: "+err.Error(), "")
+		return EmitCustodyErr("codedungeon runner failed: "+err.Error(), runnerRecoveryCommands(err))
 	}
 	if mode == "rules" {
 		_ = s.UpdateRunSessionStatus(sessionID, "COMPLETED", "")
@@ -162,7 +162,7 @@ func runStartE(c *cobra.Command, _ []string) error {
 		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
 		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
 		_ = abortOpenAgentRuns(s, runID, sessionID, 0, "runner failed before clean finalization", err.Error())
-		return EmitErr("codedungeon final report failed: "+err.Error(), "")
+		return EmitCustodyErr("codedungeon final report failed: "+err.Error(), runnerRecoveryCommands(err))
 	}
 	_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "final report rendered")
 	_ = s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", "")
@@ -411,7 +411,7 @@ func runFinalizeCmd() *cobra.Command {
 					_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
 					_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
 				}
-				return EmitErr("run finalize failed: "+err.Error(), "")
+				return EmitCustodyErr("run finalize failed: "+err.Error(), runnerRecoveryCommands(err))
 			}
 			if sessionID != "" {
 				if err := completeOpenRunnerAgents(s, run.ID, sessionID, 0, "final report rendered"); err != nil {
@@ -514,6 +514,25 @@ func finalizeDiagnosticCommands(err error) []string {
 	default:
 		return []string{"codedungeon observe", "codedungeon run finalize --dry-run"}
 	}
+}
+
+func runnerRecoveryCommands(err error) []string {
+	cmds := []string{"codedungeon observe", "codedungeon run finalize --dry-run"}
+	cmds = append(cmds, finalizeDiagnosticCommands(err)...)
+	return uniqueStrings(cmds)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func runUnlockCmd() *cobra.Command {
@@ -1258,6 +1277,8 @@ func summaryForError(status, summary string) string {
 	}
 	return ""
 }
+
+var providerChildExecutor = executeProviderChild
 
 func executeProviderChild(root, mode, prompt string, runID int64, sessionID, token string) error {
 	p := provider.Detect()

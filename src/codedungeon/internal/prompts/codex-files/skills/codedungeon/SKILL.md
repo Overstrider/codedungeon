@@ -20,6 +20,9 @@ Compatibility aliases remain available:
 - `$one-shot` is the same workflow as `$codedungeon --oneshot`.
 
 Use the project-local CLI for autonomous workflow execution: `./.codex/bin/codedungeon`.
+Use `./.codex/bin/codedungeon kernel` when an agent needs the machine-readable
+manifest of provider surfaces, workflow modes, deterministic modules, gates,
+durable state paths, local project scope, and license.
 
 ## Router Contract
 

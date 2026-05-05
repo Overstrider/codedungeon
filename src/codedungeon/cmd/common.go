@@ -207,6 +207,25 @@ func EmitErr(msg string, hint string) error {
 	return fmt.Errorf("%s", msg)
 }
 
+const custodyNoDeliveryCreated = "NO_CODEDUNGEON_DELIVERY_CREATED"
+
+func EmitCustodyErr(msg string, recoveryCommands []string) error {
+	if !strings.Contains(msg, "no finalized CodeDungeon delivery exists") {
+		msg = msg + "; no finalized CodeDungeon delivery exists"
+	}
+	if len(recoveryCommands) == 0 {
+		recoveryCommands = []string{"codedungeon observe", "codedungeon run finalize --dry-run"}
+	}
+	_ = EmitJSON(map[string]any{
+		"ok":                false,
+		"error":             msg,
+		"hint":              "CodeDungeon custody stopped before a PR/final report delivery was created",
+		"custody_status":    custodyNoDeliveryCreated,
+		"recovery_commands": recoveryCommands,
+	})
+	return fmt.Errorf("%s", msg)
+}
+
 // EmitPreflightErr emits a structured error the agent can parse.
 func EmitPreflightErr(err error) error {
 	var msg, hint, action string

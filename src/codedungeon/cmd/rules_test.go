@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +81,162 @@ func TestProjectRulesLifecycleApproveCompactStatusAndLint(t *testing.T) {
 	}
 }
 
+func TestRulesStatusUsesLocalCodeDungeonRootOverOuterGitRoot(t *testing.T) {
+	outer := t.TempDir()
+	runGit(t, outer, "init")
+	inner := filepath.Join(outer, "realms", "tetoz")
+	writeFile(t, filepath.Join(inner, ".codedungeon", "codedungeon.db"), "")
+	writeFile(t, filepath.Join(inner, "README.md"), "# Tetoz\n")
+	writeFile(t, filepath.Join(inner, ".codedungeon", "project-rules.md"), strings.Join([]string{
+		"# Project Rules",
+		"",
+		"Status: DRAFT",
+		"",
+		"## Sources Reviewed",
+		"- README.md",
+		"",
+		"## Architecture And Boundaries",
+		"- Multi repo Tetoz realm.",
+		"",
+		"## Project Rules",
+		"- MUST keep CodeDungeon state local to this realm.",
+		"",
+		"## Commands And Verification",
+		"- VERIFY with codedungeon rules status.",
+		"",
+		"## Security And Data Rules",
+		"- MUST NOT commit secrets.",
+		"",
+		"## Agent Operating Rules",
+		"- ASK WHEN blocked.",
+		"",
+		"## Open Questions",
+		"- None.",
+		"",
+	}, "\n"))
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(inner); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		cmd := rulesStatusCmd()
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var st projectRulesStatus
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("unmarshal rules status: %v\n%s", err, out)
+	}
+	if st.Status != "draft" {
+		t.Fatalf("rules status = %q, want draft from local CodeDungeon root: %+v", st.Status, st)
+	}
+}
+
+func TestNestedRulesCommandsAndRunDryRunUseSameCodeDungeonRoot(t *testing.T) {
+	outer := t.TempDir()
+	runGit(t, outer, "init")
+	runGit(t, outer, "remote", "add", "origin", "https://github.com/example/tetoz.git")
+	inner := filepath.Join(outer, "realms", "tetoz")
+	writeFile(t, filepath.Join(inner, ".codedungeon", "codedungeon.db"), "")
+	writeFile(t, filepath.Join(inner, "README.md"), "# Tetoz\n")
+	writeProjectRulesDraft(t, inner)
+	writeFile(t, filepath.Join(outer, ".codedungeon", "project-rules.md"), strings.Join([]string{
+		"# Project Rules",
+		"",
+		"Status: DRAFT",
+		"",
+		"## Sources Reviewed",
+		"- README.md",
+		"",
+		"## Architecture And Boundaries",
+		"- Outer workspace should not be used.",
+		"",
+		"## Project Rules",
+		"- MUST keep outer rules draft.",
+		"",
+		"## Commands And Verification",
+		"- VERIFY outer should not run.",
+		"",
+		"## Security And Data Rules",
+		"- MUST NOT use outer rules.",
+		"",
+		"## Agent Operating Rules",
+		"- ASK WHEN blocked.",
+		"",
+		"## Open Questions",
+		"- None.",
+		"",
+	}, "\n"))
+	fakeBin := filepath.Join(outer, "bin")
+	writeFile(t, filepath.Join(fakeBin, "gh"), "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(fakeBin, "gh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(inner); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"approve", "--by", "test"},
+		{"compact"},
+		{"digest"},
+		{"status"},
+	} {
+		cmd := RulesCmd()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("rules %v failed: %v", args, err)
+		}
+	}
+	st, err := computeProjectRulesStatus(inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != "approved" {
+		t.Fatalf("inner rules status = %q, want approved", st.Status)
+	}
+	outerStatus, err := computeProjectRulesStatus(outer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outerStatus.Status != "draft" {
+		t.Fatalf("outer rules status = %q, want draft to prove commands used inner root", outerStatus.Status)
+	}
+
+	runCmd := RunCmd()
+	runCmd.SetArgs([]string{"--full", "--prompt", "Ship Tetoz multi repo", "--dry-run"})
+	out := captureStdout(t, func() {
+		if err := runCmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var payload map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal run dry-run output: %v\n%s", err, out)
+	}
+	projectRules, ok := payload["project_rules"].(map[string]any)
+	if !ok {
+		t.Fatalf("project_rules missing from dry-run output: %#v", payload)
+	}
+	if projectRules["status"] != "approved" {
+		t.Fatalf("dry-run project rules status = %v, want approved from inner root\n%s", projectRules["status"], out)
+	}
+}
+
 func TestProjectRulesSourceDigestIgnoresGeneratedRuntimeArtifacts(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
@@ -137,6 +295,36 @@ func TestProjectRulesSourceDigestIgnoresGeneratedRuntimeArtifacts(t *testing.T) 
 			strings.HasPrefix(src, ".agents/") ||
 			strings.HasPrefix(src, "examples/v2/") {
 			t.Fatalf("generated source %q should not be in project rules digest: %+v", src, st.Sources)
+		}
+	}
+}
+
+func TestProjectRulesSourceDigestIncludesIgnoredRepoBoundarySources(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, ".gitignore"), "/backend/\n/portal/\n/app/\n")
+	writeFile(t, filepath.Join(root, "README.md"), "# Demo\n")
+	writeFile(t, filepath.Join(root, "backend", "AGENTS.md"), "# Backend Guide\n")
+	writeFile(t, filepath.Join(root, "backend", "Cargo.toml"), "[package]\nname = \"backend\"\n")
+	writeFile(t, filepath.Join(root, "portal", "AGENTS.md"), "# Portal Guide\n")
+	writeFile(t, filepath.Join(root, "portal", "package.json"), `{"scripts":{"lint":"next lint"}}`)
+	writeFile(t, filepath.Join(root, "app", "AGENTS.md"), "# App Guide\n")
+	writeFile(t, filepath.Join(root, "app", "gradle", "libs.versions.toml"), "[versions]\n")
+
+	_, sources, err := computeProjectRulesSourceDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"backend/AGENTS.md",
+		"backend/Cargo.toml",
+		"portal/AGENTS.md",
+		"portal/package.json",
+		"app/AGENTS.md",
+		"app/gradle/libs.versions.toml",
+	} {
+		if !containsString(sources, want) {
+			t.Fatalf("sources missing ignored repo boundary source %q: %v", want, sources)
 		}
 	}
 }
@@ -253,4 +441,24 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	defer func() { os.Stdout = originalStdout }()
+	fn()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

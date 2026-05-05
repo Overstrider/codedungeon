@@ -81,7 +81,7 @@ func rulesStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Print project rules status and digests",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			st, err := computeProjectRulesStatus(root)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -96,7 +96,7 @@ func rulesLintCmd() *cobra.Command {
 		Use:   "lint",
 		Short: "Validate project rules files",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			res := lintProjectRules(root)
 			if !res.OK {
 				_ = EmitJSON(res)
@@ -112,7 +112,7 @@ func rulesDigestCmd() *cobra.Command {
 		Use:   "digest",
 		Short: "Recompute project rules source and rules digests",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			st, err := computeProjectRulesStatus(root)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -127,7 +127,7 @@ func rulesApproveCmd() *cobra.Command {
 		Use:   "approve",
 		Short: "Mark a reviewed Project Rules draft as approved",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			by, _ := c.Flags().GetString("by")
 			if by == "" {
 				by = os.Getenv("USER")
@@ -154,7 +154,7 @@ func rulesCompactCmd() *cobra.Command {
 		Use:   "compact",
 		Short: "Generate compact operational Project Rules from approved rules",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			st, err := compactProjectRules(root)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -169,7 +169,7 @@ func rulesGateCmd() *cobra.Command {
 		Use:   "gate",
 		Short: "Evaluate Project Rules hook gates",
 		RunE: func(c *cobra.Command, _ []string) error {
-			root := ResolveProjectRoot(mustGetwd())
+			root := projectRulesRoot()
 			event, _ := c.Flags().GetString("event")
 			mode, _ := c.Flags().GetString("mode")
 			message, _ := c.Flags().GetString("message")
@@ -407,6 +407,7 @@ func evaluateRulesGate(root string, opts gateOptions) gateResult {
 func computeProjectRulesSourceDigest(root string) (string, []string, error) {
 	ignore := loadGitIgnore(root)
 	var sources []string
+	allowedIgnoredDirs := map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -417,14 +418,25 @@ func computeProjectRulesSourceDigest(root string) (string, []string, error) {
 			if rel == "." {
 				return nil
 			}
-			if isGeneratedRulesPath(rel) || ignore.matches(rel, true) {
+			if isGeneratedRulesPath(rel) {
+				return filepath.SkipDir
+			}
+			if ignore.matches(rel, true) && !hasAllowedIgnoredAncestor(rel, allowedIgnoredDirs) {
+				if isProjectRulesBoundaryDir(root, rel) {
+					allowedIgnoredDirs[rel] = true
+					return nil
+				}
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !isGeneratedRulesPath(rel) && !ignore.matches(rel, false) && isProjectRulesSource(rel) {
-			sources = append(sources, rel)
+		if isGeneratedRulesPath(rel) || !isProjectRulesSource(rel) {
+			return nil
 		}
+		if ignore.matches(rel, false) && !hasAllowedIgnoredAncestor(rel, allowedIgnoredDirs) {
+			return nil
+		}
+		sources = append(sources, rel)
 		return nil
 	})
 	if err != nil {
@@ -525,6 +537,36 @@ func isProjectRulesSource(rel string) bool {
 	return false
 }
 
+func isProjectRulesBoundaryDir(root, rel string) bool {
+	for _, name := range []string{
+		"AGENTS.md",
+		"CLAUDE.md",
+		"README.md",
+		"go.mod",
+		"package.json",
+		"Cargo.toml",
+		"pyproject.toml",
+		"build.gradle.kts",
+		filepath.Join("gradle", "libs.versions.toml"),
+		"Dockerfile",
+		"Containerfile",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel), name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAllowedIgnoredAncestor(rel string, allowed map[string]bool) bool {
+	for dir := filepath.ToSlash(filepath.Dir(rel)); dir != "." && dir != ""; dir = filepath.ToSlash(filepath.Dir(dir)) {
+		if allowed[dir] {
+			return true
+		}
+	}
+	return false
+}
+
 func digestBytes(body []byte) string {
 	h := sha256.Sum256(body)
 	return hex.EncodeToString(h[:])
@@ -615,6 +657,10 @@ func hasUnresolvedOpenQuestions(body string) bool {
 		return true
 	}
 	return false
+}
+
+func projectRulesRoot() string {
+	return ResolveCodeDungeonRoot(mustGetwd())
 }
 
 func sectionBody(body, header string) string {

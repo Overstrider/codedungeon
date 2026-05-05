@@ -745,6 +745,49 @@ func TestCodexWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) {
 	}
 }
 
+func TestWorkflowPromptsDeclareMultiRepoReviewAndQACommands(t *testing.T) {
+	for _, rel := range []string{
+		"commands/main-quest.md",
+		"skills/main-quest/SKILL.md",
+	} {
+		raw, err := GetRawFor("codex", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"--out .codedungeon/code-review/<repo>",
+			"--task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md",
+			"qa run --cwd <repo>",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s missing multi-repo custody instruction %q:\n%s", rel, required, body)
+			}
+		}
+	}
+	raw, err := GetRawFor("claude", "phases/forge-execution.md")
+	if err != nil {
+		t.Fatalf("read forge phase: %v", err)
+	}
+	forge := string(raw)
+	for _, required := range []string{
+		"code-review --out .codedungeon/code-review/<repo>",
+		"--task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md",
+	} {
+		if !strings.Contains(forge, required) {
+			t.Fatalf("forge phase missing multi-repo review instruction %q:\n%s", required, forge)
+		}
+	}
+	raw, err = GetRawFor("claude", "phases/arena-tests.md")
+	if err != nil {
+		t.Fatalf("read arena phase: %v", err)
+	}
+	arena := string(raw)
+	if !strings.Contains(arena, "qa run --cwd <repo>") {
+		t.Fatalf("arena phase missing sequential multi-repo QA instruction:\n%s", arena)
+	}
+}
+
 func TestReviewPersonaPromptsUseCanonicalPersonaIDs(t *testing.T) {
 	for _, rel := range []string{
 		"agents/cerberus-reviewer-security.md",

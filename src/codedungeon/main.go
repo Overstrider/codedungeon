@@ -60,6 +60,7 @@ func main() {
 	root.AddCommand(cmd.InstallCmd())
 	root.AddCommand(cmd.MigrateCmd())
 	root.AddCommand(cmd.StatusCmd())
+	root.AddCommand(cmd.KernelCmd())
 	root.AddCommand(cmd.SpawnCmd())
 	root.AddCommand(cmd.MapCmd())
 	root.AddCommand(cmd.RulesCmd())

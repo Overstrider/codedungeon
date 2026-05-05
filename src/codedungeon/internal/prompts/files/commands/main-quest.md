@@ -20,8 +20,8 @@ Deterministic completion gates:
 - Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
 - Do not write review reports manually.
 - Do not write final reports manually.
-- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run standalone review per repo/PR with `./.claude/bin/codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`; in multi-repo workflows run sequential per-repo QA with `./.claude/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:

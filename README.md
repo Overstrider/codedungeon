@@ -28,6 +28,18 @@ Why agents use it:
 - Provider-native command surfaces with a shared workflow kernel: `$codedungeon`
   for Codex and `/codedungeon` for Claude Code.
 
+Agents can inspect the kernel contract directly:
+
+```bash
+codedungeon kernel
+```
+
+The command prints a machine-readable manifest of provider surfaces, workflow
+modes, modules, gates, durable state paths, local project-scope guarantees, and
+license. It is safe to call before choosing whether to use Project Rules, Task
+Maker, the full runner, standalone QA, code review, artifact checks, or
+finalization.
+
 ## Mental Model
 
 - Provider packs install native surfaces for Codex CLI and Claude Code.

@@ -21,6 +21,8 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 
 **Goal**: Execute test tasks for each repo via codedungeon-test-loop. Brings the project up, runs tests, fixes bugs automatically.
 
+Multi-repo QA must run sequentially per repo. When a repo has concrete verification commands, record them through the QA module with `codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then continue that repo's remaining commands before moving to the next repo.
+
 #### Step 6.1: Check for Test Tasks
 
 For each repo in execution order:

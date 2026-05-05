@@ -7,6 +7,12 @@ CodeDungeon installs agent-facing workflows for both providers. Claude Code invo
 
 Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before following a workflow. Code-writing modes delegate to `codedungeon run --full|--lite|--oneshot --prompt "<prompt>"`; the runner creates an autonomous child session with custody tokens, and the parent agent must not manually execute phases, post review comments, or merge PRs.
 
+`codedungeon kernel` is the read-only capability manifest for agents. It emits
+JSON that names the Codex and Claude provider surfaces, workflow modes,
+deterministic modules, completion gates, SQLite/FTS5 state, project-local
+configuration scope, and license. Agents should use it when they need to inspect
+the workflow kernel contract instead of inferring capabilities from prose.
+
 | Mode | Claude | Codex | Workflow | Use when |
 |------|--------|-------|----------|----------|
 | `--oneshot` | `/codedungeon --oneshot` | `$codedungeon --oneshot` | One Shot | Small scoped change that needs plan, code, branch, PR, and review without task splitting. |

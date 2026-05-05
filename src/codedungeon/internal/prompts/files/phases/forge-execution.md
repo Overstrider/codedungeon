@@ -13,7 +13,7 @@ Claude permission invariant: every Claude CLI session or subagent spawn controll
 ## Outputs
 - Feature branches with committed code per repo
 - Pull requests per repo
-- Adversarial review comments on PRs (via `/code-review`)
+- Adversarial review comments on PRs via per-repo `codedungeon code-review`
 - Update `.codedungeon/plan/pipeline-state.md`: set Phase 5 status to DONE + list artifacts + results
 - Populate `## Results (per repo)` section with PR numbers, verdicts, task counts
 
@@ -69,12 +69,15 @@ For each repo in execution order:
      - {lang}-specialist (Plan mode) → general-purpose agent (exec) → {lang}-specialist (Review mode)
    - Commit per task
    - Push, create PR (with context from MASTER.md)
-   - Run /code-review for PR review (Main Loop Step 5) — see REVIEW PROTOCOL below
+   - Run `codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post` for PR review (Main Loop Step 5) — see REVIEW PROTOCOL below
    - Fix issues if needed (loop continues until APPROVED — no cycle cap stops the loop)
 
-   ## REVIEW PROTOCOL — /code-review (adversarial, Opus 4.7 fanout)
+   ## REVIEW PROTOCOL — code-review per repo/PR (adversarial, Opus 4.7 fanout)
    For Main Loop Step 5 (PR review), you MUST read and follow the full /code-review
    protocol from: {project_root}/.codedungeon/commands/code-review.md
+
+   The review command is per repo/PR and must use the repo task plan as task context:
+   `codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`.
 
    /code-review runs a multi-persona adversarial fanout (Saboteur + New Hire + Security Auditor
    + Spec Enforcer on Opus 4.7) followed by per-finding Sonnet Validators and a stack-specific
