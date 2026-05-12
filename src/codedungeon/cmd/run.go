@@ -1026,6 +1026,9 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 	if run == nil {
 		return "", fmt.Errorf("no active run")
 	}
+	if err := validateFinalizationPreQAGates(root, s, run); err != nil {
+		return "", err
+	}
 	if err := ensureWorkflowQA(root, s, run); err != nil {
 		return "", err
 	}
@@ -1037,6 +1040,30 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 		return "", err
 	}
 	return plan.report, nil
+}
+
+func validateFinalizationPreQAGates(root string, s *db.Store, run *db.Run) error {
+	if err := validateFinalizationProjectRules(root); err != nil {
+		return err
+	}
+	phases, err := s.AllPhases(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := phasesBeforeFiveComplete(phases); err != nil {
+		return err
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return fmt.Errorf("phase-5-gate: %w", err)
+	}
+	if err := validateBranchPushed(run.Branch); err != nil {
+		return fmt.Errorf("phase-5-gate: %w", err)
+	}
+	return nil
 }
 
 func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {

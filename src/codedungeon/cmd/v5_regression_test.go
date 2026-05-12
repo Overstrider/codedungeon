@@ -591,6 +591,66 @@ func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	}
 }
 
+func TestRunFinalizeDoesNotRunWorkflowQABeforeReviewEvidence(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "README.md"), "# workflow qa ordering\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/workflowqaorder\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "smoke_test.go"), "package workflowqaorder\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"init", "--feature", "gating", "--branch", "feature/gating", "--project-mode", "SINGLE"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"0", "1", "2'", "3.5", "4"} {
+		if err := s.SetPhaseStatus(run.ID, phase, "DONE", "pre-final gate complete", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = finalizeRun(root, s, run, "session-1", "", 0)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "review") {
+		t.Fatalf("finalizeRun error = %v, want review blocker", err)
+	}
+	qaSession, err := s.LatestQASession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qaSession != nil {
+		t.Fatalf("workflow QA ran before review evidence was approved: %+v", qaSession)
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("verification records written before review evidence was approved: %+v", records)
+	}
+}
+
 func TestRunFinalizeDryRunRejectsStaleProjectRules(t *testing.T) {
 	root := setupGatedRun(t)
 	writeFile(t, filepath.Join(root, "README.md"), "# changed after rules approval\n")

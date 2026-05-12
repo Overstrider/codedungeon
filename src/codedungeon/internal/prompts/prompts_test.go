@@ -919,6 +919,9 @@ func TestCodexFullWorkflowDocumentsAgentFirstRunAndGitHubPrereqs(t *testing.T) {
 			required = append(required, "codedungeon run --full", "agent-first", "run advance")
 		} else {
 			required = append(required, "existing run created by `codedungeon run`", "gh auth status", "git remote get-url origin", "do not call `phase init`")
+			if strings.Contains(rel, "main-quest") {
+				required = append(required, "run advance --step", "phase done` only for explicit skip")
+			}
 		}
 		for _, required := range required {
 			if !strings.Contains(body, required) {

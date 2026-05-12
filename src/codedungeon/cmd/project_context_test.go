@@ -95,6 +95,14 @@ func TestFinalizeCreatesPendingProjectContextProposal(t *testing.T) {
 	if _, err := compactProjectRules(root); err != nil {
 		t.Fatal(err)
 	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
 	store := openTestStore(t, root)
 	if err := store.Init(); err != nil {
 		t.Fatal(err)

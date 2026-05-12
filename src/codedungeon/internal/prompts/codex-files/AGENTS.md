@@ -25,7 +25,7 @@ Default workflow:
 - Preserve the emitted `agent_type` when using Codex subagents. Record `model` and `reasoning_effort` in telemetry/prompt context; do not force model overrides when Codex rejects that combination.
 - Record every subagent with `./.codex/bin/codedungeon trace agent-start` before spawn and `./.codex/bin/codedungeon trace agent-end` after it returns; telemetry is informational and does not replace gates.
 - Do not write review reports manually. Run standalone review with `./.codex/bin/codedungeon code-review --url <PR URL> --project-context <path-or-text> --task-context <path-or-text> --out .codedungeon/code-review --post`; legacy `review run` is not final approval evidence.
-- Do not write final reports manually. Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, produce and post standalone code-review evidence with `codedungeon code-review --post`, then use `./.codex/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from CodeDungeon finalization/report rendering.
+- Do not write final reports manually. Produce and post standalone code-review evidence with `codedungeon code-review --post`, then run final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, then use `./.codex/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from CodeDungeon finalization/report rendering.
 - Close completed phases with `./.codex/bin/codedungeon phase done`.
 - Treat `.codedungeon/commands/` as reference playbooks, not Codex CLI slash commands.
 - Keep provider-specific instructions in Codex files; do not copy Claude-only syntax into Codex prompts.

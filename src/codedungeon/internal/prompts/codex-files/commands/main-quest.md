@@ -29,7 +29,7 @@ If either command fails, record it as a finalization blocker and continue with s
 
 - Do not write review reports manually. Code review is a standalone module: for each repo/PR run `./.codex/bin/codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`. Legacy `review run` cannot approve empty findings and is not final approval evidence.
 - Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
-- Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; for multi-repo workflows run QA sequentially per repo with `./.codex/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
+- After approved review evidence is posted, run final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; for multi-repo workflows run QA sequentially per repo with `./.codex/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
 - This workflow is agent-first. Start or resume durable state with `./.codex/bin/codedungeon run --full --prompt "<prompt>"`, execute the returned `next_action`, and record progress with `codedungeon run advance`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
@@ -47,7 +47,8 @@ Steps:
 - For each phase, use `./.codex/bin/codedungeon spawn-prompt <phase>` and the matching Codex subagent when useful.
 - If Codex rejects a custom `agent_type`, stop with a blocker; project `.codex/config.toml` and non-interactive Codex invocations already enable `multi_agent_v2`.
 - Preserve the emitted `agent_type` when spawning subagents. Record `model` and `reasoning_effort` in telemetry/prompt context; do not force model overrides when Codex rejects that combination.
-- Keep all state changes in codedungeon commands.
+- Record planning, execution, approved review, and QA with `./.codex/bin/codedungeon run advance --step <planning|execution|code_review|qa> --status completed --summary "<summary>" --artifact <path>`.
+- Use `phase done` only for explicit skip/blocker states that cannot be represented by `run advance`.
 - Do not skip review or test phases unless the DB records the skip reason.
 
 Provider behavior:
