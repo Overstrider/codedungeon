@@ -953,6 +953,26 @@ func TestOneShotPromptsRecordReviewBeforeFinalQA(t *testing.T) {
 	}
 }
 
+func TestClaudeMainQuestDocumentsAgentFirstRunAdvance(t *testing.T) {
+	raw, err := GetRawFor("claude", "commands/main-quest.md")
+	if err != nil {
+		t.Fatalf("read claude main-quest: %v", err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"run --full --prompt",
+		"run advance --step planning",
+		"run advance --step execution",
+		"run advance --step code_review",
+		"run advance --step qa",
+		"Use `phase done` for phase-level handoffs",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("claude main-quest missing agent-first instruction %q:\n%s", required, body)
+		}
+	}
+}
+
 func TestRuntimePromptArtifactsDoNotReferenceGlobalInstallSurfaces(t *testing.T) {
 	for _, providerName := range []string{"claude", "codex"} {
 		arts, err := ArtifactsFor(providerName)

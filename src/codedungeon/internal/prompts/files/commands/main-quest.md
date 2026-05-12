@@ -30,6 +30,17 @@ This workflow is agent-first. Start or resume durable state with:
 ./.claude/bin/codedungeon run --full --prompt "<prompt>"
 ```
 
+Use the returned `current_step`, `blockers`, and `next_action` as the coarse workflow contract. After phase groups complete, record the agent-first milestones:
+
+```bash
+./.claude/bin/codedungeon run advance --step planning --status completed --summary "planning phases completed" --artifact .codedungeon/tasks
+./.claude/bin/codedungeon run advance --step execution --status completed --summary "implementation completed" --artifact .codedungeon/tasks
+./.claude/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review
+./.claude/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa
+```
+
+Use `phase done` for phase-level handoffs and explicit skip/blocker states; use `run advance` for the agent-first step ledger.
+
 **FULLY AUTONOMOUS** once invoked. No approval gates.
 
 ## CAVEMAN:ULTRA mode (forced)
@@ -163,7 +174,7 @@ CLEAR_BETWEEN_PHASES = True
       Read your full phase instructions from: {ABSOLUTE_PHASE_FILE_PATH}
       Read the pipeline state: `codedungeon phase info <N>`  and  `codedungeon phase info <PREV_N>` for last phase's handoff.
 
-      Execute the phase. When done, call `codedungeon phase done <N> ...` (or skip/fail).
+      Execute the phase. When done, call `codedungeon phase done <N> ...` (or skip/fail). The parent orchestrator records coarse milestones with `codedungeon run advance --step planning|execution|code_review|qa` after the relevant phase groups complete.
 
       $(codedungeon prompts get caveman-ultra)
 
@@ -205,7 +216,7 @@ ORCHESTRATOR (thin — reads only `codedungeon phase info/next`)
   └─ Phase 7 → report                                              [fast, think 0]
 ```
 
-**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.codedungeon/state/phase-{N}-output.md` + refreshes `pipeline-state.md`.
+**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.codedungeon/state/phase-{N}-output.md` + refreshes `pipeline-state.md`. The parent orchestrator also calls `codedungeon run advance` for the coarse agent-first workflow steps.
 
 ---
 
