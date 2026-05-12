@@ -46,10 +46,10 @@ finalization.
 - Agent-facing commands are the normal entry points: `$codedungeon`,
   `/codedungeon`, `$task-maker`, `/task-maker`, `$code-review`, and
   `/code-review`.
-- `codedungeon run` is the autonomous orchestrator behind the router. It selects
-  or receives a workflow mode, starts a child custody session, and combines
-  modules such as rules, planning, execution, QA, review, git, artifacts, and
-  reporting.
+- `codedungeon run` is the agent-first state kernel behind the router. It
+  selects or receives a workflow mode, creates or resumes durable run state, and
+  returns a JSON step contract with the current step, blockers, evidence,
+  timeline, and next action for the agent to execute.
 - Standalone modules remain directly callable. You can run only Project Rules,
   Task Maker, planning, one task execution, QA, code review, artifact checks, or
   migration without starting a full workflow.
@@ -393,7 +393,8 @@ codedungeon-codex run --full --prompt "Implement the full workflow"
 codedungeon-codex run status
 codedungeon-codex run finalize --dry-run
 codedungeon-codex run finalize
-codedungeon-codex run unlock --reason "provider child crashed before returning"
+codedungeon-codex run advance --step planning --status completed --summary "plan promoted"
+codedungeon-codex run unlock --reason "stale agent-first session"
 codedungeon-codex report render
 ```
 

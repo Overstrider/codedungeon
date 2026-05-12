@@ -215,7 +215,7 @@ func TestQARunReturnsErrorWhenCommandFails(t *testing.T) {
 	}
 }
 
-func TestRunStartBlocksFullWhenProjectRulesMissingBeforeCreatingRun(t *testing.T) {
+func TestRunStartSoftBlocksFullWhenProjectRulesMissing(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
 	oldWD, err := os.Getwd()
@@ -229,15 +229,26 @@ func TestRunStartBlocksFullWhenProjectRulesMissingBeforeCreatingRun(t *testing.T
 
 	run := RunCmd()
 	run.SetArgs([]string{"--full", "--prompt", "ship feature", "--dry-run"})
-	err = run.Execute()
-	if err == nil {
-		t.Fatal("full run started without approved Project Rules")
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = run.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("full run with missing Project Rules should return a soft blocker: %v\n%s", execErr, out)
 	}
-	if !strings.Contains(err.Error(), "project-rules-gate") {
-		t.Fatalf("unexpected error: %v", err)
+	var payload map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal run output: %v\n%s", err, out)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".codedungeon", "codedungeon.db")); !os.IsNotExist(statErr) {
-		t.Fatalf("run DB should not be created when Project Rules block start: %v", statErr)
+	if payload["status"] != "ACTION_REQUIRED" {
+		t.Fatalf("status = %v, want ACTION_REQUIRED\n%s", payload["status"], out)
+	}
+	current, ok := payload["current_step"].(map[string]any)
+	if !ok || current["id"] != "project_rules" {
+		t.Fatalf("current_step = %#v, want project_rules\n%s", payload["current_step"], out)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".codedungeon", "codedungeon.db")); statErr != nil {
+		t.Fatalf("run DB should be created so the agent can recover state: %v", statErr)
 	}
 }
 

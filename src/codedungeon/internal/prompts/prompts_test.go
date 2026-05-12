@@ -899,7 +899,7 @@ func TestCodexReviewAgentsDeclareReviewpipeJSONFields(t *testing.T) {
 	}
 }
 
-func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T) {
+func TestCodexFullWorkflowDocumentsAgentFirstRunAndGitHubPrereqs(t *testing.T) {
 	for _, rel := range []string{
 		"commands/main-quest.md",
 		"skills/main-quest/SKILL.md",
@@ -916,13 +916,13 @@ func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T
 		}
 		required := []string{"GitHub PR"}
 		if strings.Contains(rel, "codedungeon") {
-			required = append(required, "codedungeon run --full", "autonomous runner")
+			required = append(required, "codedungeon run --full", "agent-first", "run advance")
 		} else {
 			required = append(required, "existing run created by `codedungeon run`", "gh auth status", "git remote get-url origin", "do not call `phase init`")
 		}
 		for _, required := range required {
 			if !strings.Contains(body, required) {
-				t.Fatalf("%s missing GitHub/autonomous-runner instruction %q:\n%s", rel, required, body)
+				t.Fatalf("%s missing GitHub/agent-first instruction %q:\n%s", rel, required, body)
 			}
 		}
 	}

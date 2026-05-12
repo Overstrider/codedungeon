@@ -34,6 +34,7 @@ func RunCmd() *cobra.Command {
 	addRunStartFlags(c)
 	c.AddCommand(runStartCmd())
 	c.AddCommand(runStatusCmd())
+	c.AddCommand(runAdvanceCmd())
 	c.AddCommand(runUnlockCmd())
 	c.AddCommand(runFinalizeCmd())
 	return c
@@ -65,19 +66,7 @@ func runStartE(c *cobra.Command, _ []string) error {
 	fmt.Printf("CODEDUNGEON_MODE_SELECTED: %s - %s\n", mode, modeReason(mode, prompt))
 
 	root := currentProjectRoot()
-	var rulesStatus projectRulesStatus
-	if mode != "rules" {
-		var err error
-		rulesStatus, err = enforceRunProjectRules(root, mode)
-		if err != nil {
-			return err
-		}
-	}
-	if mode != "rules" {
-		if err := verifyGitHubPREnvironment(root); err != nil {
-			return err
-		}
-	}
+	rulesStatus := softRunProjectRulesStatus(root)
 
 	s, err := OpenDB(c)
 	if err != nil {
@@ -107,68 +96,41 @@ func runStartE(c *cobra.Command, _ []string) error {
 			return EmitErr(err.Error(), "")
 		}
 	}
-	token, err := randomHex(32)
+	runRow, err := s.GetRun(runID)
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	sessionID, err := randomHex(16)
+	sess, err := reusableAgentFirstSession(s, runID, resumed)
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	if err := s.InsertRunSession(db.RunSession{
-		ID:          sessionID,
-		RunID:       runID,
-		Provider:    provider.Detect().Name(),
-		Mode:        mode,
-		TokenSHA256: hashSessionToken(token),
-		Status:      "RUNNING",
-	}); err != nil {
-		return EmitErr(err.Error(), "")
-	}
-	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_started", Detail: mode})
-	runnerAgentID, _ := recordRunnerAgentStart(s, runID, sessionID, mode)
-
-	childPrompt := autonomousChildPrompt(mode, prompt, branch)
-	if mode != "rules" {
-		childPrompt += "\n\nProject Rules envelope:\n" + runProjectRulesEnvelope(rulesStatus)
-	}
-	if dryRun {
-		_ = s.UpdateRunSessionStatus(sessionID, "ABORTED", "dry-run")
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "ABORTED", "dry-run")
-		return EmitJSON(map[string]any{"ok": true, "dry_run": true, "run_id": runID, "session_id": sessionID, "mode": mode, "branch": branch, "resumed": resumed, "project_rules": rulesStatus, "prompt": childPrompt})
-	}
-
-	if err := providerChildExecutor(root, mode, childPrompt, runID, sessionID, token); err != nil {
-		report, recovered, recoverErr := recoverAfterProviderChildFailure(root, s, runID, sessionID, token, runnerAgentID, err)
-		if recoverErr != nil {
-			return EmitCustodyErr("codedungeon runner failed: "+err.Error()+"; recovery failed: "+recoverErr.Error(), runnerRecoveryCommands(recoverErr))
+	if sess == nil {
+		token, err := randomHex(32)
+		if err != nil {
+			return EmitErr(err.Error(), "")
 		}
-		if recovered {
-			fmt.Print(report)
-			return nil
+		sessionID, err := randomHex(16)
+		if err != nil {
+			return EmitErr(err.Error(), "")
 		}
-		return EmitCustodyErr("codedungeon runner failed: "+err.Error(), runnerRecoveryCommands(err))
+		sess = &db.RunSession{
+			ID:          sessionID,
+			RunID:       runID,
+			Provider:    provider.Detect().Name(),
+			Mode:        mode,
+			TokenSHA256: hashSessionToken(token),
+			Status:      runSessionWaitingForAgent,
+		}
+		if err := s.InsertRunSession(*sess); err != nil {
+			return EmitErr(err.Error(), "")
+		}
+		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_started", Detail: "agent-first:" + mode})
 	}
-	if mode == "rules" {
-		_ = s.UpdateRunSessionStatus(sessionID, "COMPLETED", "")
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_completed", Detail: mode})
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "rules workflow completed")
-		return EmitJSON(map[string]any{"ok": true, "run_id": runID, "session_id": sessionID, "status": "COMPLETED"})
-	}
-	runRow, _ := s.GetRun(runID)
-	report, err := finalizeRun(root, s, runRow, sessionID, token, runnerAgentID)
+	contract, err := buildAgentFirstContract(root, s, runRow, sess, rulesStatus, resumed, dryRun, nil)
 	if err != nil {
-		_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
-		_ = abortOpenAgentRuns(s, runID, sessionID, 0, "runner failed before clean finalization", err.Error())
-		return EmitCustodyErr("codedungeon final report failed: "+err.Error(), runnerRecoveryCommands(err))
+		return EmitErr(err.Error(), "")
 	}
-	_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "final report rendered")
-	_ = s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", "")
-	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "ready_for_user_review", Detail: branch})
-	fmt.Print(report)
-	return nil
+	return EmitJSON(contract)
 }
 
 func recoverAfterProviderChildFailure(root string, s *db.Store, runID int64, sessionID, token string, runnerAgentID int64, childErr error) (string, bool, error) {
@@ -254,6 +216,72 @@ func enforceRunProjectRules(root, mode string) (projectRulesStatus, error) {
 	return st, nil
 }
 
+func softRunProjectRulesStatus(root string) projectRulesStatus {
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		return projectRulesStatus{Status: "missing", RulesDigest: "none", StaleReason: err.Error()}
+	}
+	if strings.TrimSpace(st.Status) == "" {
+		st.Status = "missing"
+	}
+	if strings.TrimSpace(st.RulesDigest) == "" {
+		st.RulesDigest = "none"
+	}
+	return st
+}
+
+func reusableAgentFirstSession(s *db.Store, runID int64, resumed bool) (*db.RunSession, error) {
+	if !resumed {
+		return nil, nil
+	}
+	latest, err := s.LatestRunSession(runID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	if latest.Status == runSessionWaitingForAgent {
+		return latest, nil
+	}
+	return nil, nil
+}
+
+func latestOrCreateAgentFirstSession(s *db.Store, run *db.Run) (*db.RunSession, error) {
+	latest, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest != nil {
+		return latest, nil
+	}
+	token, err := randomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	sessionID, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	mode := strings.ToLower(run.Mode)
+	if strings.TrimSpace(mode) == "" {
+		mode = "full"
+	}
+	latest = &db.RunSession{
+		ID:          sessionID,
+		RunID:       run.ID,
+		Provider:    provider.Detect().Name(),
+		Mode:        mode,
+		TokenSHA256: hashSessionToken(token),
+		Status:      runSessionWaitingForAgent,
+	}
+	if err := s.InsertRunSession(*latest); err != nil {
+		return nil, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "session_started", Detail: "agent-first:" + mode})
+	return latest, nil
+}
+
 func runProjectRulesEnvelope(st projectRulesStatus) string {
 	digest := st.RulesDigest
 	if digest == "" {
@@ -278,7 +306,7 @@ func resolveRunForStart(s *db.Store, prompt, mode, branch string) (int64, string
 				switch latest.Status {
 				case "RUNNING":
 					return 0, "", false, fmt.Errorf("autonomous session already running; run `codedungeon run unlock --reason \"...\"` before retrying session %s", latest.ID)
-				case "FAILED", "ABORTED":
+				case runSessionWaitingForAgent, "FAILED", "ABORTED":
 					if existing.Branch != "" {
 						branch = existing.Branch
 					}
@@ -316,6 +344,7 @@ func runStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show latest autonomous runner session",
 		RunE: func(c *cobra.Command, _ []string) error {
+			root := currentProjectRoot()
 			s, err := OpenDB(c)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -336,8 +365,95 @@ func runStatusCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess, "recovery": rec})
+			if sess == nil {
+				return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess, "recovery": rec})
+			}
+			contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, rec)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			contract.Run = run
+			contract.Session = sess
+			return EmitJSON(contract)
 		},
+	}
+}
+
+func runAdvanceCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "advance",
+		Short: "Record an agent-completed workflow step and return the next agent-first contract",
+		RunE: func(c *cobra.Command, _ []string) error {
+			step, _ := c.Flags().GetString("step")
+			status, _ := c.Flags().GetString("status")
+			summary, _ := c.Flags().GetString("summary")
+			artifacts, _ := c.Flags().GetStringArray("artifact")
+			step = strings.TrimSpace(step)
+			status = strings.ToLower(strings.TrimSpace(status))
+			if step == "" {
+				return EmitErr("--step is required", "")
+			}
+			if status == "" {
+				status = "completed"
+			}
+			if !validAgentFirstStepStatus(status) {
+				return EmitErr("--status must be completed, blocked, or failed", "")
+			}
+			root := currentProjectRoot()
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			if err := s.Init(); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			run, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if run == nil {
+				return EmitErr("no active run", "")
+			}
+			sess, err := latestOrCreateAgentFirstSession(s, run)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			detail := step
+			if strings.TrimSpace(summary) != "" {
+				detail += ": " + strings.TrimSpace(summary)
+			}
+			event := "step_" + status
+			if _, err := s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: event, Detail: detail}); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			for _, artifact := range artifacts {
+				artifact = strings.TrimSpace(artifact)
+				if artifact == "" {
+					continue
+				}
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "step_artifact", Detail: step + ": " + artifact})
+			}
+			contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, nil)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(contract)
+		},
+	}
+	c.Flags().String("step", "", "workflow step id, such as planning, execution, qa, code_review, or finalization")
+	c.Flags().String("status", "completed", "completed, blocked, or failed")
+	c.Flags().String("summary", "", "short agent summary for the step")
+	c.Flags().StringArray("artifact", nil, "artifact path produced by the step; repeatable")
+	return c
+}
+
+func validAgentFirstStepStatus(status string) bool {
+	switch status {
+	case "completed", "blocked", "failed":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -373,6 +489,10 @@ func runFinalizeCmd() *cobra.Command {
 				}
 				sessionID = sess.ID
 				token = os.Getenv(envSessionToken)
+			} else if sess, err := s.LatestRunSession(run.ID); err != nil {
+				return EmitErr(err.Error(), "")
+			} else if sess != nil && sess.Status == runSessionWaitingForAgent {
+				sessionID = sess.ID
 			}
 			if dryRun {
 				plan, err := prepareFinalization(root, s, run, sessionID, token, 0)
@@ -563,6 +683,15 @@ func runUnlockCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if rec.Status == "no_active_session" {
+				agentFirstRec, err := abortWaitingAgentFirstSession(s, run.ID, reason)
+				if err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				if agentFirstRec != nil {
+					rec = agentFirstRec
+				}
+			}
 			return EmitJSON(map[string]any{
 				"ok":         true,
 				"session_id": rec.SessionID,
@@ -573,6 +702,29 @@ func runUnlockCmd() *cobra.Command {
 	}
 	c.Flags().String("reason", "", "why the session is being aborted")
 	return c
+}
+
+func abortWaitingAgentFirstSession(s *db.Store, runID int64, reason string) (*recovery.RunRecoveryReport, error) {
+	latest, err := s.LatestRunSession(runID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil || latest.Status != runSessionWaitingForAgent {
+		return nil, nil
+	}
+	if err := s.UpdateRunSessionStatus(latest.ID, "ABORTED", reason); err != nil {
+		return nil, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: latest.ID, Event: "session_aborted", Detail: reason})
+	return &recovery.RunRecoveryReport{
+		Status:    "ABORTED",
+		SessionID: latest.ID,
+		Active:    false,
+		NextCommands: []string{
+			"codedungeon run status",
+			"codedungeon run --full --prompt <prompt>",
+		},
+	}, nil
 }
 
 func selectedRunMode(c *cobra.Command) string {

@@ -8,10 +8,9 @@ import (
 	"testing"
 )
 
-func TestRunStartProviderFailureEmitsCustodyStatus(t *testing.T) {
+func TestRunStartReturnsAgentFirstContractWithoutProviderChild(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "remote", "add", "origin", "https://github.com/example/repo.git")
 	writeFile(t, filepath.Join(root, "README.md"), "# Custody test\n")
 	writeProjectRulesDraft(t, root)
 	if _, err := approveProjectRules(root, "test"); err != nil {
@@ -36,33 +35,50 @@ func TestRunStartProviderFailureEmitsCustodyStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldExecutor := providerChildExecutor
+	calledProviderChild := false
 	providerChildExecutor = func(root, mode, prompt string, runID int64, sessionID, token string) error {
+		calledProviderChild = true
 		return fmt.Errorf("provider crashed before PR")
 	}
 	t.Cleanup(func() { providerChildExecutor = oldExecutor })
 
 	cmd := RunCmd()
 	cmd.SetArgs([]string{"--full", "--prompt", "Provider child failure custody"})
-	var execErr error
 	out := captureStdout(t, func() {
-		execErr = cmd.Execute()
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
 	})
-	if execErr == nil {
-		t.Fatal("expected run failure")
+	if calledProviderChild {
+		t.Fatal("agent-first run start should not invoke provider child executor")
 	}
 	var payload map[string]any
 	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
-		t.Fatalf("unmarshal failure output: %v\n%s", err, out)
+		t.Fatalf("unmarshal start output: %v\n%s", err, out)
 	}
-	if payload["custody_status"] != "NO_CODEDUNGEON_DELIVERY_CREATED" {
-		t.Fatalf("custody_status = %v, want NO_CODEDUNGEON_DELIVERY_CREATED\n%s", payload["custody_status"], out)
+	if payload["agent_first"] != true || payload["status"] != "ACTION_REQUIRED" {
+		t.Fatalf("unexpected agent-first payload: %+v\n%s", payload, out)
 	}
-	if !strings.Contains(fmt.Sprint(payload["error"]), "no finalized CodeDungeon delivery exists") {
-		t.Fatalf("error should state no finalized delivery exists:\n%s", out)
+	current, ok := payload["current_step"].(map[string]any)
+	if !ok || current["id"] != "planning" {
+		t.Fatalf("current_step = %#v, want planning\n%s", payload["current_step"], out)
 	}
-	commands, ok := payload["recovery_commands"].([]any)
-	if !ok || len(commands) == 0 || !strings.Contains(commands[0].(string), "codedungeon observe") {
-		t.Fatalf("recovery_commands = %#v, want runner recovery commands", payload["recovery_commands"])
+	next, ok := payload["next_action"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(next["command"]), "codedungeon plan run") {
+		t.Fatalf("next_action = %#v, want planning command\n%s", payload["next_action"], out)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess == nil || sess.Status != "WAITING_FOR_AGENT" {
+		t.Fatalf("session = %+v, want WAITING_FOR_AGENT", sess)
 	}
 }
 

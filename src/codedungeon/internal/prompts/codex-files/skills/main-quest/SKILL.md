@@ -5,7 +5,7 @@ description: Run the full codedungeon phase workflow for complex or multi-repo C
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -19,7 +19,7 @@ PROJECT_RULES_READ: yes|no
 
 Use for complex features, multi-repo changes, or work that needs the full phase lifecycle.
 
-This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+This workflow is agent-first. Start or resume durable state with:
 
 ```bash
 ./.codex/bin/codedungeon run --full --prompt "<prompt>"
@@ -27,14 +27,14 @@ This workflow may execute steps only inside an autonomous CodeDungeon child sess
 
 ## GitHub PR Prerequisites
 
-CodeDungeon code-writing workflows require GitHub and the GitHub CLI. Before initializing or editing, verify:
+CodeDungeon code-writing workflows require GitHub and the GitHub CLI before final delivery. Check early so blockers are visible:
 
 ```bash
 git remote get-url origin
 gh auth status
 ```
 
-If either command fails, stop before editing and report `Status BLOCKED`. There is no local-only completion path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
+If either command fails, record it as a finalization blocker and continue with safe planning or local execution when useful. There is no local-only READY_FOR_USER_REVIEW path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
 
 ## Evidence Gates
 

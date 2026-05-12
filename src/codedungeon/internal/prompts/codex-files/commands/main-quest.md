@@ -2,7 +2,7 @@
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -16,14 +16,14 @@ Use for complex features or multi-repo work.
 
 ## GitHub PR Prerequisites
 
-CodeDungeon code-writing workflows require GitHub and the GitHub CLI. Before initializing or editing, verify:
+CodeDungeon code-writing workflows require GitHub and the GitHub CLI before final delivery. Check early so blockers are visible:
 
 ```bash
 git remote get-url origin
 gh auth status
 ```
 
-If either command fails, stop before editing and report `Status BLOCKED`. There is no local-only completion path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
+If either command fails, record it as a finalization blocker and continue with safe planning or local execution when useful. There is no local-only READY_FOR_USER_REVIEW path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
 
 ## Evidence Gates
 
@@ -31,7 +31,7 @@ If either command fails, stop before editing and report `Status BLOCKED`. There 
 - Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
 - Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; for multi-repo workflows run QA sequentially per repo with `./.codex/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
-- This workflow may execute steps only when `CODEDUNGEON_SESSION_TOKEN` is set. Otherwise run `./.codex/bin/codedungeon run --full --prompt "<prompt>"`.
+- This workflow is agent-first. Start or resume durable state with `./.codex/bin/codedungeon run --full --prompt "<prompt>"`, execute the returned `next_action`, and record progress with `codedungeon run advance`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Do not merge PRs. The user performs final review and merge.
 

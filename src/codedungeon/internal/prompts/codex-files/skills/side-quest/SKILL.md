@@ -5,7 +5,7 @@ description: Run a compact codedungeon workflow for simple single-repo Codex CLI
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -19,7 +19,7 @@ PROJECT_RULES_READ: yes|no
 
 Use for small, well-scoped single-repo changes that should be split into a few explicit tasks before implementation.
 
-This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+This workflow is agent-first. Start or resume durable state with:
 
 ```bash
 ./.codex/bin/codedungeon run --lite --prompt "<prompt>"
