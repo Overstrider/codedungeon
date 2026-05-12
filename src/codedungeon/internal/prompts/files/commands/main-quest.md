@@ -21,7 +21,7 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review per repo/PR with `./.claude/bin/codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`; in multi-repo workflows run sequential per-repo QA with `./.claude/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; in multi-repo workflows run sequential per-repo QA with `./.claude/bin/codedungeon qa run --cwd <repo> --phase 6 --auto --fresh`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 This workflow is agent-first. Start or resume durable state with:

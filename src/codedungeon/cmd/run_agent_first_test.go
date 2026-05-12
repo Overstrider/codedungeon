@@ -337,6 +337,68 @@ func TestRunStartDryRunDoesNotLockFutureRuns(t *testing.T) {
 	}
 }
 
+func TestRulesModeCanAttachToRunWaitingForProjectRules(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "needs rules"})
+	var execErr error
+	startOut := captureStdout(t, func() {
+		execErr = start.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("start failed: %v\n%s", execErr, startOut)
+	}
+	startPayload := decodeAgentFirstPayload(t, startOut)
+	if startPayload.CurrentStep.ID != "project_rules" {
+		t.Fatalf("current step = %+v, want project_rules", startPayload.CurrentStep)
+	}
+
+	rulesRun := RunCmd()
+	rulesRun.SetArgs([]string{"--rules"})
+	var rulesErr error
+	rulesOut := captureStdout(t, func() {
+		rulesErr = rulesRun.Execute()
+	})
+	if rulesErr != nil {
+		t.Fatalf("rules mode should attach to waiting project_rules run: %v\n%s", rulesErr, rulesOut)
+	}
+	rulesPayload := decodeAgentFirstPayload(t, rulesOut)
+	if rulesPayload.RunID != startPayload.RunID || rulesPayload.CurrentStep.ID != "project_rules" {
+		t.Fatalf("rules payload = %+v, want attached run %d at project_rules", rulesPayload, startPayload.RunID)
+	}
+
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	resume := RunCmd()
+	resume.SetArgs([]string{"--full", "--prompt", "needs rules"})
+	var resumeErr error
+	resumeOut := captureStdout(t, func() {
+		resumeErr = resume.Execute()
+	})
+	if resumeErr != nil {
+		t.Fatalf("resume after rules failed: %v\n%s", resumeErr, resumeOut)
+	}
+	resumePayload := decodeAgentFirstPayload(t, resumeOut)
+	if resumePayload.RunID != startPayload.RunID || resumePayload.CurrentStep.ID != "planning" {
+		t.Fatalf("resume payload = %+v, want same run planning", resumePayload)
+	}
+}
+
 func TestRunStatusIncludesTimelineAndNextAction(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")

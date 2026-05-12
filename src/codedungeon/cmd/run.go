@@ -76,11 +76,22 @@ func runStartE(c *cobra.Command, _ []string) error {
 	if err := s.Init(); err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	if active, err := s.ActiveAnyRunSession(); err != nil {
+	active, err := s.ActiveAnyRunSession()
+	if err != nil {
 		return EmitErr(err.Error(), "")
-	} else if active != nil && (dryRun || !canResumeAgentFirstRun(s, active, prompt, mode)) {
-		return EmitErr("autonomous session already running",
-			fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+	}
+	if active != nil {
+		if dryRun {
+			return EmitErr("autonomous session already running",
+				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+		}
+		if canAttachRulesToActiveRun(s, active, rulesStatus, mode) {
+			return emitActiveAgentFirstContract(root, s, active, rulesStatus)
+		}
+		if !canResumeAgentFirstRun(s, active, prompt, mode) {
+			return EmitErr("autonomous session already running",
+				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+		}
 	}
 
 	branch := ""
@@ -263,6 +274,36 @@ func canResumeAgentFirstRun(s *db.Store, sess *db.RunSession, prompt, mode strin
 	}
 	return strings.TrimSpace(run.Feature) == strings.TrimSpace(prompt) &&
 		strings.EqualFold(strings.TrimSpace(run.Mode), strings.TrimSpace(mode))
+}
+
+func canAttachRulesToActiveRun(s *db.Store, sess *db.RunSession, rules projectRulesStatus, mode string) bool {
+	if sess == nil || !strings.EqualFold(sess.Status, runSessionWaitingForAgent) || !strings.EqualFold(mode, "rules") {
+		return false
+	}
+	run, err := s.GetRun(sess.RunID)
+	if err != nil || run == nil {
+		return false
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		return false
+	}
+	return agentFirstCurrentStep(run.Mode, rules, events).ID == "project_rules"
+}
+
+func emitActiveAgentFirstContract(root string, s *db.Store, sess *db.RunSession, rules projectRulesStatus) error {
+	run, err := s.GetRun(sess.RunID)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if run == nil {
+		return EmitErr("active run not found", "")
+	}
+	contract, err := buildAgentFirstContract(root, s, run, sess, rules, true, false, nil)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	return EmitJSON(contract)
 }
 
 func latestOrCreateAgentFirstSession(s *db.Store, run *db.Run) (*db.RunSession, error) {

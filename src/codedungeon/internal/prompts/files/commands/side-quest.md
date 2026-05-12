@@ -19,7 +19,7 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context <plan-or-task-context> --out .codedungeon/code-review --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 Lightweight pipeline. Reads a Claude Code plan (`.codedungeon/plans/*.md`), splits into tasks, runs the ralph loop (codedungeon-loop), runs adversarial code review, ends with approved PR. No architect, no QA, no tests, no report — just plan → split → execute → review → PR.
@@ -236,7 +236,7 @@ Record execution/review progress, run QA through the first-class module, and fin
 ```bash
 $CD run advance --step execution --status completed --summary "side-quest loop completed" --artifact .codedungeon/tasks/side-quest
 $CD run advance --step code_review --status completed --summary "side-quest review approved" --artifact .codedungeon/code-review
-$CD qa run --phase 6 --fresh
+$CD qa run --phase 6 --auto --fresh
 $CD run advance --step qa --status completed --summary "side-quest QA recorded" --artifact .codedungeon/qa
 $CD run finalize
 ```
