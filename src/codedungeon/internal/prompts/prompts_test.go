@@ -931,6 +931,28 @@ func TestCodexFullWorkflowDocumentsAgentFirstRunAndGitHubPrereqs(t *testing.T) {
 	}
 }
 
+func TestOneShotPromptsRecordReviewBeforeFinalQA(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"codex", "commands/one-shot.md"},
+		{"codex", "skills/one-shot/SKILL.md"},
+		{"claude", "commands/one-shot.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		reviewIdx := strings.Index(body, "run advance --step code_review")
+		qaIdx := strings.LastIndex(body, "run advance --step qa")
+		if reviewIdx < 0 || qaIdx < 0 || reviewIdx > qaIdx {
+			t.Fatalf("%s:%s must record code_review before final qa:\n%s", tc.provider, tc.rel, body)
+		}
+	}
+}
+
 func TestRuntimePromptArtifactsDoNotReferenceGlobalInstallSurfaces(t *testing.T) {
 	for _, providerName := range []string{"claude", "codex"} {
 		arts, err := ArtifactsFor(providerName)

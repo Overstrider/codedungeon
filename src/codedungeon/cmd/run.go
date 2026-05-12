@@ -1067,11 +1067,18 @@ func validateFinalizationPreQAGates(root string, s *db.Store, run *db.Run) error
 }
 
 func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return fmt.Errorf("workflow-qa-review-gate: %w", err)
+	}
 	records, err := s.VerificationRecords(run.ID, "6")
 	if err != nil {
 		return err
 	}
-	if err := validateVerificationRecords(records); err == nil {
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
 		return nil
 	}
 	result, err := qamod.Run(context.Background(), qamod.Request{
@@ -1088,6 +1095,21 @@ func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
 	}
 	if result.Status != qamod.StatusPass {
 		return fmt.Errorf("workflow-qa: %s (%s)", result.Status, result.SummaryPath)
+	}
+	return nil
+}
+
+func validateVerificationRecordsAfterReview(records []db.VerificationRecord, reviewEvidence *db.ReviewEvidence) error {
+	if err := validateVerificationRecords(records); err != nil {
+		return err
+	}
+	if reviewEvidence == nil || reviewEvidence.CreatedAt == 0 {
+		return fmt.Errorf("approved review evidence timestamp is required")
+	}
+	for _, record := range latestVerificationRecords(activeVerificationRecords(records)) {
+		if record.CreatedAt < reviewEvidence.CreatedAt {
+			return fmt.Errorf("verification ledger predates latest approved review evidence")
+		}
 	}
 	return nil
 }
@@ -1169,7 +1191,7 @@ func planFinalizablePhases(s *db.Store, run *db.Run) ([]finalizablePhase, []db.P
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateVerificationRecords(records); err != nil {
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
 		return nil, nil, err
 	}
 

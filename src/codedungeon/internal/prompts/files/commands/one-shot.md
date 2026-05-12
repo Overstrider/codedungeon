@@ -19,7 +19,7 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plans/one-shot/PLAN.md --out .codedungeon/code-review --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
+- After standalone review is approved, run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 Minimal CodeDungeon workflow for a small change that still needs the safety rail of branch, commit, PR, and adversarial review.
@@ -122,24 +122,7 @@ Record progress:
 $CD run advance --step execution --status completed --summary "one-shot implementation complete"
 ```
 
-## Step 4: Verify
-
-Run every verification command from the plan. If no command was obvious, run the nearest project check from the manifest:
-
-- Go: `go test ./...`
-- Rust: `cargo test`
-- Node: `npm test` or package script closest to test
-- Python: `python -m pytest`
-
-If verification cannot run, record the blocker in the final report and continue only if the change can still be reviewed.
-
-Record progress:
-
-```bash
-$CD run advance --step qa --status completed --summary "verification attempted" --artifact .codedungeon/qa
-```
-
-## Step 5: Commit, Push, PR
+## Step 4: Commit, Push, PR
 
 Run:
 
@@ -160,7 +143,7 @@ echo "$PR_URL"
 If the PR already exists, reuse it. If no PR exists, create one.
 If `PR_URL` or `PR_NUMBER` is empty after this step, stop and return a `BLOCKED` CodeDungeon PR Report.
 
-## Step 6: Review
+## Step 5: Review
 
 Run `/code-review` until the PR review verdict is `APPROVED` or 9 cycles are exhausted.
 
@@ -188,6 +171,23 @@ Record progress:
 
 ```bash
 $CD run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review
+```
+
+## Step 6: Final Verification
+
+After review is approved, run every verification command from the plan. If no command was obvious, run the nearest project check from the manifest:
+
+- Go: `go test ./...`
+- Rust: `cargo test`
+- Node: `npm test` or package script closest to test
+- Python: `python -m pytest`
+
+If verification cannot run, record the blocker in the final report and continue only if the change can still be reviewed.
+
+Record progress:
+
+```bash
+$CD run advance --step qa --status completed --summary "verification attempted" --artifact .codedungeon/qa
 ```
 
 ## Step 7: Report

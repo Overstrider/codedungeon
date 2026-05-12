@@ -651,6 +651,96 @@ func TestRunFinalizeDoesNotRunWorkflowQABeforeReviewEvidence(t *testing.T) {
 	}
 }
 
+func TestWorkflowQARerunsWhenVerificationPredatesReview(t *testing.T) {
+	root := setupGatedRun(t)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/workflowqarerun\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "smoke_test.go"), "package workflowqarerun\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldLog := filepath.Join(root, ".codedungeon", "logs", "old-go-test.log")
+	if err := os.MkdirAll(filepath.Dir(oldLog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldLog, []byte("old pass"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldRecordID, err := s.InsertVerificationRecord(db.VerificationRecord{
+		RunID:   run.ID,
+		Phase:   "6",
+		Command: "go test ./...",
+		Status:  "PASS",
+		LogPath: oldLog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "qa-after-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewResult := writeStandaloneReviewResultFixture(t, reviewDir)
+	if _, err := s.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            run.ID,
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewResult.ReviewJSONPath,
+		ManifestPath:     filepath.Join(reviewDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt-10, oldRecordID); err != nil {
+		t.Fatal(err)
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
+		t.Fatalf("stale verification record was accepted before workflow QA reran: %+v", records)
+	}
+
+	if err := ensureWorkflowQA(root, s, run); err != nil {
+		t.Fatalf("ensureWorkflowQA failed: %v", err)
+	}
+	qaSession, err := s.LatestQASession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qaSession == nil || qaSession.Status != "PASS" || qaSession.Entrypoint != "workflow" {
+		t.Fatalf("qa session = %+v, want workflow PASS", qaSession)
+	}
+	records, err = s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
+		t.Fatalf("fresh workflow QA was not accepted after review: %v\nrecords=%+v", err, records)
+	}
+	var oldRecord db.VerificationRecord
+	for _, record := range records {
+		if record.ID == oldRecordID {
+			oldRecord = record
+			break
+		}
+	}
+	if oldRecord.ID == 0 || oldRecord.SupersededAt == 0 {
+		t.Fatalf("old verification record was not superseded: %+v", records)
+	}
+}
+
 func TestRunFinalizeDryRunRejectsStaleProjectRules(t *testing.T) {
 	root := setupGatedRun(t)
 	writeFile(t, filepath.Join(root, "README.md"), "# changed after rules approval\n")
