@@ -312,7 +312,10 @@ func latestOrCreateAgentFirstSession(s *db.Store, run *db.Run) (*db.RunSession, 
 		return nil, err
 	}
 	if latest != nil {
-		return latest, nil
+		if strings.EqualFold(latest.Status, runSessionWaitingForAgent) {
+			return latest, nil
+		}
+		return nil, fmt.Errorf("cannot advance run while latest session %s is %s", latest.ID, latest.Status)
 	}
 	token, err := randomHex(32)
 	if err != nil {

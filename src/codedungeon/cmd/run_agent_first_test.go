@@ -544,6 +544,58 @@ func TestRunAdvanceRejectsEvidenceGatesForCompactModes(t *testing.T) {
 	}
 }
 
+func TestRunAdvanceRejectsRunningSession(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "running session advance"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateRunSessionStatus(sess.ID, "RUNNING", "provider owns mutation"); err != nil {
+		t.Fatal(err)
+	}
+
+	advance := RunCmd()
+	advance.SetArgs([]string{"advance", "--step", "planning", "--status", "completed"})
+	if err := advance.Execute(); err == nil || !strings.Contains(err.Error(), "cannot advance run while latest session") {
+		t.Fatalf("advance err = %v, want running session guard", err)
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRunEvent(events, "step_completed", "planning") {
+		t.Fatalf("planning completion event was recorded despite RUNNING session: %+v", events)
+	}
+}
+
 func insertAgentFirstReviewEvidence(t *testing.T, root string, s *db.Store, runID int64) {
 	t.Helper()
 	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "agent-first-review")
