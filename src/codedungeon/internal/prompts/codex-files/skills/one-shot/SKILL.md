@@ -39,17 +39,21 @@ This workflow is agent-first. Start or resume durable state with:
 - Telemetry is informational and must not replace QA, review, PR, or report evidence gates.
 
 Workflow:
-- Validate setup, git repo state, `origin`, and `gh auth status` before editing.
+- Validate setup and local git repo state before editing. Treat missing `origin` or `gh auth status` as finalization blockers surfaced by `codedungeon run status` / `codedungeon run finalize --dry-run`, not as local planning or implementation blockers.
 - Write a short plan to `.codedungeon/plans/one-shot/PLAN.md`.
+- Record planning with `./.codex/bin/codedungeon run advance --step planning --status completed --summary "one-shot plan written" --artifact .codedungeon/plans/one-shot/PLAN.md`.
 - Create or reuse a `feat/<slug>` branch, then run `./.codex/bin/codedungeon git guard --repo .` before editing.
 - Implement directly from the plan; do not create `.codedungeon/tasks/*`.
-- Run focused verification.
+- Record execution with `./.codex/bin/codedungeon run advance --step execution --status completed --summary "one-shot implementation complete"`.
+- Run focused verification through `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, then record QA with `./.codex/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa`.
 - Commit, push, and reuse the current branch PR when it exists; otherwise create one.
 - Run `$code-review` against the PR.
+- Record approved review with `./.codex/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - If review requests changes, fix directly and rerun review up to 9 cycles.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
-- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict. Do not merge; the user performs final review and merge.
+- Run `./.codex/bin/codedungeon run finalize`.
+- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` is valid only after `codedungeon run finalize` succeeds. Do not merge; the user performs final review and merge.
 
 Return:
 - CodeDungeon PR Report block:

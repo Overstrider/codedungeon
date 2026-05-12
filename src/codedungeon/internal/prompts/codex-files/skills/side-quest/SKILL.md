@@ -41,13 +41,18 @@ This workflow is agent-first. Start or resume durable state with:
 Steps:
 - Resolve or write a short plan under `.codedungeon/plans/`.
 - Create `.codedungeon/tasks/side-quest/PLAN.md` plus focused `TASK-NNN.md` files.
+- Record planning with `./.codex/bin/codedungeon run advance --step planning --status completed --summary "side-quest tasks decomposed" --artifact .codedungeon/tasks/side-quest/PLAN.md`.
 - Create or switch to `feat/<slug>` and verify with `./.codex/bin/codedungeon git guard --repo .`.
 - Execute tasks in order with focused verification.
+- Record execution with `./.codex/bin/codedungeon run advance --step execution --status completed --summary "side-quest tasks complete" --artifact .codedungeon/tasks/side-quest`.
 - Commit, push, and create or reuse a GitHub PR.
 - Run `$code-review`; fix requested changes and rerun review for up to 9 cycles.
+- Record approved review with `./.codex/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review`.
+- Run QA through `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, then record QA with `./.codex/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
-- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict. Do not merge; the user performs final review and merge.
+- Run `./.codex/bin/codedungeon run finalize`.
+- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` is valid only after `codedungeon run finalize` succeeds. Do not merge; the user performs final review and merge.
 
 Return format:
 
