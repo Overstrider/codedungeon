@@ -113,6 +113,62 @@ func TestRunAdvanceRecordsStepAndReturnsNextContract(t *testing.T) {
 	}
 }
 
+func TestRunAdvanceUpdatesFullPhaseLedger(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "phase ledger"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, step := range []string{"planning", "execution", "code_review", "qa"} {
+		advance := RunCmd()
+		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed", "--summary", step + " done"})
+		if err := advance.Execute(); err != nil {
+			t.Fatalf("advance %s failed: %v", step, err)
+		}
+	}
+
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phaseName := range []string{"0", "1", "2'", "3.5", "4", "5", "5.5", "5.6", "6"} {
+		phase, err := s.GetPhase(run.ID, phaseName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if phase == nil || phase.Status != "DONE" {
+			t.Fatalf("phase %s = %+v, want DONE", phaseName, phase)
+		}
+		handoff, err := s.GetHandoff(run.ID, phaseName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handoff == nil {
+			t.Fatalf("phase %s missing handoff", phaseName)
+		}
+	}
+}
+
 func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")

@@ -493,6 +493,9 @@ func runAdvanceCmd() *cobra.Command {
 				}
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "step_artifact", Detail: step + ": " + artifact})
 			}
+			if err := advanceAgentFirstPhaseLedger(s, run, step, status, summary, artifacts); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			if completesAgentFirstRun(run, step, status) {
 				if err := s.UpdateRunSessionStatus(sess.ID, runStatusCompleted, ""); err != nil {
 					return EmitErr(err.Error(), "")
@@ -528,6 +531,63 @@ func completesAgentFirstRun(run *db.Run, step, status string) bool {
 		strings.EqualFold(run.Mode, "RULES") &&
 		strings.EqualFold(step, "project_rules") &&
 		strings.EqualFold(status, "completed")
+}
+
+func advanceAgentFirstPhaseLedger(s *db.Store, run *db.Run, step, status, summary string, artifacts []string) error {
+	if run == nil || !strings.EqualFold(run.Mode, "FULL") || !strings.EqualFold(status, "completed") {
+		return nil
+	}
+	cleanArtifacts := compactNonEmptyStrings(artifacts)
+	stepSummary := strings.TrimSpace(summary)
+	if stepSummary == "" {
+		stepSummary = step + " completed by agent-first run"
+	}
+	type phaseUpdate struct {
+		phase   string
+		summary string
+		promise string
+	}
+	var updates []phaseUpdate
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "planning":
+		for _, phase := range []string{"0", "1", "2'", "3.5", "4"} {
+			updates = append(updates, phaseUpdate{
+				phase:   phase,
+				summary: "Agent-first planning completed: " + stepSummary,
+				promise: "PHASE_" + phasePromiseID(phase) + "_COMPLETE: agent-first planning contract recorded.",
+			})
+		}
+	case "execution":
+		updates = append(updates, phaseUpdate{phase: "5", summary: "Agent-first execution completed: " + stepSummary, promise: "PHASE_5_COMPLETE: implementation evidence recorded."})
+	case "code_review":
+		updates = append(updates,
+			phaseUpdate{phase: "5.5", summary: "Agent-first review completed: " + stepSummary, promise: "PHASE_55_COMPLETE: review evidence recorded."},
+			phaseUpdate{phase: "5.6", summary: "Agent-first review fix loop completed: " + stepSummary, promise: "PHASE_56_COMPLETE: no blocking review findings remain."},
+		)
+	case "qa":
+		updates = append(updates, phaseUpdate{phase: "6", summary: "Agent-first QA completed: " + stepSummary, promise: "PHASE_6_COMPLETE: verification evidence recorded."})
+	}
+	for _, update := range updates {
+		if err := autoDonePhase(s, run.ID, update.phase, update.summary, cleanArtifacts, update.promise); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func compactNonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func phasePromiseID(phase string) string {
+	return strings.NewReplacer("'", "", ".", "").Replace(phase)
 }
 
 func runFinalizeCmd() *cobra.Command {
@@ -1039,7 +1099,11 @@ func validateFinalizationProjectRules(root string) error {
 	if err != nil {
 		return fmt.Errorf("project-rules-gate: %w", err)
 	}
-	if !strings.EqualFold(st.Status, "approved") {
+	if !st.OK || !strings.EqualFold(st.Status, "approved") || len(st.Missing) > 0 || strings.TrimSpace(st.RulesDigest) == "" {
+		reason := fallback(st.StaleReason, strings.Join(st.Missing, ", "))
+		if reason != "" {
+			return fmt.Errorf("project-rules-gate: PROJECT_RULES_STATUS %s (%s)", fallback(st.Status, "missing"), reason)
+		}
 		return fmt.Errorf("project-rules-gate: PROJECT_RULES_STATUS %s", fallback(st.Status, "missing"))
 	}
 	return nil
