@@ -385,7 +385,7 @@ func qaRecordCmd() *cobra.Command {
 			}
 			if sess, err := s.ActiveRunSession(run.ID); err != nil {
 				return EmitErr(err.Error(), "")
-			} else if sess != nil {
+			} else if sess != nil && !strings.EqualFold(sess.Status, runSessionWaitingForAgent) {
 				return EmitErr("qa record disabled during autonomous session", "use `codedungeon qa run --phase 6 --cmd \"...\"`")
 			}
 			if strings.TrimSpace(phase) == "6" {
