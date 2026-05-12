@@ -388,6 +388,15 @@ func qaRecordCmd() *cobra.Command {
 			} else if sess != nil {
 				return EmitErr("qa record disabled during autonomous session", "use `codedungeon qa run --phase 6 --cmd \"...\"`")
 			}
+			if strings.TrimSpace(phase) == "6" {
+				reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+				if err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				if reviewEvidence != nil && strings.EqualFold(reviewEvidence.Verdict, "APPROVED") {
+					waitForPostReviewVerificationWindow(reviewEvidence.CreatedAt)
+				}
+			}
 			id, err := s.InsertVerificationRecord(db.VerificationRecord{
 				RunID:   run.ID,
 				Phase:   phase,
