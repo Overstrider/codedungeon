@@ -190,7 +190,14 @@ func TestRunAdvanceUpdatesFullPhaseLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, step := range []string{"planning", "execution", "code_review", "qa"} {
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, step := range []string{"planning", "execution"} {
 		advance := RunCmd()
 		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed", "--summary", step + " done"})
 		if err := advance.Execute(); err != nil {
@@ -198,12 +205,20 @@ func TestRunAdvanceUpdatesFullPhaseLedger(t *testing.T) {
 		}
 	}
 
-	s := openTestStore(t, root)
-	defer s.Close()
-	run, err := s.CurrentRun()
-	if err != nil {
-		t.Fatal(err)
+	insertAgentFirstReviewEvidence(t, root, s, run.ID)
+	codeReview := RunCmd()
+	codeReview.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed", "--summary", "code_review done"})
+	if err := codeReview.Execute(); err != nil {
+		t.Fatalf("advance code_review failed: %v", err)
 	}
+
+	insertAgentFirstPostReviewVerification(t, root, s, run.ID)
+	qa := RunCmd()
+	qa.SetArgs([]string{"advance", "--step", "qa", "--status", "completed", "--summary", "qa done"})
+	if err := qa.Execute(); err != nil {
+		t.Fatalf("advance qa failed: %v", err)
+	}
+
 	for _, phaseName := range []string{"0", "1", "2'", "3.5", "4", "5", "5.5", "5.6", "6"} {
 		phase, err := s.GetPhase(run.ID, phaseName)
 		if err != nil {
@@ -257,8 +272,15 @@ func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	var payload agentFirstTestPayload
-	for _, step := range []string{"planning", "execution", "code_review", "qa"} {
+	for _, step := range []string{"planning", "execution"} {
 		advance := RunCmd()
 		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed", "--summary", step + " complete"})
 		var execErr error
@@ -270,6 +292,30 @@ func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
 		}
 		payload = decodeAgentFirstPayload(t, out)
 	}
+	insertAgentFirstReviewEvidence(t, root, s, run.ID)
+	codeReview := RunCmd()
+	codeReview.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed", "--summary", "code_review complete"})
+	var reviewErr error
+	reviewOut := captureStdout(t, func() {
+		reviewErr = codeReview.Execute()
+	})
+	if reviewErr != nil {
+		t.Fatalf("advance code_review failed: %v\n%s", reviewErr, reviewOut)
+	}
+	payload = decodeAgentFirstPayload(t, reviewOut)
+
+	insertAgentFirstPostReviewVerification(t, root, s, run.ID)
+	qa := RunCmd()
+	qa.SetArgs([]string{"advance", "--step", "qa", "--status", "completed", "--summary", "qa complete"})
+	var qaErr error
+	qaOut := captureStdout(t, func() {
+		qaErr = qa.Execute()
+	})
+	if qaErr != nil {
+		t.Fatalf("advance qa failed: %v\n%s", qaErr, qaOut)
+	}
+	payload = decodeAgentFirstPayload(t, qaOut)
+
 	if payload.CurrentStep.ID != "finalization" {
 		t.Fatalf("current step = %+v, want finalization", payload.CurrentStep)
 	}
@@ -296,6 +342,176 @@ func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
 	if dryRun["ok"] != false || strings.TrimSpace(fmt.Sprint(dryRun["blocker"])) == "" {
 		t.Fatalf("dry-run = %+v, want blocker", dryRun)
 	}
+}
+
+func TestRunAdvanceRejectsCodeReviewWithoutEvidence(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "review evidence gate"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"planning", "execution"} {
+		advance := RunCmd()
+		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed"})
+		if err := advance.Execute(); err != nil {
+			t.Fatalf("advance %s failed: %v", step, err)
+		}
+	}
+
+	advance := RunCmd()
+	advance.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed"})
+	if err := advance.Execute(); err == nil || !strings.Contains(err.Error(), "approved review evidence is required") {
+		t.Fatalf("code_review err = %v, want approved review evidence gate", err)
+	}
+
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRunEvent(events, "step_completed", "code_review") {
+		t.Fatalf("code_review completion event was recorded despite missing evidence: %+v", events)
+	}
+	phase, err := s.GetPhase(run.ID, "5.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase != nil && phase.Status == "DONE" {
+		t.Fatalf("review phase was marked DONE despite missing evidence: %+v", phase)
+	}
+}
+
+func TestRunAdvanceRejectsQAWithoutPostReviewVerification(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "qa evidence gate"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"planning", "execution"} {
+		advance := RunCmd()
+		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed"})
+		if err := advance.Execute(); err != nil {
+			t.Fatalf("advance %s failed: %v", step, err)
+		}
+	}
+	insertAgentFirstReviewEvidence(t, root, s, run.ID)
+	codeReview := RunCmd()
+	codeReview.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed"})
+	if err := codeReview.Execute(); err != nil {
+		t.Fatalf("advance code_review failed: %v", err)
+	}
+
+	qa := RunCmd()
+	qa.SetArgs([]string{"advance", "--step", "qa", "--status", "completed"})
+	if err := qa.Execute(); err == nil || !strings.Contains(err.Error(), "verification ledger is required") {
+		t.Fatalf("qa err = %v, want verification gate", err)
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRunEvent(events, "step_completed", "qa") {
+		t.Fatalf("qa completion event was recorded despite missing verification: %+v", events)
+	}
+	phase, err := s.GetPhase(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase != nil && phase.Status == "DONE" {
+		t.Fatalf("qa phase was marked DONE despite missing verification: %+v", phase)
+	}
+}
+
+func insertAgentFirstReviewEvidence(t *testing.T, root string, s *db.Store, runID int64) {
+	t.Helper()
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "agent-first-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewResult := writeStandaloneReviewResultFixture(t, reviewDir)
+	if _, err := s.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            runID,
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewResult.ReviewJSONPath,
+		ManifestPath:     filepath.Join(reviewDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertAgentFirstPostReviewVerification(t *testing.T, root string, s *db.Store, runID int64) {
+	t.Helper()
+	logPath := filepath.Join(root, ".codedungeon", "logs", "go-test.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
+		RunID:   runID,
+		Phase:   "6",
+		Command: "go test ./...",
+		Status:  "PASS",
+		LogPath: logPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markVerificationRecordAfterLatestReview(t, s, runID, verificationID)
 }
 
 func TestWaitingAgentFirstSessionBlocksDifferentRunAndPhaseInit(t *testing.T) {

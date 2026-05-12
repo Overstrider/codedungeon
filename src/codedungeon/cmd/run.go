@@ -485,6 +485,9 @@ func runAdvanceCmd() *cobra.Command {
 			if strings.TrimSpace(summary) != "" {
 				detail += ": " + strings.TrimSpace(summary)
 			}
+			if err := advanceAgentFirstPhaseLedger(s, run, step, status, summary, artifacts); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			event := "step_" + status
 			if _, err := s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: event, Detail: detail}); err != nil {
 				return EmitErr(err.Error(), "")
@@ -495,9 +498,6 @@ func runAdvanceCmd() *cobra.Command {
 					continue
 				}
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "step_artifact", Detail: step + ": " + artifact})
-			}
-			if err := advanceAgentFirstPhaseLedger(s, run, step, status, summary, artifacts); err != nil {
-				return EmitErr(err.Error(), "")
 			}
 			if completesAgentFirstRun(run, step, status) {
 				if err := s.UpdateRunSessionStatus(sess.ID, runStatusCompleted, ""); err != nil {
@@ -537,7 +537,39 @@ func validateAgentFirstAdvance(root string, s *db.Store, run *db.Run, sess *db.R
 		}
 		return fmt.Errorf("cannot record step %s with status %s while blocker %s is active: %s", step, status, blocker.ID, blocker.Message)
 	}
+	if err := validateAgentFirstStepEvidence(s, run, step); err != nil {
+		return fmt.Errorf("cannot record step %s with status %s: %w", step, status, err)
+	}
 	return nil
+}
+
+func validateAgentFirstStepEvidence(s *db.Store, run *db.Run, step string) error {
+	if run == nil || !strings.EqualFold(run.Mode, "FULL") {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "code_review":
+		reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+		if err != nil {
+			return err
+		}
+		return validateReviewEvidence(reviewEvidence)
+	case "qa":
+		reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+		if err != nil {
+			return err
+		}
+		if err := validateReviewEvidence(reviewEvidence); err != nil {
+			return err
+		}
+		records, err := s.VerificationRecords(run.ID, "6")
+		if err != nil {
+			return err
+		}
+		return validateVerificationRecordsAfterReview(records, reviewEvidence)
+	default:
+		return nil
+	}
 }
 
 func validAgentFirstStepStatus(status string) bool {
