@@ -88,6 +88,13 @@ func TestFinalizeCreatesPendingProjectContextProposal(t *testing.T) {
 	runGit(t, root, "remote", "add", "origin", remote)
 	runGit(t, root, "push", "-u", "origin", "feat/export-command")
 	writeFile(t, filepath.Join(root, ".codedungeon", "project-context.md"), "# Project Context\n\n- Project is a demo.\n")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
 	store := openTestStore(t, root)
 	if err := store.Init(); err != nil {
 		t.Fatal(err)

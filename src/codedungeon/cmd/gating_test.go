@@ -601,6 +601,13 @@ func TestFinalizeRunInvokesWorkflowQAWhenVerificationMissing(t *testing.T) {
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/workflowqa\n\ngo 1.25.0\n")
 	writeFile(t, filepath.Join(root, "smoke_test.go"), "package workflowqa\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
 	writeFile(t, filepath.Join(root, ".codedungeon", "project-context.md"), "# Project Context\n\n- Demo project.\n")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, root, "add", ".")
 	runGit(t, root, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
 	runGit(t, root, "checkout", "-b", "feature/gating")
@@ -735,6 +742,13 @@ func setupGatedRun(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
 		t.Fatal(err)
 	}
 	cmd := PhaseCmd()

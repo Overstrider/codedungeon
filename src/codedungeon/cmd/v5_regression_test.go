@@ -591,11 +591,58 @@ func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	}
 }
 
+func TestRunFinalizeDryRunRejectsStaleProjectRules(t *testing.T) {
+	root := setupGatedRun(t)
+	writeFile(t, filepath.Join(root, "README.md"), "# changed after rules approval\n")
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "full",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	t.Setenv(envSessionID, "session-1")
+	t.Setenv(envSessionToken, "secret")
+
+	finalize := RunCmd()
+	finalize.SetArgs([]string{"finalize", "--dry-run"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = finalize.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("dry-run should return structured project-rules blocker, got %v\n%s", execErr, out)
+	}
+	var payload map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal dry-run: %v\n%s", err, out)
+	}
+	blocker, _ := payload["blocker"].(string)
+	if payload["ok"] != false || !strings.Contains(strings.ToLower(blocker), "project-rules-gate") {
+		t.Fatalf("payload = %+v, want project-rules blocker", payload)
+	}
+}
+
 func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	root := setupGatedRun(t)
 	writeFile(t, filepath.Join(root, "README.md"), "# gated\n")
 	runGit(t, root, "add", "README.md")
 	runGit(t, root, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, root, "checkout", "-b", "feature/gating")
 	remote := filepath.Join(t.TempDir(), "origin.git")
 	runGit(t, root, "init", "--bare", remote)
@@ -715,6 +762,19 @@ func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	}
 	if sess == nil || sess.Status != "READY_FOR_USER_REVIEW" {
 		t.Fatalf("session not marked ready: %+v", sess)
+	}
+	status := RunCmd()
+	status.SetArgs([]string{"status"})
+	var statusErr error
+	statusOut := captureStdout(t, func() {
+		statusErr = status.Execute()
+	})
+	if statusErr != nil {
+		t.Fatalf("run status failed after finalization: %v\n%s", statusErr, statusOut)
+	}
+	statusPayload := decodeAgentFirstPayload(t, statusOut)
+	if statusPayload.Status != runStatusReadyUserReview || statusPayload.CurrentStep.ID != "ready_for_user_review" {
+		t.Fatalf("status payload = %+v, want READY_FOR_USER_REVIEW terminal state", statusPayload)
 	}
 	agents, err := s.AgentRuns(run.ID)
 	if err != nil {

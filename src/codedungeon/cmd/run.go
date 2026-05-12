@@ -995,6 +995,9 @@ func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
 }
 
 func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token string, excludeAgentID int64) (*finalizationPlan, error) {
+	if err := validateFinalizationProjectRules(root); err != nil {
+		return nil, err
+	}
 	var planned []finalizablePhase
 	var virtualPhases []db.Phase
 	if err := withFinalReportEnv(root, run.ID, sessionID, token, func() error {
@@ -1029,6 +1032,17 @@ func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token
 		repos:      repos,
 		reportPath: filepath.Join(root, codedungeonDir, "reports", fmt.Sprintf("run-%d.md", run.ID)),
 	}, nil
+}
+
+func validateFinalizationProjectRules(root string) error {
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		return fmt.Errorf("project-rules-gate: %w", err)
+	}
+	if !strings.EqualFold(st.Status, "approved") {
+		return fmt.Errorf("project-rules-gate: PROJECT_RULES_STATUS %s", fallback(st.Status, "missing"))
+	}
+	return nil
 }
 
 func planFinalizablePhases(s *db.Store, run *db.Run) ([]finalizablePhase, []db.Phase, error) {

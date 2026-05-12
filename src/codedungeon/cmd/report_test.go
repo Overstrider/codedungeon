@@ -105,7 +105,7 @@ func TestFinalReportDoesNotUseUnknownPlaceholdersForPassedGates(t *testing.T) {
 		"Verification: go test ./...: PASS",
 		"Review        APPROVED",
 		"PROJECT_RULES_STATUS: approved",
-		"PROJECT_RULES_DIGEST: rules-digest",
+		"PROJECT_RULES_DIGEST:",
 	} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("final report missing %q:\n%s", want, report)

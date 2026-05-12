@@ -11,6 +11,7 @@ const (
 	runSessionWaitingForAgent = "WAITING_FOR_AGENT"
 	runStatusActionRequired   = "ACTION_REQUIRED"
 	runStatusReadyToFinalize  = "READY_TO_FINALIZE"
+	runStatusReadyUserReview  = "READY_FOR_USER_REVIEW"
 	runStatusCompleted        = "COMPLETED"
 )
 
@@ -89,7 +90,11 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 	blockers := agentFirstBlockers(root, run.Mode, rules)
 	step := agentFirstCurrentStep(run.Mode, rules, events)
 	status := runStatusActionRequired
-	if step.ID == "complete" {
+	if terminalStatus, terminalStep, ok := agentFirstTerminalState(sess); ok {
+		status = terminalStatus
+		step = terminalStep
+		blockers = nil
+	} else if step.ID == "complete" {
 		status = runStatusCompleted
 	} else if step.ID == "finalization" {
 		ready, blocker := agentFirstFinalizationReadiness(root, s, run, sess)
@@ -118,6 +123,23 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 		ProjectRules: rules,
 		Recovery:     recovery,
 	}, nil
+}
+
+func agentFirstTerminalState(sess *db.RunSession) (string, agentFirstStep, bool) {
+	if sess == nil {
+		return "", agentFirstStep{}, false
+	}
+	switch strings.ToUpper(strings.TrimSpace(sess.Status)) {
+	case runStatusReadyUserReview:
+		return runStatusReadyUserReview, agentFirstStep{ID: "ready_for_user_review", Name: "Ready For User Review", Module: "run", Description: "Finalization completed and the PR is ready for user review.", Phase: "7"}, true
+	case runStatusCompleted:
+		return runStatusCompleted, agentFirstStep{ID: "complete", Name: "Complete", Module: "run", Description: "Workflow completed."}, true
+	case "FAILED":
+		return "FAILED", agentFirstStep{ID: "failed", Name: "Failed", Module: "run", Description: "Workflow failed and needs recovery."}, true
+	case "ABORTED":
+		return "ABORTED", agentFirstStep{ID: "aborted", Name: "Aborted", Module: "run", Description: "Workflow was aborted."}, true
+	}
+	return "", agentFirstStep{}, false
 }
 
 func agentFirstFinalizationReadiness(root string, s *db.Store, run *db.Run, sess *db.RunSession) (bool, *agentFirstBlocker) {
@@ -200,6 +222,12 @@ func agentFirstNextAction(run *db.Run, step agentFirstStep) agentFirstAction {
 		return agentFirstAction{Type: "command", Command: "codedungeon run finalize", Description: "Enforce hard final gates and render the final report.", Expected: "READY_FOR_USER_REVIEW"}
 	case "complete":
 		return agentFirstAction{Type: "none", Command: "codedungeon run status", Description: "Workflow is complete; start the next workflow when ready.", Expected: runStatusCompleted}
+	case "ready_for_user_review":
+		return agentFirstAction{Type: "none", Command: "codedungeon run status", Description: "Final report is rendered and the PR is ready for user review.", Expected: runStatusReadyUserReview}
+	case "failed":
+		return agentFirstAction{Type: "command", Command: "codedungeon run finalize --dry-run", Description: "Inspect recovery blockers before retrying finalization.", Expected: "structured recovery blocker or ready plan"}
+	case "aborted":
+		return agentFirstAction{Type: "command", Command: "codedungeon run status", Description: "Inspect aborted workflow state before starting another run.", Expected: "terminal run status"}
 	default:
 		return agentFirstAction{Type: "inspect", Command: "codedungeon run status", Description: "Inspect workflow state.", Expected: "next action identified"}
 	}
@@ -282,6 +310,8 @@ func agentFirstEvidenceForStep(step agentFirstStep) []agentFirstEvidence {
 		return []agentFirstEvidence{{Kind: "report", Path: ".codedungeon/reports/"}}
 	case "complete":
 		return []agentFirstEvidence{{Kind: "project_rules", Path: ".codedungeon/project-rules.compact.md"}}
+	case "ready_for_user_review":
+		return []agentFirstEvidence{{Kind: "report", Path: ".codedungeon/reports/"}}
 	default:
 		return nil
 	}
