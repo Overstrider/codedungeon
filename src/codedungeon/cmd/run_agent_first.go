@@ -11,6 +11,7 @@ const (
 	runSessionWaitingForAgent = "WAITING_FOR_AGENT"
 	runStatusActionRequired   = "ACTION_REQUIRED"
 	runStatusReadyToFinalize  = "READY_TO_FINALIZE"
+	runStatusCompleted        = "COMPLETED"
 )
 
 type agentFirstRunContract struct {
@@ -88,7 +89,9 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 	blockers := agentFirstBlockers(root, run.Mode, rules)
 	step := agentFirstCurrentStep(run.Mode, rules, events)
 	status := runStatusActionRequired
-	if step.ID == "finalization" {
+	if step.ID == "complete" {
+		status = runStatusCompleted
+	} else if step.ID == "finalization" {
 		ready, blocker := agentFirstFinalizationReadiness(root, s, run, sess)
 		if blocker != nil {
 			blockers = append(blockers, *blocker)
@@ -137,19 +140,15 @@ func agentFirstFinalizationReadiness(root string, s *db.Store, run *db.Run, sess
 
 func agentFirstCurrentStep(mode string, rules projectRulesStatus, events []db.RunEvent) agentFirstStep {
 	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
+	completed := agentFirstCompletedSteps(events)
 	if normalizedMode == "rules" {
+		if completed["project_rules"] {
+			return agentFirstStep{ID: "complete", Name: "Complete", Module: "rules", Description: "Project Rules workflow completed."}
+		}
 		return agentFirstStepByID("project_rules")
 	}
 	if (normalizedMode == "full" || normalizedMode == "lite") && strings.ToLower(rules.Status) != "approved" {
 		return agentFirstStepByID("project_rules")
-	}
-	completed := map[string]bool{}
-	for _, event := range events {
-		if event.Event != "step_completed" {
-			continue
-		}
-		step := strings.TrimSpace(strings.SplitN(event.Detail, ":", 2)[0])
-		completed[step] = true
 	}
 	for _, step := range agentFirstStepOrder {
 		if step.ID == "project_rules" {
@@ -160,6 +159,18 @@ func agentFirstCurrentStep(mode string, rules projectRulesStatus, events []db.Ru
 		}
 	}
 	return agentFirstStepByID("finalization")
+}
+
+func agentFirstCompletedSteps(events []db.RunEvent) map[string]bool {
+	completed := map[string]bool{}
+	for _, event := range events {
+		if event.Event != "step_completed" {
+			continue
+		}
+		step := strings.TrimSpace(strings.SplitN(event.Detail, ":", 2)[0])
+		completed[step] = true
+	}
+	return completed
 }
 
 func agentFirstStepByID(id string) agentFirstStep {
@@ -187,6 +198,8 @@ func agentFirstNextAction(run *db.Run, step agentFirstStep) agentFirstAction {
 		return agentFirstAction{Type: "command", Command: "codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plan/PLAN.md --out .codedungeon/code-review --post", Description: "Run standalone CodeDungeon review and post review evidence.", Expected: "review verdict APPROVED"}
 	case "finalization":
 		return agentFirstAction{Type: "command", Command: "codedungeon run finalize", Description: "Enforce hard final gates and render the final report.", Expected: "READY_FOR_USER_REVIEW"}
+	case "complete":
+		return agentFirstAction{Type: "none", Command: "codedungeon run status", Description: "Workflow is complete; start the next workflow when ready.", Expected: runStatusCompleted}
 	default:
 		return agentFirstAction{Type: "inspect", Command: "codedungeon run status", Description: "Inspect workflow state.", Expected: "next action identified"}
 	}
@@ -267,6 +280,8 @@ func agentFirstEvidenceForStep(step agentFirstStep) []agentFirstEvidence {
 		return []agentFirstEvidence{{Kind: "review", Path: ".codedungeon/code-review/"}}
 	case "finalization":
 		return []agentFirstEvidence{{Kind: "report", Path: ".codedungeon/reports/"}}
+	case "complete":
+		return []agentFirstEvidence{{Kind: "project_rules", Path: ".codedungeon/project-rules.compact.md"}}
 	default:
 		return nil
 	}

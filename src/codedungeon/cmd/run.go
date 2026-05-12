@@ -78,7 +78,7 @@ func runStartE(c *cobra.Command, _ []string) error {
 	}
 	if active, err := s.ActiveAnyRunSession(); err != nil {
 		return EmitErr(err.Error(), "")
-	} else if active != nil && !canResumeAgentFirstRun(s, active, prompt, mode) {
+	} else if active != nil && (dryRun || !canResumeAgentFirstRun(s, active, prompt, mode)) {
 		return EmitErr("autonomous session already running",
 			fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
 	}
@@ -113,18 +113,24 @@ func runStartE(c *cobra.Command, _ []string) error {
 		if err != nil {
 			return EmitErr(err.Error(), "")
 		}
+		sessionStatus := runSessionWaitingForAgent
+		sessionEvent := "session_started"
+		if dryRun {
+			sessionStatus = "DRY_RUN"
+			sessionEvent = "session_dry_run"
+		}
 		sess = &db.RunSession{
 			ID:          sessionID,
 			RunID:       runID,
 			Provider:    provider.Detect().Name(),
 			Mode:        mode,
 			TokenSHA256: hashSessionToken(token),
-			Status:      runSessionWaitingForAgent,
+			Status:      sessionStatus,
 		}
 		if err := s.InsertRunSession(*sess); err != nil {
 			return EmitErr(err.Error(), "")
 		}
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_started", Detail: "agent-first:" + mode})
+		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: sessionEvent, Detail: "agent-first:" + mode})
 	}
 	contract, err := buildAgentFirstContract(root, s, runRow, sess, rulesStatus, resumed, dryRun, nil)
 	if err != nil {
@@ -446,6 +452,13 @@ func runAdvanceCmd() *cobra.Command {
 				}
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "step_artifact", Detail: step + ": " + artifact})
 			}
+			if completesAgentFirstRun(run, step, status) {
+				if err := s.UpdateRunSessionStatus(sess.ID, runStatusCompleted, ""); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				sess.Status = runStatusCompleted
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "session_completed", Detail: step})
+			}
 			contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, nil)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -467,6 +480,13 @@ func validAgentFirstStepStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func completesAgentFirstRun(run *db.Run, step, status string) bool {
+	return run != nil &&
+		strings.EqualFold(run.Mode, "RULES") &&
+		strings.EqualFold(step, "project_rules") &&
+		strings.EqualFold(status, "completed")
 }
 
 func runFinalizeCmd() *cobra.Command {

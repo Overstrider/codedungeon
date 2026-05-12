@@ -230,6 +230,113 @@ func TestWaitingAgentFirstSessionBlocksDifferentRunAndPhaseInit(t *testing.T) {
 	}
 }
 
+func TestRulesModeCompletionReleasesAgentFirstSession(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	rulesRun := RunCmd()
+	rulesRun.SetArgs([]string{"--rules"})
+	if err := rulesRun.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	advance := RunCmd()
+	advance.SetArgs([]string{"advance", "--step", "project_rules", "--status", "completed", "--summary", "rules compacted"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = advance.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("advance rules failed: %v\n%s", execErr, out)
+	}
+	payload := decodeAgentFirstPayload(t, out)
+	if payload.Status != runStatusCompleted || payload.CurrentStep.ID != "complete" {
+		t.Fatalf("payload = %+v, want completed rules run", payload)
+	}
+
+	s := openTestStore(t, root)
+	defer s.Close()
+	active, err := s.ActiveAnyRunSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active != nil {
+		t.Fatalf("active session = %+v, want rules completion released", active)
+	}
+
+	nextRun := RunCmd()
+	nextRun.SetArgs([]string{"--full", "--prompt", "after rules"})
+	if err := nextRun.Execute(); err != nil {
+		t.Fatalf("full run after rules completion should start: %v", err)
+	}
+}
+
+func TestRunStartDryRunDoesNotLockFutureRuns(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	dryRun := RunCmd()
+	dryRun.SetArgs([]string{"--full", "--prompt", "dry probe", "--dry-run"})
+	if err := dryRun.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	active, err := s.ActiveAnyRunSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active != nil {
+		t.Fatalf("active session = %+v, want dry-run not to lock future runs", active)
+	}
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest == nil || latest.Status != "DRY_RUN" {
+		t.Fatalf("dry-run latest session = %+v, want DRY_RUN", latest)
+	}
+
+	nextRun := RunCmd()
+	nextRun.SetArgs([]string{"--full", "--prompt", "real run after dry run"})
+	if err := nextRun.Execute(); err != nil {
+		t.Fatalf("full run after dry-run should start: %v", err)
+	}
+}
+
 func TestRunStatusIncludesTimelineAndNextAction(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
