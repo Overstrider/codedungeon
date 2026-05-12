@@ -99,7 +99,7 @@ Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe tas
 
 ## Success Gate
 
-CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI. Any workflow that writes code must fail before editing if `git remote get-url origin` or `gh auth status` fails. There is no local-only completion path. A code-writing workflow succeeds only when:
+CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI before completion. Agent-first runs may surface missing `git remote get-url origin` or `gh auth status` as structured finalization blockers while planning/execution continues, but there is no local-only READY_FOR_USER_REVIEW path. A code-writing workflow succeeds only when:
 
 1. Final build/check/test verification is produced by the QA module. Agents may run explicit checks with `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"` and subsequent `codedungeon qa run --phase 6 --cmd "<cmd>"`; `codedungeon run finalize` also invokes `codedungeon qa run --auto` behavior automatically when the active Phase 6 ledger is missing or failing.
 2. The branch is pushed.
