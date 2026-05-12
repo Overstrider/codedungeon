@@ -544,7 +544,7 @@ func validateAgentFirstAdvance(root string, s *db.Store, run *db.Run, sess *db.R
 }
 
 func validateAgentFirstStepEvidence(s *db.Store, run *db.Run, step string) error {
-	if run == nil || !strings.EqualFold(run.Mode, "FULL") {
+	if run == nil {
 		return nil
 	}
 	switch strings.ToLower(strings.TrimSpace(step)) {

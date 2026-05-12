@@ -469,6 +469,81 @@ func TestRunAdvanceRejectsQAWithoutPostReviewVerification(t *testing.T) {
 	}
 }
 
+func TestRunAdvanceRejectsEvidenceGatesForCompactModes(t *testing.T) {
+	for _, mode := range []string{"lite", "oneshot"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			runGit(t, root, "init")
+			writeProjectRulesDraft(t, root)
+			if _, err := approveProjectRules(root, "test"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := compactProjectRules(root); err != nil {
+				t.Fatal(err)
+			}
+			oldWD, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chdir(oldWD) })
+			if err := os.Chdir(root); err != nil {
+				t.Fatal(err)
+			}
+
+			start := RunCmd()
+			start.SetArgs([]string{"--" + mode, "--prompt", mode + " evidence gate"})
+			if err := start.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			s := openTestStore(t, root)
+			defer s.Close()
+			run, err := s.CurrentRun()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, step := range []string{"planning", "execution"} {
+				advance := RunCmd()
+				advance.SetArgs([]string{"advance", "--step", step, "--status", "completed"})
+				if err := advance.Execute(); err != nil {
+					t.Fatalf("advance %s failed: %v", step, err)
+				}
+			}
+
+			codeReview := RunCmd()
+			codeReview.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed"})
+			if err := codeReview.Execute(); err == nil || !strings.Contains(err.Error(), "approved review evidence is required") {
+				t.Fatalf("%s code_review err = %v, want approved review evidence gate", mode, err)
+			}
+			events, err := s.RunEvents(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasRunEvent(events, "step_completed", "code_review") {
+				t.Fatalf("%s code_review completion event was recorded despite missing evidence: %+v", mode, events)
+			}
+
+			insertAgentFirstReviewEvidence(t, root, s, run.ID)
+			codeReview = RunCmd()
+			codeReview.SetArgs([]string{"advance", "--step", "code_review", "--status", "completed"})
+			if err := codeReview.Execute(); err != nil {
+				t.Fatalf("%s advance code_review failed: %v", mode, err)
+			}
+			qa := RunCmd()
+			qa.SetArgs([]string{"advance", "--step", "qa", "--status", "completed"})
+			if err := qa.Execute(); err == nil || !strings.Contains(err.Error(), "verification ledger is required") {
+				t.Fatalf("%s qa err = %v, want verification gate", mode, err)
+			}
+			events, err = s.RunEvents(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasRunEvent(events, "step_completed", "qa") {
+				t.Fatalf("%s qa completion event was recorded despite missing verification: %+v", mode, events)
+			}
+		})
+	}
+}
+
 func insertAgentFirstReviewEvidence(t *testing.T, root string, s *db.Store, runID int64) {
 	t.Helper()
 	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "agent-first-review")
