@@ -189,10 +189,14 @@ func agentFirstCompletedSteps(events []db.RunEvent) map[string]bool {
 		if event.Event != "step_completed" {
 			continue
 		}
-		step := strings.TrimSpace(strings.SplitN(event.Detail, ":", 2)[0])
+		step := normalizeAgentFirstStepID(strings.SplitN(event.Detail, ":", 2)[0])
 		completed[step] = true
 	}
 	return completed
+}
+
+func normalizeAgentFirstStepID(step string) string {
+	return strings.ToLower(strings.TrimSpace(step))
 }
 
 func agentFirstStepByID(id string) agentFirstStep {

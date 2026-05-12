@@ -447,7 +447,7 @@ func runAdvanceCmd() *cobra.Command {
 			status, _ := c.Flags().GetString("status")
 			summary, _ := c.Flags().GetString("summary")
 			artifacts, _ := c.Flags().GetStringArray("artifact")
-			step = strings.TrimSpace(step)
+			step = normalizeAgentFirstStepID(step)
 			status = strings.ToLower(strings.TrimSpace(status))
 			if step == "" {
 				return EmitErr("--step is required", "")

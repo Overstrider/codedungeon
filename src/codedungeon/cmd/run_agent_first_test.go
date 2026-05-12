@@ -86,7 +86,7 @@ func TestRunAdvanceRecordsStepAndReturnsNextContract(t *testing.T) {
 	}
 
 	advance := RunCmd()
-	advance.SetArgs([]string{"advance", "--step", "planning", "--status", "completed", "--summary", "plan promoted", "--artifact", planPath})
+	advance.SetArgs([]string{"advance", "--step", "Planning", "--status", "completed", "--summary", "plan promoted", "--artifact", planPath})
 	var execErr error
 	out := captureStdout(t, func() {
 		execErr = advance.Execute()
