@@ -113,6 +113,59 @@ func TestRunAdvanceRecordsStepAndReturnsNextContract(t *testing.T) {
 	}
 }
 
+func TestRunAdvanceRejectsPlanningWhileProjectRulesBlock(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "blocked planning"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	advance := RunCmd()
+	advance.SetArgs([]string{"advance", "--step", "planning", "--status", "completed", "--summary", "plan should not count"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = advance.Execute()
+	})
+	if execErr == nil {
+		t.Fatalf("advance planning should fail while Project Rules are blocking:\n%s", out)
+	}
+	if !strings.Contains(execErr.Error(), "current step is project_rules") {
+		t.Fatalf("unexpected advance error: %v\n%s", execErr, out)
+	}
+
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRunEvent(events, "step_completed", "planning") {
+		t.Fatalf("planning completion event was recorded despite Project Rules blocker: %+v", events)
+	}
+	phase, err := s.GetPhase(run.ID, "4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase != nil && phase.Status == "DONE" {
+		t.Fatalf("planning phase was marked DONE despite rejected advance: %+v", phase)
+	}
+}
+
 func TestRunAdvanceUpdatesFullPhaseLedger(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")

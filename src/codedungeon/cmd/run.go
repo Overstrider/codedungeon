@@ -478,6 +478,9 @@ func runAdvanceCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if err := validateAgentFirstAdvance(root, s, run, sess, step, status); err != nil {
+				return EmitErr(err.Error(), "")
+			}
 			detail := step
 			if strings.TrimSpace(summary) != "" {
 				detail += ": " + strings.TrimSpace(summary)
@@ -515,6 +518,26 @@ func runAdvanceCmd() *cobra.Command {
 	c.Flags().String("summary", "", "short agent summary for the step")
 	c.Flags().StringArray("artifact", nil, "artifact path produced by the step; repeatable")
 	return c
+}
+
+func validateAgentFirstAdvance(root string, s *db.Store, run *db.Run, sess *db.RunSession, step, status string) error {
+	contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, nil)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(contract.CurrentStep.ID, step) {
+		return fmt.Errorf("cannot record step %s with status %s while current step is %s", step, status, contract.CurrentStep.ID)
+	}
+	if !strings.EqualFold(status, "completed") {
+		return nil
+	}
+	for _, blocker := range contract.Blockers {
+		if blocker.Gate == "finalization" && !strings.EqualFold(step, "finalization") {
+			continue
+		}
+		return fmt.Errorf("cannot record step %s with status %s while blocker %s is active: %s", step, status, blocker.ID, blocker.Message)
+	}
+	return nil
 }
 
 func validAgentFirstStepStatus(status string) bool {
