@@ -36,7 +36,7 @@ func InspectRunSession(store *db.Store, runID int64, now time.Time) (*RunRecover
 		EffectiveStatus: sess.Status,
 		SessionID:       sess.ID,
 		Session:         sess,
-		Active:          sess.Status == "RUNNING",
+		Active:          isOpenRunSessionStatus(sess.Status),
 	}
 	if from := recoveredFromSessionID(events, sess.ID); from != "" && sess.Status == "READY_FOR_USER_REVIEW" {
 		report.Recovered = true
@@ -68,6 +68,15 @@ func InspectRunSession(store *db.Store, runID int64, now time.Time) (*RunRecover
 		}
 	}
 	return report, nil
+}
+
+func isOpenRunSessionStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "RUNNING", "WAITING_FOR_AGENT":
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalFailureStatus(status string) bool {

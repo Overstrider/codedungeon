@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strings"
 
 	"github.com/loldinis/codedungeon/internal/db"
 )
@@ -25,6 +26,9 @@ func requireAutonomousCustody(s *db.Store, runID int64, action string) error {
 		return EmitErr("autonomous-session-check failed: "+err.Error(), "")
 	}
 	if sess == nil {
+		return nil
+	}
+	if strings.EqualFold(sess.Status, runSessionWaitingForAgent) {
 		return nil
 	}
 	if os.Getenv(envSessionID) != sess.ID || hashSessionToken(os.Getenv(envSessionToken)) != sess.TokenSHA256 {

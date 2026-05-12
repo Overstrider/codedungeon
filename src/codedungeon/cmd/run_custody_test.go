@@ -80,6 +80,20 @@ func TestRunStartReturnsAgentFirstContractWithoutProviderChild(t *testing.T) {
 	if sess == nil || sess.Status != "WAITING_FOR_AGENT" {
 		t.Fatalf("session = %+v, want WAITING_FOR_AGENT", sess)
 	}
+	active, err := s.ActiveRunSession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active == nil || active.ID != sess.ID || active.Status != "WAITING_FOR_AGENT" {
+		t.Fatalf("active session = %+v, want waiting session %s", active, sess.ID)
+	}
+	activeAny, err := s.ActiveAnyRunSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeAny == nil || activeAny.ID != sess.ID || activeAny.Status != "WAITING_FOR_AGENT" {
+		t.Fatalf("active any session = %+v, want waiting session %s", activeAny, sess.ID)
+	}
 }
 
 func writeProjectRulesDraft(t *testing.T, root string) {

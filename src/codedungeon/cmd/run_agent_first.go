@@ -88,8 +88,14 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 	blockers := agentFirstBlockers(root, run.Mode, rules)
 	step := agentFirstCurrentStep(run.Mode, rules, events)
 	status := runStatusActionRequired
-	if step.ID == "finalization" && len(blockersForGate(blockers, "finalization")) == 0 {
-		status = runStatusReadyToFinalize
+	if step.ID == "finalization" {
+		ready, blocker := agentFirstFinalizationReadiness(root, s, run, sess)
+		if blocker != nil {
+			blockers = append(blockers, *blocker)
+		}
+		if ready && len(blockersForGate(blockers, "finalization")) == 0 {
+			status = runStatusReadyToFinalize
+		}
 	}
 	return agentFirstRunContract{
 		OK:           true,
@@ -109,6 +115,24 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 		ProjectRules: rules,
 		Recovery:     recovery,
 	}, nil
+}
+
+func agentFirstFinalizationReadiness(root string, s *db.Store, run *db.Run, sess *db.RunSession) (bool, *agentFirstBlocker) {
+	sessionID := ""
+	if sess != nil {
+		sessionID = sess.ID
+	}
+	if _, err := prepareFinalization(root, s, run, sessionID, "", 0); err != nil {
+		return false, &agentFirstBlocker{
+			ID:          "finalization_preflight",
+			Gate:        "finalization",
+			Severity:    "hard",
+			Message:     "Finalization preflight is not satisfied: " + err.Error(),
+			Recoverable: true,
+			Command:     "codedungeon run finalize --dry-run",
+		}
+	}
+	return true, nil
 }
 
 func agentFirstCurrentStep(mode string, rules projectRulesStatus, events []db.RunEvent) agentFirstStep {

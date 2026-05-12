@@ -78,7 +78,7 @@ func runStartE(c *cobra.Command, _ []string) error {
 	}
 	if active, err := s.ActiveAnyRunSession(); err != nil {
 		return EmitErr(err.Error(), "")
-	} else if active != nil {
+	} else if active != nil && !canResumeAgentFirstRun(s, active, prompt, mode) {
 		return EmitErr("autonomous session already running",
 			fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
 	}
@@ -245,6 +245,18 @@ func reusableAgentFirstSession(s *db.Store, runID int64, resumed bool) (*db.RunS
 		return latest, nil
 	}
 	return nil, nil
+}
+
+func canResumeAgentFirstRun(s *db.Store, sess *db.RunSession, prompt, mode string) bool {
+	if sess == nil || !strings.EqualFold(sess.Status, runSessionWaitingForAgent) || strings.EqualFold(mode, "rules") {
+		return false
+	}
+	run, err := s.GetRun(sess.RunID)
+	if err != nil || run == nil {
+		return false
+	}
+	return strings.TrimSpace(run.Feature) == strings.TrimSpace(prompt) &&
+		strings.EqualFold(strings.TrimSpace(run.Mode), strings.TrimSpace(mode))
 }
 
 func latestOrCreateAgentFirstSession(s *db.Store, run *db.Run) (*db.RunSession, error) {

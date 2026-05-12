@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,123 @@ func TestRunAdvanceRecordsStepAndReturnsNextContract(t *testing.T) {
 	}
 	if !hasRunEvent(events, "step_completed", "planning") {
 		t.Fatalf("planning completion event missing: %+v", events)
+	}
+}
+
+func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "remote", "add", "origin", "https://github.com/example/repo.git")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	fakeBin := filepath.Join(root, "bin")
+	writeFile(t, filepath.Join(fakeBin, "gh"), "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(fakeBin, "gh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "ship final gates"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload agentFirstTestPayload
+	for _, step := range []string{"planning", "execution", "qa", "code_review"} {
+		advance := RunCmd()
+		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed", "--summary", step + " complete"})
+		var execErr error
+		out := captureStdout(t, func() {
+			execErr = advance.Execute()
+		})
+		if execErr != nil {
+			t.Fatalf("advance %s failed: %v\n%s", step, execErr, out)
+		}
+		payload = decodeAgentFirstPayload(t, out)
+	}
+	if payload.CurrentStep.ID != "finalization" {
+		t.Fatalf("current step = %+v, want finalization", payload.CurrentStep)
+	}
+	if payload.Status == runStatusReadyToFinalize {
+		t.Fatalf("status = %s before final gates are satisfied; payload=%+v", payload.Status, payload)
+	}
+	if !hasBlocker(payload.Blockers, "finalization_preflight", "finalization") {
+		t.Fatalf("finalization preflight blocker missing: %+v", payload.Blockers)
+	}
+
+	finalize := RunCmd()
+	finalize.SetArgs([]string{"finalize", "--dry-run"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = finalize.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("finalize dry-run should return structured blocker, got %v\n%s", execErr, out)
+	}
+	var dryRun map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &dryRun); err != nil {
+		t.Fatalf("unmarshal dry-run: %v\n%s", err, out)
+	}
+	if dryRun["ok"] != false || strings.TrimSpace(fmt.Sprint(dryRun["blocker"])) == "" {
+		t.Fatalf("dry-run = %+v, want blocker", dryRun)
+	}
+}
+
+func TestWaitingAgentFirstSessionBlocksDifferentRunAndPhaseInit(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	start := RunCmd()
+	start.SetArgs([]string{"--full", "--prompt", "owned run"})
+	if err := start.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	samePrompt := RunCmd()
+	samePrompt.SetArgs([]string{"--full", "--prompt", "owned run"})
+	if err := samePrompt.Execute(); err != nil {
+		t.Fatalf("same waiting agent-first run should resume: %v", err)
+	}
+
+	differentPrompt := RunCmd()
+	differentPrompt.SetArgs([]string{"--full", "--prompt", "different run"})
+	if err := differentPrompt.Execute(); err == nil || !strings.Contains(err.Error(), "autonomous session already running") {
+		t.Fatalf("different prompt err = %v, want autonomous session guard", err)
+	}
+
+	phase := PhaseCmd()
+	phase.SetArgs([]string{"init", "--feature", "different phase", "--branch", "feat/different", "--project-mode", "SINGLE"})
+	if err := phase.Execute(); err == nil || !strings.Contains(err.Error(), "autonomous session already owns run state") {
+		t.Fatalf("phase init err = %v, want autonomous session guard", err)
 	}
 }
 
