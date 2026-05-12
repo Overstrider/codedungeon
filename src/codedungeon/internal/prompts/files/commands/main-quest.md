@@ -50,7 +50,8 @@ Propagate verbatim into every sub-agent spawn. Applies to all narration/logs/sta
 
 ### Valid stop reasons (only)
 - Design decision needed — STOP, log.
-- External dep unavailable (`gh` CLI missing, git not init) — STOP.
+- Local git repo unavailable — STOP.
+- Missing GitHub `origin` or `gh` auth — continue as a finalization blocker surfaced by `codedungeon run status` / `codedungeon run finalize --dry-run`.
 - Protected branch violation mid-run — STOP.
 
 **Not valid stop reasons**: `MAX_CYCLES_REACHED` (escalate), "good enough", soft errors, test/build failures (fix tasks, re-enter).
@@ -101,10 +102,10 @@ if [ ! -x .claude/bin/codedungeon ] || [ ! -f .codedungeon/codedungeon.db ]; the
 fi
 CD=./.claude/bin/codedungeon
 
-git remote get-url origin >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a GitHub origin remote"; exit 2; }
-gh auth status >/dev/null || { echo "Status BLOCKED: CodeDungeon requires authenticated gh"; exit 2; }
+git rev-parse --is-inside-work-tree >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a local git repo"; exit 2; }
+$CD run --full --prompt "$FEATURE_PROMPT"
 
-# A run and custody session already exist. Do not run phase init or create another run.
+# A run and custody session now exist or resumed. Do not run phase init or create another run.
 NEXT=$($CD phase next | jq -r .next_phase)
 ```
 

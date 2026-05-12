@@ -58,11 +58,10 @@ Run:
 CD=./.claude/bin/codedungeon
 [ -x "$CD" ] || { echo "Status BLOCKED: run project-local codedungeon setup before /one-shot"; exit 2; }
 git rev-parse --is-inside-work-tree >/dev/null
-git remote get-url origin >/dev/null
-gh auth status
+$CD run --oneshot --prompt "$ARGUMENTS"
 ```
 
-If git repo, `origin`, or `gh` auth validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
+If git repo validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Treat missing `origin` or `gh` auth as finalization blockers reported by `codedungeon run status` / `codedungeon run finalize --dry-run`; do not stop local planning or implementation solely for GitHub readiness. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
 
 ## Step 1: Plan
 
@@ -92,6 +91,12 @@ The plan must contain:
 
 If the request clearly needs multi-step decomposition, cross-repo coordination, or a full QA/report pipeline, stop and recommend `/main-quest` instead.
 
+Record progress:
+
+```bash
+$CD run advance --step planning --status completed --summary "one-shot plan written" --artifact .codedungeon/plans/one-shot/PLAN.md
+```
+
 ## Step 2: Branch
 
 Create or switch to a feature branch:
@@ -111,6 +116,12 @@ Implement directly from the plan. Keep edits scoped. Add or run the smallest mea
 
 Do not create `.codedungeon/tasks/*` for this workflow.
 
+Record progress:
+
+```bash
+$CD run advance --step execution --status completed --summary "one-shot implementation complete"
+```
+
 ## Step 4: Verify
 
 Run every verification command from the plan. If no command was obvious, run the nearest project check from the manifest:
@@ -121,6 +132,12 @@ Run every verification command from the plan. If no command was obvious, run the
 - Python: `python -m pytest`
 
 If verification cannot run, record the blocker in the final report and continue only if the change can still be reviewed.
+
+Record progress:
+
+```bash
+$CD run advance --step qa --status completed --summary "verification attempted" --artifact .codedungeon/qa
+```
 
 ## Step 5: Commit, Push, PR
 
@@ -167,9 +184,15 @@ ADV_REVIEW_COUNT=$(gh pr view "$PR_NUMBER" --comments --json comments -q '[.comm
 
 If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `/code-review`. After 9 cycles, stop with `MAX_CYCLES_REACHED`.
 
+Record progress:
+
+```bash
+$CD run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review
+```
+
 ## Step 7: Report
 
-Always return this exact format. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, and the final verdict is `APPROVED`. Do not merge; the user performs final review and merge.
+Always return this exact format. `Status READY_FOR_USER_REVIEW` is valid only after `$CD run finalize` succeeds; GitHub readiness, review approval, branch push, QA, Project Rules, and final report gates are enforced there. Do not merge; the user performs final review and merge.
 
 ```text
 +------------------------------------------------+

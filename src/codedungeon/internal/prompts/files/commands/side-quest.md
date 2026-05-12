@@ -46,8 +46,8 @@ Exits 1 if protected → HARD STOP.
 
 - Claude Code plan file exists (from plan mode)
 - `codedungeon` bootstrapped in project (`.claude/bin/codedungeon` + `.codedungeon/codedungeon.db`)
-- `gh` CLI authenticated
-- Git remote `origin` configured
+- `gh` CLI authenticated before finalization
+- Git remote `origin` configured before finalization
 - Project is a git repo
 
 ---
@@ -115,15 +115,14 @@ Fallback if `codedungeon repo discover` fails — check manifest files:
 
 If `REPO_NAME` empty → use basename of `REPO_DIR`.
 
-Before task decomposition or implementation, verify PR readiness:
+Start or resume the durable agent-first run and verify only the local git repo before task decomposition:
 
 ```bash
 git rev-parse --is-inside-work-tree >/dev/null
-git remote get-url origin >/dev/null
-gh auth status
+$CD run --lite --prompt "$FEATURE_NAME"
 ```
 
-If any command fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report.
+If local git repo validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Missing `origin` or `gh` auth is a finalization blocker reported by `codedungeon run status` / `codedungeon run finalize --dry-run`; do not stop local planning, task decomposition, or implementation solely for GitHub readiness.
 
 ### Step 2: Decompose plan into tasks
 
@@ -193,6 +192,7 @@ estimated_complexity: <low|medium|high>
 
 ```bash
 $CD plan meta .codedungeon/tasks/side-quest/PLAN.md
+$CD run advance --step planning --status completed --summary "side-quest tasks decomposed" --artifact .codedungeon/tasks/side-quest/PLAN.md
 ```
 
 Must return valid JSON with `"ok": true`, correct `total_tasks`, `pending` = total, `done` = 0.
@@ -231,7 +231,17 @@ Wait for the agent to complete. Parse its output for the required fields.
 
 ### Step 4: Report
 
-Emit the standard final summary. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, and the final verdict is `APPROVED`. Do not merge; the user performs final review and merge:
+Record execution/review progress, run QA through the first-class module, and finalize through the run gate:
+
+```bash
+$CD run advance --step execution --status completed --summary "side-quest loop completed" --artifact .codedungeon/tasks/side-quest
+$CD run advance --step code_review --status completed --summary "side-quest review approved" --artifact .codedungeon/code-review
+$CD qa run --phase 6 --fresh
+$CD run advance --step qa --status completed --summary "side-quest QA recorded" --artifact .codedungeon/qa
+$CD run finalize
+```
+
+Emit the standard final summary. `Status READY_FOR_USER_REVIEW` is valid only after `$CD run finalize` succeeds; GitHub readiness, review approval, branch push, QA, Project Rules, and final report gates are enforced there. Do not merge; the user performs final review and merge:
 
 ```
 +------------------------------------------------+

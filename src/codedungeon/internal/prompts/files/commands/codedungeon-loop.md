@@ -171,11 +171,11 @@ Preflight before implementation:
 ```bash
 cd "$REPO_DIR"
 git rev-parse --is-inside-work-tree >/dev/null
-git remote get-url origin >/dev/null
-gh auth status
+git remote get-url origin >/dev/null || echo "origin missing; continue as finalization blocker"
+gh auth status || echo "gh auth missing; continue as finalization blocker"
 ```
 
-Any failure here is a hard stop before edits.
+Local git repo failure is a hard stop before edits. Missing `origin` or `gh` auth is a finalization blocker, not a local implementation blocker; continue through branchable local work and let PR/finalization steps return the structured blocker if GitHub readiness is still absent.
 
 ### Main Loop Step 1: Branch setup
 
