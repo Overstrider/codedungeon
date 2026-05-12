@@ -1081,6 +1081,7 @@ func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
 	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
 		return nil
 	}
+	waitForPostReviewVerificationWindow(reviewEvidence.CreatedAt)
 	result, err := qamod.Run(context.Background(), qamod.Request{
 		Root:       root,
 		RunID:      run.ID,
@@ -1099,6 +1100,12 @@ func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
 	return nil
 }
 
+func waitForPostReviewVerificationWindow(reviewCreatedAt int64) {
+	for reviewCreatedAt > 0 && time.Now().Unix() <= reviewCreatedAt {
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 func validateVerificationRecordsAfterReview(records []db.VerificationRecord, reviewEvidence *db.ReviewEvidence) error {
 	if err := validateVerificationRecords(records); err != nil {
 		return err
@@ -1107,8 +1114,8 @@ func validateVerificationRecordsAfterReview(records []db.VerificationRecord, rev
 		return fmt.Errorf("approved review evidence timestamp is required")
 	}
 	for _, record := range latestVerificationRecords(activeVerificationRecords(records)) {
-		if record.CreatedAt < reviewEvidence.CreatedAt {
-			return fmt.Errorf("verification ledger predates latest approved review evidence")
+		if record.CreatedAt <= reviewEvidence.CreatedAt {
+			return fmt.Errorf("verification ledger does not postdate latest approved review evidence")
 		}
 	}
 	return nil

@@ -231,12 +231,30 @@ func prepareRunFinalizationEvidence(t *testing.T, root string, s *db.Store, runI
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		return err
 	}
-	_, err = s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   runID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	markVerificationRecordAfterLatestReview(t, s, runID, verificationID)
+	return nil
+}
+
+func markVerificationRecordAfterLatestReview(t *testing.T, s *db.Store, runID, recordID int64) {
+	t.Helper()
+	reviewEvidence, err := s.LatestReviewEvidence(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewEvidence == nil {
+		t.Fatal("latest review evidence missing")
+	}
+	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt+1, recordID); err != nil {
+		t.Fatal(err)
+	}
 }

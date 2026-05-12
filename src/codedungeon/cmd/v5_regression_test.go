@@ -535,15 +535,17 @@ func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   run.ID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	markVerificationRecordAfterLatestReview(t, s, run.ID, verificationID)
 	if err := s.InsertRunSession(db.RunSession{
 		ID:          "session-1",
 		RunID:       run.ID,
@@ -701,7 +703,7 @@ func TestWorkflowQARerunsWhenVerificationPredatesReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt-10, oldRecordID); err != nil {
+	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt, oldRecordID); err != nil {
 		t.Fatal(err)
 	}
 	records, err := s.VerificationRecords(run.ID, "6")
@@ -709,7 +711,7 @@ func TestWorkflowQARerunsWhenVerificationPredatesReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
-		t.Fatalf("stale verification record was accepted before workflow QA reran: %+v", records)
+		t.Fatalf("same-second stale verification record was accepted before workflow QA reran: %+v", records)
 	}
 
 	if err := ensureWorkflowQA(root, s, run); err != nil {
@@ -850,15 +852,17 @@ func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   run.ID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	markVerificationRecordAfterLatestReview(t, s, run.ID, verificationID)
 	if err := s.InsertRunSession(db.RunSession{
 		ID:          "session-1",
 		RunID:       run.ID,
