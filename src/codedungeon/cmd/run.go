@@ -587,7 +587,18 @@ func compactNonEmptyStrings(values []string) []string {
 }
 
 func phasePromiseID(phase string) string {
-	return strings.NewReplacer("'", "", ".", "").Replace(phase)
+	switch phase {
+	case "2'":
+		return "2PRIME"
+	case "3.5":
+		return "35"
+	case "5.5":
+		return "55"
+	case "5.6":
+		return "56"
+	default:
+		return strings.NewReplacer("'", "", ".", "").Replace(phase)
+	}
 }
 
 func runFinalizeCmd() *cobra.Command {

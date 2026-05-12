@@ -166,6 +166,9 @@ func TestRunAdvanceUpdatesFullPhaseLedger(t *testing.T) {
 		if handoff == nil {
 			t.Fatalf("phase %s missing handoff", phaseName)
 		}
+		if phaseName == "2'" && !strings.Contains(handoff.Promise, "PHASE_2PRIME_COMPLETE") {
+			t.Fatalf("phase 2' promise = %q, want PHASE_2PRIME_COMPLETE", handoff.Promise)
+		}
 	}
 }
 
@@ -202,7 +205,7 @@ func TestRunAdvanceDoesNotReportReadyToFinalizeBeforeFinalGates(t *testing.T) {
 	}
 
 	var payload agentFirstTestPayload
-	for _, step := range []string{"planning", "execution", "qa", "code_review"} {
+	for _, step := range []string{"planning", "execution", "code_review", "qa"} {
 		advance := RunCmd()
 		advance.SetArgs([]string{"advance", "--step", step, "--status", "completed", "--summary", step + " complete"})
 		var execErr error

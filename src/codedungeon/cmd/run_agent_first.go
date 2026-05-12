@@ -71,8 +71,8 @@ var agentFirstStepOrder = []agentFirstStep{
 	{ID: "project_rules", Name: "Project Rules", Module: "rules", Description: "Approve or refresh the compact project rules before broad planning."},
 	{ID: "planning", Name: "Planning", Module: "planning", Description: "Create and promote a task graph or plan contract.", Phase: "4"},
 	{ID: "execution", Name: "Execution", Module: "execution", Description: "Execute promoted task contracts with bounded write scope.", Phase: "5"},
-	{ID: "qa", Name: "QA Verification", Module: "qa", Description: "Run deterministic verification and capture evidence.", Phase: "6"},
 	{ID: "code_review", Name: "Code Review", Module: "code_review", Description: "Run standalone review and post PR review evidence.", Phase: "5.5"},
+	{ID: "qa", Name: "QA Verification", Module: "qa", Description: "Run deterministic verification after review fixes and capture evidence.", Phase: "6"},
 	{ID: "finalization", Name: "Finalization", Module: "run", Description: "Enforce hard gates and render READY_FOR_USER_REVIEW.", Phase: "7"},
 }
 
