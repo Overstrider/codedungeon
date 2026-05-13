@@ -25,8 +25,9 @@ Why agents use it:
   QA sessions, review evidence, and registered artifacts.
 - PR-centered workflow gates that stop agents from claiming work is complete
   until branch, PR, verification, review, and report evidence are present.
-- Provider-native command surfaces with a shared workflow kernel: `$codedungeon`
-  for Codex and `/codedungeon` for Claude Code.
+- Provider-native workflow surfaces with a shared kernel: `$codedungeon` for
+  Codex and the Claude `codedungeon` skill, with `/codedungeon` kept as a
+  compatibility wrapper.
 
 Agents can inspect the kernel contract directly:
 
@@ -43,9 +44,10 @@ finalization.
 ## Mental Model
 
 - Provider packs install native surfaces for Codex CLI and Claude Code.
-- Agent-facing commands are the normal entry points: `$codedungeon`,
-  `/codedungeon`, `$task-maker`, `/task-maker`, `$code-review`, and
-  `/code-review`.
+- Agent-facing skills are the normal entry points. Codex uses `$codedungeon`,
+  `$task-maker`, and `$code-review`; Claude uses `codedungeon`, `task-maker`,
+  and `code-review` skills, with `/codedungeon`, `/task-maker`, and
+  `/code-review` wrappers preserved for compatibility.
 - `codedungeon run` is the agent-first state kernel behind the router. It
   selects or receives a workflow mode, creates or resumes durable run state, and
   returns a JSON step contract with the current step, blockers, evidence,
@@ -180,7 +182,8 @@ directly. Setup does not persist user-global Codex feature flags.
 Claude setup installs:
 
 - `.claude/agents/*`
-- `.claude/skills/*`
+- `.claude/skills/*`, including `codedungeon`, `task-maker`, `code-review`,
+  `one-shot`, `side-quest`, and `main-quest`
 - `.claude/commands/*` thin slash-command wrappers
 - `.claude/bin/codedungeon`
 - `.codedungeon/commands/*` editable playbooks
@@ -372,10 +375,6 @@ codedungeon-codex code-review \
   --out .codedungeon/code-review \
   --post
 
-codedungeon-codex review context-paths
-codedungeon-codex review run --dir .codedungeon/reviews/adv-review
-codedungeon-codex review post --dir .codedungeon/reviews/adv-review
-
 codedungeon-codex git guard --repo .
 codedungeon-codex git pr --repo . --branch <branch> --with-context
 codedungeon-codex git verify --repo . --branch <branch>
@@ -553,7 +552,8 @@ Current packs:
 
 - Codex pack `codedungeon-codex`: `.codex/agents`, `.codex/config.toml`,
   `.agents/skills`, `.codedungeon/commands`, and `.codedungeon/phases`.
-- Claude pack `codedungeon-claude`: `.claude/agents`, `.claude/skills`,
+- Claude pack `codedungeon-claude`: `.claude/agents`, `.claude/skills`
+  workflow surfaces,
   `.claude/commands` wrappers, `.codedungeon/commands`, and `.codedungeon/phases`.
   Provider instruction files are never overwritten; setup returns insertion
   guidance for the installer agent.

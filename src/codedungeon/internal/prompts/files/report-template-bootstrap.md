@@ -57,7 +57,7 @@ Pipeline phases:
   Phase 3: {{.Lang}}-specialist → enriched with idiomatic patterns
   Phase 3.5: basilisk-planner-qa → QA test strategy
   Phase 4: spider-architect-task → MASTER.md + {{.DevTasks}} dev tasks + {{.TestTasks}} test tasks
-  Phase 5: codedungeon-loop → project scaffolded + PR created
+  Phase 5: codedungeon-loop → project scaffolded + PR created + codedungeon code-review
   Phase 6: codedungeon-test-loop → tests executed
   Phase 7: Final report (this)
 

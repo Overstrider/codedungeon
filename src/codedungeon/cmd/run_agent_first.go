@@ -116,7 +116,7 @@ func buildAgentFirstContract(root string, s *db.Store, run *db.Run, sess *db.Run
 		Resumed:      resumed,
 		DryRun:       dryRun,
 		CurrentStep:  step,
-		NextAction:   agentFirstNextAction(run, step),
+		NextAction:   agentFirstNextAction(run, step, sess.Provider),
 		Blockers:     blockers,
 		Evidence:     agentFirstEvidenceForStep(step),
 		Timeline:     events,
@@ -208,32 +208,33 @@ func agentFirstStepByID(id string) agentFirstStep {
 	return agentFirstStep{ID: id, Name: id, Module: id, Description: "Run the next CodeDungeon workflow step."}
 }
 
-func agentFirstNextAction(run *db.Run, step agentFirstStep) agentFirstAction {
+func agentFirstNextAction(run *db.Run, step agentFirstStep, providerName string) agentFirstAction {
 	mode := strings.ToLower(run.Mode)
 	prompt := shellQuote(run.Feature)
+	command := codedungeonCommandForProvider(providerName)
 	switch step.ID {
 	case "project_rules":
-		return agentFirstAction{Type: "agent", Command: "codedungeon rules status", Description: "Refresh Project Rules with the provider-native `$codedungeon --rules` or `/codedungeon --rules` flow, then approve and compact them.", Expected: "PROJECT_RULES_STATUS approved"}
+		return agentFirstAction{Type: "agent", Command: command + " rules status", Description: "Refresh Project Rules with the provider-native `$codedungeon --rules` or `/codedungeon --rules` flow, then approve and compact them.", Expected: "PROJECT_RULES_STATUS approved"}
 	case "planning":
-		return agentFirstAction{Type: "command", Command: fmt.Sprintf("codedungeon plan run --prompt %s --mode %s --project-context .codedungeon/project-rules.compact.md --promote", prompt, fallback(mode, "full")), Description: "Create or refresh the task graph, then promote executable task contracts.", Expected: "planning session completed and promoted"}
+		return agentFirstAction{Type: "command", Command: fmt.Sprintf("%s plan run --prompt %s --mode %s --project-context .codedungeon/project-rules.compact.md --promote", command, prompt, fallback(mode, "full")), Description: "Create or refresh the task graph, then promote executable task contracts.", Expected: "planning session completed and promoted"}
 	case "execution":
-		return agentFirstAction{Type: "command", Command: "codedungeon execute run --tasks .codedungeon/tasks --project-context .codedungeon/project-rules.compact.md", Description: "Execute promoted tasks. The current agent owns edits; the CLI records task/session evidence.", Expected: "execution task results recorded"}
+		return agentFirstAction{Type: "command", Command: command + " execute run --tasks .codedungeon/tasks --project-context .codedungeon/project-rules.compact.md", Description: "Execute promoted tasks. The current agent owns edits; the CLI records task/session evidence.", Expected: "execution task results recorded"}
 	case "qa":
-		return agentFirstAction{Type: "command", Command: "codedungeon qa run --phase 6 --auto --fresh", Description: "Run deterministic verification and capture QA evidence.", Expected: "QA status PASS or structured blocker"}
+		return agentFirstAction{Type: "command", Command: command + " qa run --phase 6 --auto --fresh", Description: "Run deterministic verification and capture QA evidence.", Expected: "QA status PASS or structured blocker"}
 	case "code_review":
-		return agentFirstAction{Type: "command", Command: "codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plan/PLAN.md --out .codedungeon/code-review --post", Description: "Run standalone CodeDungeon review and post review evidence.", Expected: "review verdict APPROVED"}
+		return agentFirstAction{Type: "command", Command: command + " code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plan/PLAN.md --out .codedungeon/code-review --post", Description: "Run standalone CodeDungeon review and post review evidence.", Expected: "review verdict APPROVED"}
 	case "finalization":
-		return agentFirstAction{Type: "command", Command: "codedungeon run finalize", Description: "Enforce hard final gates and render the final report.", Expected: "READY_FOR_USER_REVIEW"}
+		return agentFirstAction{Type: "command", Command: command + " run finalize", Description: "Enforce hard final gates and render the final report.", Expected: "READY_FOR_USER_REVIEW"}
 	case "complete":
-		return agentFirstAction{Type: "none", Command: "codedungeon run status", Description: "Workflow is complete; start the next workflow when ready.", Expected: runStatusCompleted}
+		return agentFirstAction{Type: "none", Command: command + " run status", Description: "Workflow is complete; start the next workflow when ready.", Expected: runStatusCompleted}
 	case "ready_for_user_review":
-		return agentFirstAction{Type: "none", Command: "codedungeon run status", Description: "Final report is rendered and the PR is ready for user review.", Expected: runStatusReadyUserReview}
+		return agentFirstAction{Type: "none", Command: command + " run status", Description: "Final report is rendered and the PR is ready for user review.", Expected: runStatusReadyUserReview}
 	case "failed":
-		return agentFirstAction{Type: "command", Command: "codedungeon run finalize --dry-run", Description: "Inspect recovery blockers before retrying finalization.", Expected: "structured recovery blocker or ready plan"}
+		return agentFirstAction{Type: "command", Command: command + " run finalize --dry-run", Description: "Inspect recovery blockers before retrying finalization.", Expected: "structured recovery blocker or ready plan"}
 	case "aborted":
-		return agentFirstAction{Type: "command", Command: "codedungeon run status", Description: "Inspect aborted workflow state before starting another run.", Expected: "terminal run status"}
+		return agentFirstAction{Type: "command", Command: command + " run status", Description: "Inspect aborted workflow state before starting another run.", Expected: "terminal run status"}
 	default:
-		return agentFirstAction{Type: "inspect", Command: "codedungeon run status", Description: "Inspect workflow state.", Expected: "next action identified"}
+		return agentFirstAction{Type: "inspect", Command: command + " run status", Description: "Inspect workflow state.", Expected: "next action identified"}
 	}
 }
 

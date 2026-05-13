@@ -1,6 +1,6 @@
 # REVIEW.md — Per-Repo Adversarial Review Tuning
 
-This file is read by `/code-review` at the start of every run. It overrides the defaults baked into the orchestrator and persona critics. Copy this template to your repo's root and uncomment / edit the sections you need.
+This file is read by `codedungeon code-review` at the start of every run. It overrides the defaults baked into the orchestrator and persona critics. Copy this template to your repo's root and uncomment / edit the sections you need.
 
 `@` imports do NOT resolve inside this file — everything is pasted verbatim into persona prompts.
 

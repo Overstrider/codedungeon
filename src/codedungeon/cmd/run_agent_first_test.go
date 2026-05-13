@@ -942,6 +942,39 @@ func TestRunUnlockAbortsWaitingAgentFirstSession(t *testing.T) {
 	}
 }
 
+func TestAgentFirstNextActionCommandsAreProviderLocal(t *testing.T) {
+	run := &db.Run{Feature: "ship provider local commands", Mode: "FULL"}
+	for _, tc := range []struct {
+		provider string
+		want     string
+	}{
+		{"claude", "./.claude/bin/codedungeon"},
+		{"claude-code", "./.claude/bin/codedungeon"},
+		{"codex", "./.codex/bin/codedungeon"},
+		{"codex-cli", "./.codex/bin/codedungeon"},
+	} {
+		for _, step := range []agentFirstStep{
+			agentFirstStepByID("project_rules"),
+			agentFirstStepByID("planning"),
+			agentFirstStepByID("execution"),
+			agentFirstStepByID("code_review"),
+			agentFirstStepByID("qa"),
+			agentFirstStepByID("finalization"),
+			{ID: "failed"},
+			{ID: "ready_for_user_review"},
+			{ID: "complete"},
+		} {
+			action := agentFirstNextAction(run, step, tc.provider)
+			if strings.TrimSpace(action.Command) == "" {
+				t.Fatalf("%s/%s returned empty command", tc.provider, step.ID)
+			}
+			if !strings.HasPrefix(action.Command, tc.want) {
+				t.Fatalf("%s/%s command = %q, want provider-local prefix %q", tc.provider, step.ID, action.Command, tc.want)
+			}
+		}
+	}
+}
+
 type agentFirstTestPayload struct {
 	OK          bool                    `json:"ok"`
 	AgentFirst  bool                    `json:"agent_first"`

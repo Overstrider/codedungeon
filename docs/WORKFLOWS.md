@@ -1,6 +1,6 @@
 # CodeDungeon Workflows
 
-CodeDungeon installs agent-facing workflows for both providers. Claude Code invokes them as slash commands. Codex invokes them as skills. The promoted surface is a single router:
+CodeDungeon installs agent-facing workflows for both providers. Claude Code uses workflow skills as the primary surface, with slash-command wrappers kept for compatibility. Codex invokes workflows as skills. The promoted router remains:
 
 - Claude Code: `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
 - Codex: `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
@@ -27,7 +27,7 @@ that can emit `READY_FOR_USER_REVIEW`.
 | `--auto` | `/codedungeon --auto` | `$codedungeon --auto` | Router-selected | Explicit automatic selection. |
 | `--rules` | `/codedungeon --rules` | `$codedungeon --rules` | Project Rules Discovery | Deep-read the repo, draft `.codedungeon/project-rules.md`, wait for user confirmation, then approve and compact rules. |
 | Task Maker | `/task-maker` | `$task-maker` | Task Maker | Clarify a rough request, persist a minimal design, and prepare a reviewed English run-full prompt before a full run. |
-| Review | `/code-review` | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
+| Review | `code-review` skill or `/code-review` wrapper | `$code-review` | Code Review | Standalone adversarial review for the current branch or PR. |
 | Execute | n/a | n/a | Implementation Executor | Standalone `codedungeon execute task --task task.json` runner for one task contract at a time. |
 
 Compatibility aliases remain installed and supported: `/one-shot`, `/side-quest`, `/main-quest` for Claude Code, and `$one-shot`, `$side-quest`, `$main-quest` for Codex.
@@ -42,7 +42,7 @@ Router validation:
 
 ## Task Maker
 
-Task Maker is available in both provider packs. Invoke `$task-maker` in Codex or `/task-maker` in Claude Code when the user has a rough request and wants help shaping it before `$codedungeon --full` or `/codedungeon --full`.
+Task Maker is available in both provider packs. Invoke `$task-maker` in Codex or the Claude `task-maker` skill (`/task-maker` remains as a wrapper) when the user has a rough request and wants help shaping it before `$codedungeon --full` or `/codedungeon --full`.
 
 The command or skill stays in the user's language during clarification, asks one material question per turn, and records assumptions for minor ambiguity. After the user confirms, it writes a request JSON and runs the renderer with the provider surface:
 
@@ -95,7 +95,7 @@ codedungeon hooks install --provider codex --mode warn
 codedungeon hooks install --provider claude --mode warn
 ```
 
-Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe task/subagent events such as `TaskCreated`, `TaskCompleted`, and `SubagentStop`. `warn` mode reports problems; `enforce` mode blocks completion claims that omit Project Rules status/digest or verification.
+Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe task/subagent events such as `TaskCreated`, `TaskCompleted`, and `SubagentStop`. `warn` mode reports problems; `enforce` mode blocks completion claims that omit Project Rules status/digest or verification. Claude blocking hooks use exit code `2` for `Stop`, `SubagentStop`, and policy gates.
 
 ## Success Gate
 
@@ -110,7 +110,7 @@ CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI 
 
 If any step fails, the workflow must return `BLOCKED` or `MAX_CYCLES_REACHED`, never `READY_FOR_USER_REVIEW`.
 
-Lower-level `codedungeon review run` and `codedungeon review post` remain available for legacy adversarial pipeline evidence, but they are not the normal final approval surface for current workflows.
+Lower-level legacy review pipeline commands are diagnostic compatibility tools only. They are not final approval evidence for current workflows.
 
 Agents must not write review reports or final reports manually. Phase gates consume the DB evidence written by `codedungeon code-review --post`, `codedungeon qa run`, `codedungeon git verify`, and `codedungeon run finalize`. QA evidence is session-scoped under `.codedungeon/qa/sessions/<qa-session-id>/` with request/result JSON, preflight data, logs, checks, findings, and summaries. `codedungeon report render` remains a lower-level renderer, not the normal workflow completion command.
 

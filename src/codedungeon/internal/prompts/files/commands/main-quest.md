@@ -209,7 +209,7 @@ ORCHESTRATOR (thin — reads only `codedungeon phase info/next`)
   ├─ Phase 2' skills (parallel) → {repo}plan.md                    [reasoning, think 8k]
   ├─ Phase 3.5 agents → qaplan                                     [fast]
   ├─ Phase 4 spider-architect-task → MASTER.md + task files               [reasoning, think 32k]
-  ├─ Phase 5 → codedungeon-loop per repo → code + PR + /code-review   [fast, escalate on stuck]
+  ├─ Phase 5 → codedungeon-loop per repo → code + PR + codedungeon code-review   [fast, escalate on stuck]
   ├─ Phase 5.5 → qa refine                                         [fast]
   ├─ Phase 5.6 → test spider-architect-task                               [reasoning, think 32k]
   ├─ Phase 6 → codedungeon-test-loop per repo                         [fast]

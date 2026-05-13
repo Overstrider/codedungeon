@@ -1,4 +1,4 @@
-## Claude Adversarial Code Review
+## CodeDungeon Code Review
 
 **Verdict**: {{.Verdict}}
 **Personas**: {{.PersonasStr}}

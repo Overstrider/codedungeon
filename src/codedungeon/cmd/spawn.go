@@ -175,7 +175,7 @@ func defaultEffortForProviderTier(providerName, tier string) string {
 }
 
 func codedungeonCommandForProvider(providerName string) string {
-	switch providerName {
+	switch strings.ToLower(strings.TrimSpace(providerName)) {
 	case "codex", "codex-cli":
 		return "./.codex/bin/codedungeon"
 	case "claude", "claude-code", "claude-ce":

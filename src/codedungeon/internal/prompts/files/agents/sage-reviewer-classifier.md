@@ -1,8 +1,9 @@
 ---
 name: sage-reviewer-classifier
-description: "Per-finding design-decision classifier. Invoked by /code-review after the Validator. For each validated finding, decides whether it represents a deliberate design decision (documented in CLAUDE.md / REVIEW.md / ADRs / spec) or an actionable issue that must be fixed. Output is JSON only — no fixes, no re-analysis of the bug."
+description: "Per-finding design-decision classifier. Invoked by codedungeon code-review after the Validator. For each validated finding, decides whether it represents a deliberate design decision (documented in CLAUDE.md / REVIEW.md / ADRs / spec) or an actionable issue that must be fixed. Output is JSON only — no fixes, no re-analysis of the bug."
 tools: Read, Glob, Grep, Bash
 model: sonnet
+permissionMode: plan
 color: purple
 ---
 

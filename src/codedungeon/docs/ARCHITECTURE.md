@@ -30,7 +30,7 @@ Embedded prompt packs live in `internal/prompts/`:
 The shared phase lifecycle stays provider-agnostic. Provider-native mechanics live in the pack content:
 
 - Codex installs `.codex/agents/*.toml`, `.codex/config.toml` with `multi_agent_v2`, `.agents/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Runtime Codex launches that need custom agents pass `--enable multi_agent_v2` directly; setup never persists user-global feature flags. The project config leaves `agents.max_threads` and `agents.max_depth` unset so current Codex builds can use their defaults while the feature flag is active. Setup emits `agent_config_instruction` guidance for `AGENTS.md` instead of editing it.
-- Claude installs `.claude/agents/*`, `.claude/commands/*` wrappers, `.claude/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Setup emits `agent_config_instruction` guidance for `CLAUDE.md` instead of editing it.
+- Claude installs `.claude/agents/*`, `.claude/skills/*` workflow surfaces, `.claude/commands/*` wrappers, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Setup emits `agent_config_instruction` guidance for `CLAUDE.md` instead of editing it.
 
 Commands, command wrappers, agents, skills, and phase prompts are tracked as installed artifacts with provider, pack id, pack version, install path, kind, logical name, sha256, and user-modified state.
 

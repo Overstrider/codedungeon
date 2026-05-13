@@ -1062,7 +1062,7 @@ func childWorkflowPath(providerName, workflow string) string {
 	case "codex", "codex-cli":
 		return ".agents/skills/" + workflow + "/SKILL.md"
 	default:
-		return ".codedungeon/commands/" + workflow + ".md"
+		return ".claude/skills/" + workflow + "/SKILL.md"
 	}
 }
 

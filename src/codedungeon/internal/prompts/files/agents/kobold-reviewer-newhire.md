@@ -1,8 +1,9 @@
 ---
 name: kobold-reviewer-newhire
-description: "Adversarial code review persona. Invoked by /code-review as one of four parallel critic subagents. Persona: 'First day, zero context, I am reading this.' Catches architectural/readability/contract violations that detail-focused critics miss. Output is JSON only."
+description: "Adversarial code review persona. Invoked by codedungeon code-review as one of four parallel critic subagents. Persona: 'First day, zero context, I am reading this.' Catches architectural/readability/contract violations that detail-focused critics miss. Output is JSON only."
 tools: Read, Glob, Grep, Bash
 model: opus
+permissionMode: plan
 color: yellow
 ---
 

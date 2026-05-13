@@ -1,8 +1,9 @@
 ---
 name: oracle-reviewer-validator
-description: "Per-finding validator. Invoked by /code-review once per candidate finding from the persona fanout. Re-reads the cited file lines and confirms the bug is actually present exactly as claimed. Output is JSON only — does not propose fixes or read other files."
+description: "Per-finding validator. Invoked by codedungeon code-review once per candidate finding from the persona fanout. Re-reads the cited file lines and confirms the bug is actually present exactly as claimed. Output is JSON only — does not propose fixes or read other files."
 tools: Read, Glob, Grep
 model: sonnet
+permissionMode: plan
 color: cyan
 ---
 

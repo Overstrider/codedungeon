@@ -38,7 +38,7 @@ End with:
 - implementation committed
 - branch pushed
 - GitHub PR created or reused
-- `/code-review` posted to the PR
+- `codedungeon code-review` posted to the PR
 - review verdict `APPROVED`
 - final response in the standard CodeDungeon PR Report format
 
@@ -145,7 +145,7 @@ If `PR_URL` or `PR_NUMBER` is empty after this step, stop and return a `BLOCKED`
 
 ## Step 5: Review
 
-Run `/code-review` until the PR review verdict is `APPROVED` or 9 cycles are exhausted.
+Run `codedungeon code-review` until the PR review verdict is `APPROVED` or 9 cycles are exhausted.
 
 Cycles:
 - 1-3: full adversarial mode.
@@ -153,19 +153,19 @@ Cycles:
 
 For each cycle:
 
-```text
+```bash
 REVIEW_CYCLE=<1-9>
 REVIEW_MODE=<full|reduced>
-/code-review .
+$CD code-review --url "$PR_URL" --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plans/one-shot/PLAN.md --out .codedungeon/code-review --post
 ```
 
 After each review, verify that a review comment was posted to the PR:
 
 ```bash
-ADV_REVIEW_COUNT=$(gh pr view "$PR_NUMBER" --comments --json comments -q '[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length')
+ADV_REVIEW_COUNT=$(gh pr view "$PR_NUMBER" --comments --json comments -q '[.comments[] | select(.body | test("CodeDungeon Code Review"))] | length')
 ```
 
-If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `/code-review`. After 9 cycles, stop with `MAX_CYCLES_REACHED`.
+If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `codedungeon code-review`. After 9 cycles, stop with `MAX_CYCLES_REACHED`.
 
 Record progress:
 
@@ -211,7 +211,7 @@ Summary
 
 Review
 - Adversarial comments: <n>
-- Last review marker: Claude Adversarial Code Review|none
+- Last review marker: CodeDungeon Code Review|none
 - Remaining findings: <none or short list/count>
 
 Work Done

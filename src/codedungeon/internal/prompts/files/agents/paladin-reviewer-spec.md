@@ -1,8 +1,9 @@
 ---
 name: paladin-reviewer-spec
-description: "Adversarial code review persona. Invoked by /code-review as one of four parallel critic subagents. Persona: 'Every spec clause must be implemented or explicitly declined.' Reads task files and issue/PR bodies; flags unimplemented requirements and scope creep. Output is JSON only."
+description: "Adversarial code review persona. Invoked by codedungeon code-review as one of four parallel critic subagents. Persona: 'Every spec clause must be implemented or explicitly declined.' Reads task files and issue/PR bodies; flags unimplemented requirements and scope creep. Output is JSON only."
 tools: Read, Glob, Grep, Bash
 model: opus
+permissionMode: plan
 color: blue
 ---
 

@@ -22,7 +22,10 @@ Propagate the block into any sub-agent prompt you spawn.
 codedungeon run finalize > /tmp/throne-room-report.txt
 ```
 
-Emit the contents to the user. The emitted final report must include, per repo:
+Emit the contents to the user. `codedungeon run finalize` verifies prior
+`codedungeon code-review --post` evidence, QA evidence, PR state, Project
+Rules, and report artifacts before it can emit READY_FOR_USER_REVIEW. The
+emitted final report must include, per repo:
 
 ```text
 +------------------------------------------------+
@@ -41,7 +44,7 @@ Summary
 
 Review
 - Adversarial comments: <n>
-- Last review marker: Claude Adversarial Code Review|none
+- Last review marker: CodeDungeon Code Review|none
 - Remaining findings: <none or short list/count>
 
 Work Done

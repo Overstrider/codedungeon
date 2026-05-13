@@ -73,13 +73,13 @@ For each repo in execution order:
    - Fix issues if needed (loop continues until APPROVED — no cycle cap stops the loop)
 
    ## REVIEW PROTOCOL — code-review per repo/PR (adversarial, Opus 4.7 fanout)
-   For Main Loop Step 5 (PR review), you MUST read and follow the full /code-review
+   For Main Loop Step 5 (PR review), you MUST read and follow the full codedungeon code-review
    protocol from: {project_root}/.codedungeon/commands/code-review.md
 
    The review command is per repo/PR and must use the repo task plan as task context:
    `codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`.
 
-   /code-review runs a multi-persona adversarial fanout (Saboteur + New Hire + Security Auditor
+   codedungeon code-review runs a multi-persona adversarial fanout (Saboteur + New Hire + Security Auditor
    + Spec Enforcer on Opus 4.7) followed by per-finding Sonnet Validators and a stack-specific
    {LANG}-specialist pass. It always produces a verdict (APPROVED or CHANGES_REQUESTED) — there
    is NO "skip" case.
@@ -89,18 +89,18 @@ For each repo in execution order:
    previous cycle.
 
    CRITICAL: This is the ONLY review path. Codex, OpenRouter, Qwen, and any external reviewers
-   have been removed from the pipeline. Do NOT invent a fallback chain; /code-review is always
+   have been removed from the pipeline. Do NOT invent a fallback chain; codedungeon code-review is always
    available because it is pure Claude Code.
 
    ## NEVER SKIP (verified after you complete)
    - NEVER skip Phase C (specialist review) for any task — the orchestrator will check that review.md contains an APPROVED verdict for every [x] task
-   - NEVER skip Main Loop Step 5 (/code-review) — the orchestrator will verify a review comment exists on the PR via `gh`
+   - NEVER skip Main Loop Step 5 (codedungeon code-review) — the orchestrator will verify a review comment exists on the PR via `gh`
    - NEVER mark a task [x] without Phase C approval
    - NEVER report completion without providing ALL of these fields in your final report
 
    ## Required Report Format
    Your FINAL message must include the standard CodeDungeon PR Report. `Status READY_FOR_USER_REVIEW` is valid
-   only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment,
+   only when the PR exists and remains open, the branch is pushed, `codedungeon code-review --post` recorded the adversarial review comment,
    and the final verdict is APPROVED.
 
    +------------------------------------------------+
@@ -119,7 +119,7 @@ For each repo in execution order:
 
    Review
    - Adversarial comments: {N}
-   - Last review marker: Claude Adversarial Code Review|none
+   - Last review marker: CodeDungeon Code Review|none
    - Remaining findings: {none or short list/count}
 
    Work Done
@@ -147,12 +147,12 @@ For each repo in execution order:
       - If no PR: log ERROR "No PR found for {repo}. Phase 5 incomplete."
       - Do NOT proceed to Phase 6 for this repo.
 
-   c. **Verify adversarial review was posted** (exact title match — /code-review always posts this):
+   c. **Verify adversarial review was posted** (exact title match — codedungeon code-review always posts this):
       ```bash
-      cd {REPO_DIR} && gh pr view {PR_NUMBER} --comments --json comments -q '[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length'
+      cd {REPO_DIR} && gh pr view {PR_NUMBER} --comments --json comments -q '[.comments[] | select(.body | test("CodeDungeon Code Review"))] | length'
       ```
-      - If count = 0: log ERROR "No adversarial review comment found on PR #{PR_NUMBER}. /code-review was not invoked — Phase 5 incomplete."
-      - /code-review has no skip path, so zero comments indicates a pipeline break.
+      - If count = 0: log ERROR "No adversarial review comment found on PR #{PR_NUMBER}. codedungeon code-review was not invoked — Phase 5 incomplete."
+      - codedungeon code-review has no skip path, so zero comments indicates a pipeline break.
 
    d. Report verification result:
       > **{repo}** verified: PR #{PR_NUMBER} — Review: {REVIEW_VERDICT}

@@ -65,7 +65,7 @@ SIDE_QUEST (single orchestrator)
        ├─ Branch setup
        ├─ Per task: specialist plan → exec → specialist review
        ├─ Commit + push + PR
-       └─ /code-review adversarial fanout
+       └─ codedungeon code-review adversarial fanout
             ├─ APPROVED → DONE
             └─ CHANGES_REQUESTED → fix tasks → re-enter loop
 ```
@@ -218,7 +218,7 @@ Execute with these parameters:
   TASK_DIR = .codedungeon/tasks/side-quest/
 
 Follow the codedungeon-loop protocol exactly — branch setup, per-task specialist
-plan/exec/review cycle, commit, push, PR creation, /code-review adversarial
+plan/exec/review cycle, commit, push, PR creation, codedungeon code-review adversarial
 fanout, and fix loop on CHANGES_REQUESTED.
 
 Feature branch: feat/{FEATURE_SLUG}
@@ -260,7 +260,7 @@ Summary
 
 Review
 - Adversarial comments: <n>
-- Last review marker: Claude Adversarial Code Review|none
+- Last review marker: CodeDungeon Code Review|none
 - Remaining findings: <none or short list/count>
 
 Work Done

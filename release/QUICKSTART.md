@@ -53,8 +53,9 @@ It returns `agent_config_instruction` content for the installer agent to insert
 in `AGENTS.md`.
 
 Claude setup installs `.claude/bin/codedungeon`, `.claude/agents/*`,
-`.claude/skills/*`, `.claude/commands/*` wrappers, and shared `.codedungeon/*`
-state. It returns `agent_config_instruction` content for `CLAUDE.md`.
+`.claude/skills/*` workflow surfaces, `.claude/commands/*` wrappers, and shared
+`.codedungeon/*` state. It returns `agent_config_instruction` content for
+`CLAUDE.md`.
 
 ## First Run
 

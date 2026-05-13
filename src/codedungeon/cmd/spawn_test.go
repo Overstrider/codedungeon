@@ -74,7 +74,7 @@ func TestCodexPhaseAgentTypesHaveInstalledAgentConfigs(t *testing.T) {
 func TestAutonomousChildPromptDefaultsToClaudeProjectLocalSurfaces(t *testing.T) {
 	got := autonomousChildPromptForProvider("claude", "full", "ship feature", "feat/ship-feature")
 	for _, required := range []string{
-		".codedungeon/commands/main-quest.md",
+		".claude/skills/main-quest/SKILL.md",
 		"./.claude/bin/codedungeon",
 		"codedungeon code-review --url <PR URL>",
 		"codedungeon qa run --phase 6 --fresh",
@@ -88,6 +88,7 @@ func TestAutonomousChildPromptDefaultsToClaudeProjectLocalSurfaces(t *testing.T)
 	}
 	for _, forbidden := range []string{
 		".agents/skills/main-quest/SKILL.md",
+		".codedungeon/commands/main-quest.md",
 		"./.codex/bin/codedungeon",
 	} {
 		if strings.Contains(got, forbidden) {

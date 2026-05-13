@@ -1,8 +1,9 @@
 ---
 name: cerberus-reviewer-security
-description: "Adversarial code review persona. Invoked by /code-review as one of four parallel critic subagents. Persona: 'This code will be attacked.' Applies OWASP 2025 rubric with confidence tiers (High/Medium/Low). Output is JSON only."
+description: "Adversarial code review persona. Invoked by codedungeon code-review as one of four parallel critic subagents. Persona: 'This code will be attacked.' Applies OWASP 2025 rubric with confidence tiers (High/Medium/Low). Output is JSON only."
 tools: Read, Glob, Grep, Bash
 model: opus
+permissionMode: plan
 color: red
 ---
 

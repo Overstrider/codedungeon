@@ -325,6 +325,62 @@ func TestClaudeTaskMakerArtifactsInstallPlaybookAndWrapper(t *testing.T) {
 	}
 }
 
+func TestClaudeWorkflowSkillsArePrimarySurfaceAndCommandsRemainWrappers(t *testing.T) {
+	arts, err := ArtifactsFor("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installPaths := map[string]promptsArtifactForTest{}
+	for _, a := range arts {
+		installPaths[a.InstallPath] = promptsArtifactForTest{RelPath: a.RelPath, Kind: a.Kind}
+	}
+	for _, name := range []string{
+		"codedungeon",
+		"main-quest",
+		"side-quest",
+		"one-shot",
+		"code-review",
+		"task-maker",
+		"codedungeon-loop",
+		"codedungeon-test-loop",
+		"cleanup-tasks",
+	} {
+		skillPath := ".claude/skills/" + name + "/SKILL.md"
+		if got, ok := installPaths[skillPath]; !ok || got.Kind != "skill" {
+			t.Fatalf("missing Claude workflow skill artifact %s, got %+v", skillPath, got)
+		}
+		wrapperPath := ".claude/commands/" + name + ".md"
+		if got, ok := installPaths[wrapperPath]; !ok || got.Kind != "command-wrapper" {
+			t.Fatalf("missing Claude compatibility wrapper %s, got %+v", wrapperPath, got)
+		}
+		raw, err := GetRawFor("claude", "skills/"+name+"/SKILL.md")
+		if err != nil {
+			t.Fatalf("read Claude skill %s: %v", name, err)
+		}
+		body := string(raw)
+		for _, required := range []string{
+			"name: " + name,
+			"description: ",
+			"./.claude/bin/codedungeon",
+			"<workflow_contract>",
+			"<evidence_gates>",
+			"<output_contract>",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("Claude skill %s missing %q:\n%s", name, required, body)
+			}
+		}
+		if strings.Contains(body, "./.codex/bin/codedungeon") {
+			t.Fatalf("Claude skill %s must not reference Codex binary:\n%s", name, body)
+		}
+	}
+}
+
+type promptsArtifactForTest struct {
+	RelPath string
+	Kind    string
+}
+
 func TestCodexSkillsStartWithValidFrontmatter(t *testing.T) {
 	arts, err := ArtifactsFor("codex")
 	if err != nil {
@@ -416,6 +472,15 @@ func TestWorkflowsReadProjectRulesCompactAndEmitEnvelope(t *testing.T) {
 		{"claude", "commands/one-shot.md"},
 		{"claude", "commands/codedungeon-loop.md"},
 		{"claude", "commands/code-review.md"},
+		{"claude", "skills/codedungeon/SKILL.md"},
+		{"claude", "skills/main-quest/SKILL.md"},
+		{"claude", "skills/side-quest/SKILL.md"},
+		{"claude", "skills/one-shot/SKILL.md"},
+		{"claude", "skills/code-review/SKILL.md"},
+		{"claude", "skills/task-maker/SKILL.md"},
+		{"claude", "skills/codedungeon-loop/SKILL.md"},
+		{"claude", "skills/codedungeon-test-loop/SKILL.md"},
+		{"claude", "skills/cleanup-tasks/SKILL.md"},
 		{"codex", "commands/main-quest.md"},
 		{"codex", "commands/side-quest.md"},
 		{"codex", "commands/one-shot.md"},
@@ -1046,6 +1111,51 @@ func TestClaudeWorkflowPromptsDeclareDeterministicCompletionGates(t *testing.T) 
 			if !strings.Contains(body, required) {
 				t.Fatalf("claude:%s missing deterministic review instruction %q:\n%s", rel, required, body)
 			}
+		}
+	}
+}
+
+func TestClaudeWorkflowPromptsRejectLegacyFinalReviewSurfaces(t *testing.T) {
+	for _, rel := range []string{
+		"commands/main-quest.md",
+		"commands/side-quest.md",
+		"commands/one-shot.md",
+		"commands/codedungeon-loop.md",
+		"commands/codedungeon-test-loop.md",
+		"phases/forge-execution.md",
+		"phases/throne-room-report.md",
+		"report-template-bootstrap.md",
+		"report-template-multi.md",
+		"skills/main-quest/SKILL.md",
+		"skills/side-quest/SKILL.md",
+		"skills/one-shot/SKILL.md",
+		"skills/code-review/SKILL.md",
+		"skills/codedungeon-loop/SKILL.md",
+		"skills/codedungeon-test-loop/SKILL.md",
+	} {
+		raw, err := GetRawFor("claude", rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		body := string(raw)
+		for _, forbidden := range []string{
+			"Claude Adversarial Code Review",
+			"`/code-review`",
+			"\n/code-review",
+			" /code-review",
+			"(/code-review",
+			"codedungeon review post",
+			"codedungeon review run",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("claude:%s contains legacy final review surface %q:\n%s", rel, forbidden, body)
+			}
+		}
+		if strings.HasPrefix(rel, "report-template-") {
+			continue
+		}
+		if !strings.Contains(body, "codedungeon code-review") {
+			t.Fatalf("claude:%s should reference standalone CodeDungeon Code Review:\n%s", rel, body)
 		}
 	}
 }

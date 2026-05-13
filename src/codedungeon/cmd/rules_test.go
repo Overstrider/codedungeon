@@ -447,6 +447,19 @@ func TestHooksInstallWritesProviderSpecificHookFiles(t *testing.T) {
 	}
 }
 
+func TestClaudeHookScriptBlocksStopEventsWithExitCodeTwo(t *testing.T) {
+	script := projectRulesHookScript(".claude/bin/codedungeon", "enforce")
+	for _, required := range []string{
+		"$eventName -eq \"Stop\"",
+		"$eventName -eq \"SubagentStop\"",
+		"exit 2",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("claude hook script missing documented blocking behavior %q:\n%s", required, script)
+		}
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

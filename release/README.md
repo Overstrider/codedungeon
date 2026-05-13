@@ -83,7 +83,7 @@ Claude setup installs:
 
 - `.claude/bin/codedungeon`
 - `.claude/agents/*`
-- `.claude/skills/*`
+- `.claude/skills/*` workflow surfaces
 - `.claude/commands/*` wrappers
 - `.codedungeon/commands/*`, `.codedungeon/phases/*`, and runtime state
 - an `agent_config_instruction` block describing what to insert in `CLAUDE.md`

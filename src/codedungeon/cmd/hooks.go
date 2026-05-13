@@ -176,7 +176,11 @@ if ($payload -match $mergePattern -or $payload -match $mainPushPattern -or $payl
   }
 }
 & $bin rules gate --mode $Mode --event $eventName --message $payload
-exit $LASTEXITCODE
+$gateCode = $LASTEXITCODE
+if ($gateCode -ne 0 -and $Mode -eq "enforce" -and ($eventName -eq "Stop" -or $eventName -eq "SubagentStop")) {
+  exit 2
+}
+exit $gateCode
 `, mode, binaryRel)
 }
 

@@ -16,7 +16,7 @@ Evidence quote (verbatim from code):
 Classifier rationale: "{{.ClassifierRationale}}"{{if .ClassifierConfidence}} (confidence: {{.ClassifierConfidence}}){{end}}
 Suggested fix: "{{.SuggestedFix}}"
 
-If you believe this is actually a design decision and should NOT be fixed, document it in REVIEW.md § "Repo-Specific Known Patterns" or an ADR under docs/adrs/ with explicit reasoning. Re-running /code-review will then classify it as design_decision and stop blocking. Do NOT simply skip the fix without documenting.
+If you believe this is actually a design decision and should NOT be fixed, document it in REVIEW.md § "Repo-Specific Known Patterns" or an ADR under docs/adrs/ with explicit reasoning. Re-running codedungeon code-review will then classify it as design_decision and stop blocking. Do NOT simply skip the fix without documenting.
 
 ## Detailed Requirements
 - {{.SuggestedFix}}
@@ -30,4 +30,4 @@ If you believe this is actually a design decision and should NOT be fixed, docum
 ## Review checklist
 - [ ] Finding `{{.File}}:{{.LineStart}}-{{.LineEnd}}` is addressed
 - [ ] No regressions introduced
-- [ ] `/code-review` re-run returns APPROVED or the finding becomes a documented design decision
+- [ ] `codedungeon code-review` re-run returns APPROVED or the finding becomes a documented design decision

@@ -22,7 +22,7 @@ Deterministic completion gates:
 - Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
-Automated task execution loop. Reads a PLAN.md, executes each task via language-specialized specialists (plan + exec + review), runs `/code-review` (adversarial fanout) and loops on CHANGES_REQUESTED.
+Automated task execution loop. Reads a PLAN.md, executes each task via language-specialized specialists (plan + exec + review), runs `codedungeon code-review` (adversarial fanout) and loops on CHANGES_REQUESTED.
 
 **Deterministic mechanics (branch guard, plan parsing, PR creation, fix-task generation) delegated to `codedungeon`. Only LLM work (specialist plan/exec/review + persona fanout) is inline.**
 
@@ -109,7 +109,7 @@ MAIN LOOP (≤9 adversarial cycles — HARD STOP)
   │
   ├─ All tasks done → commit + push + PR
   │
-  └─ /code-review (adversarial Opus 4.7 fanout)
+  └─ codedungeon code-review (adversarial Opus 4.7 fanout)
        ├─ APPROVED → DONE
        └─ CHANGES_REQUESTED → `codedungeon plan append-fix-tasks` → re-enter orchestrator
 ```
@@ -257,17 +257,18 @@ while : ; do
   else
     REVIEW_MODE=reduced
   fi
-  # Run /code-review (posts comment to PR, writes review.json + review.md)
+  # Run codedungeon code-review (posts comment to PR, writes review.json + review.md)
   # Cycles 1-3: full adversarial mode.
   # Cycles 4-9: reduced adversarial mode. Keep all personas, but use fast
   # model/effort and review only fixes/new diff since the previous cycle.
-  /code-review "$REPO_DIR"
-  # Outputs adversarial review in $REPO_DIR/.codedungeon/reviews/adv-review/review.json.
+  PR_URL=$(gh pr view "$PR_NUM" --json url -q .url)
+  $CD code-review --url "$PR_URL" --project-context .codedungeon/project-rules.compact.md --task-context "$TASK_DIR/PLAN.md" --out .codedungeon/code-review --post
+  # Outputs CodeDungeon review evidence in $REPO_DIR/.codedungeon/code-review/.
 
-  ADV_REVIEW_COUNT=$(gh pr view "$PR_NUM" --comments --json comments -q '[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length')
+  ADV_REVIEW_COUNT=$(gh pr view "$PR_NUM" --comments --json comments -q '[.comments[] | select(.body | test("CodeDungeon Code Review"))] | length')
   [ "$ADV_REVIEW_COUNT" = "0" ] && { echo '{"verdict":"REVIEW_NOT_POSTED"}'; exit 2; }
 
-  VERDICT=$(jq -r .verdict "$REPO_DIR/.codedungeon/reviews/adv-review/review.json")
+  VERDICT=$(jq -r .verdict "$REPO_DIR/.codedungeon/code-review/review-result.json")
   case "$VERDICT" in
     APPROVED)
       echo "PR APPROVED after $REVIEW_CYCLE cycles."
@@ -296,7 +297,7 @@ Agents respond to `actionable==true` findings only (design_decisions are disclos
 
 ## Required final report
 
-Emit this exact format at every terminal path. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. Do not merge; the user performs final review and merge. `APPROVED does not replace verification`.
+Emit this exact format at every terminal path. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon code-review --post` recorded the adversarial review comment, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. Do not merge; the user performs final review and merge. `APPROVED does not replace verification`.
 
 ```
 +------------------------------------------------+
@@ -315,7 +316,7 @@ Summary
 
 Review
 - Adversarial comments: {N}
-- Last review marker: Claude Adversarial Code Review|none
+- Last review marker: CodeDungeon Code Review|none
 - Remaining findings: {none or short list/count}
 
 Work Done
