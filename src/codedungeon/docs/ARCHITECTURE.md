@@ -1,6 +1,6 @@
 # codedungeon Architecture
 
-codedungeon is a deterministic workflow kernel beneath AI coding agents. It owns structured state and repeatable mechanics; the agent owns judgment, planning, implementation, and review decisions.
+codedungeon is a deterministic workflow kernel beneath AI coding agents. It owns structured state, repeatable mechanics, evidence contracts, and final gates; the agent owns judgment, planning, implementation, review decisions, and step orchestration.
 
 ## Providers
 
@@ -33,6 +33,20 @@ The shared phase lifecycle stays provider-agnostic. Provider-native mechanics li
 - Claude installs `.claude/agents/*`, `.claude/commands/*` wrappers, `.claude/skills/*`, and editable `.codedungeon/commands/*.md` plus `.codedungeon/phases/*.md`. Setup emits `agent_config_instruction` guidance for `CLAUDE.md` instead of editing it.
 
 Commands, command wrappers, agents, skills, and phase prompts are tracked as installed artifacts with provider, pack id, pack version, install path, kind, logical name, sha256, and user-modified state.
+
+## Agent-First Run Flow
+
+`codedungeon run --full|--lite|--oneshot` creates or resumes a durable run and
+returns an agent-first JSON contract. The contract names the current step,
+soft blockers, evidence paths, timeline, Project Rules status, and the next
+action the current agent should execute. The agent records completed, blocked,
+or failed steps with `codedungeon run advance`.
+
+Mid-flow gates are advisory so the agent can recover: missing Project Rules,
+GitHub auth, review changes, or QA failures become structured blockers instead
+of hidden process failures. `codedungeon run finalize` remains the hard gate
+that verifies QA, review, PR, artifact, and report evidence before
+`READY_FOR_USER_REVIEW`.
 
 ## Data Model
 

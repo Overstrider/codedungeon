@@ -2,7 +2,7 @@
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -21,14 +21,25 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review per repo/PR with `./.claude/bin/codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`; in multi-repo workflows run sequential per-repo QA with `./.claude/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; in multi-repo workflows run sequential per-repo QA with `./.claude/bin/codedungeon qa run --cwd <repo> --phase 6 --auto --fresh`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
-This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+This workflow is agent-first. Start or resume durable state with:
 
 ```bash
 ./.claude/bin/codedungeon run --full --prompt "<prompt>"
 ```
+
+Use the returned `current_step`, `blockers`, and `next_action` as the coarse workflow contract. After phase groups complete, record the agent-first milestones:
+
+```bash
+./.claude/bin/codedungeon run advance --step planning --status completed --summary "planning phases completed" --artifact .codedungeon/tasks
+./.claude/bin/codedungeon run advance --step execution --status completed --summary "implementation completed" --artifact .codedungeon/tasks
+./.claude/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review
+./.claude/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa
+```
+
+Use `phase done` for phase-level handoffs and explicit skip/blocker states; use `run advance` for the agent-first step ledger.
 
 **FULLY AUTONOMOUS** once invoked. No approval gates.
 
@@ -50,7 +61,8 @@ Propagate verbatim into every sub-agent spawn. Applies to all narration/logs/sta
 
 ### Valid stop reasons (only)
 - Design decision needed — STOP, log.
-- External dep unavailable (`gh` CLI missing, git not init) — STOP.
+- Local git repo unavailable — STOP.
+- Missing GitHub `origin` or `gh` auth — continue as a finalization blocker surfaced by `codedungeon run status` / `codedungeon run finalize --dry-run`.
 - Protected branch violation mid-run — STOP.
 
 **Not valid stop reasons**: `MAX_CYCLES_REACHED` (escalate), "good enough", soft errors, test/build failures (fix tasks, re-enter).
@@ -101,10 +113,10 @@ if [ ! -x .claude/bin/codedungeon ] || [ ! -f .codedungeon/codedungeon.db ]; the
 fi
 CD=./.claude/bin/codedungeon
 
-git remote get-url origin >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a GitHub origin remote"; exit 2; }
-gh auth status >/dev/null || { echo "Status BLOCKED: CodeDungeon requires authenticated gh"; exit 2; }
+git rev-parse --is-inside-work-tree >/dev/null || { echo "Status BLOCKED: CodeDungeon requires a local git repo"; exit 2; }
+$CD run --full --prompt "$FEATURE_PROMPT"
 
-# A run and custody session already exist. Do not run phase init or create another run.
+# A run and custody session now exist or resumed. Do not run phase init or create another run.
 NEXT=$($CD phase next | jq -r .next_phase)
 ```
 
@@ -162,7 +174,7 @@ CLEAR_BETWEEN_PHASES = True
       Read your full phase instructions from: {ABSOLUTE_PHASE_FILE_PATH}
       Read the pipeline state: `codedungeon phase info <N>`  and  `codedungeon phase info <PREV_N>` for last phase's handoff.
 
-      Execute the phase. When done, call `codedungeon phase done <N> ...` (or skip/fail).
+      Execute the phase. When done, call `codedungeon phase done <N> ...` (or skip/fail). The parent orchestrator records coarse milestones with `codedungeon run advance --step planning|execution|code_review|qa` after the relevant phase groups complete.
 
       $(codedungeon prompts get caveman-ultra)
 
@@ -204,7 +216,7 @@ ORCHESTRATOR (thin — reads only `codedungeon phase info/next`)
   └─ Phase 7 → report                                              [fast, think 0]
 ```
 
-**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.codedungeon/state/phase-{N}-output.md` + refreshes `pipeline-state.md`.
+**DB is the context bridge.** Every phase calls `codedungeon phase done` → atomically updates DB + writes `.codedungeon/state/phase-{N}-output.md` + refreshes `pipeline-state.md`. The parent orchestrator also calls `codedungeon run advance` for the coarse agent-first workflow steps.
 
 ---
 

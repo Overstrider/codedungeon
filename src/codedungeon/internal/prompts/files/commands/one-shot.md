@@ -2,7 +2,7 @@
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -19,7 +19,7 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/plans/one-shot/PLAN.md --out .codedungeon/code-review --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- After standalone review is approved, run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 Minimal CodeDungeon workflow for a small change that still needs the safety rail of branch, commit, PR, and adversarial review.
@@ -58,11 +58,10 @@ Run:
 CD=./.claude/bin/codedungeon
 [ -x "$CD" ] || { echo "Status BLOCKED: run project-local codedungeon setup before /one-shot"; exit 2; }
 git rev-parse --is-inside-work-tree >/dev/null
-git remote get-url origin >/dev/null
-gh auth status
+$CD run --oneshot --prompt "$ARGUMENTS"
 ```
 
-If git repo, `origin`, or `gh` auth validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
+If git repo validation fails, stop before editing and return a `BLOCKED` CodeDungeon PR Report. Treat missing `origin` or `gh` auth as finalization blockers reported by `codedungeon run status` / `codedungeon run finalize --dry-run`; do not stop local planning or implementation solely for GitHub readiness. Never edit, commit, or push on `main`, `master`, `develop`, `dev`, `staging`, `production`, or `release`.
 
 ## Step 1: Plan
 
@@ -92,6 +91,12 @@ The plan must contain:
 
 If the request clearly needs multi-step decomposition, cross-repo coordination, or a full QA/report pipeline, stop and recommend `/main-quest` instead.
 
+Record progress:
+
+```bash
+$CD run advance --step planning --status completed --summary "one-shot plan written" --artifact .codedungeon/plans/one-shot/PLAN.md
+```
+
 ## Step 2: Branch
 
 Create or switch to a feature branch:
@@ -111,18 +116,13 @@ Implement directly from the plan. Keep edits scoped. Add or run the smallest mea
 
 Do not create `.codedungeon/tasks/*` for this workflow.
 
-## Step 4: Verify
+Record progress:
 
-Run every verification command from the plan. If no command was obvious, run the nearest project check from the manifest:
+```bash
+$CD run advance --step execution --status completed --summary "one-shot implementation complete"
+```
 
-- Go: `go test ./...`
-- Rust: `cargo test`
-- Node: `npm test` or package script closest to test
-- Python: `python -m pytest`
-
-If verification cannot run, record the blocker in the final report and continue only if the change can still be reviewed.
-
-## Step 5: Commit, Push, PR
+## Step 4: Commit, Push, PR
 
 Run:
 
@@ -143,7 +143,7 @@ echo "$PR_URL"
 If the PR already exists, reuse it. If no PR exists, create one.
 If `PR_URL` or `PR_NUMBER` is empty after this step, stop and return a `BLOCKED` CodeDungeon PR Report.
 
-## Step 6: Review
+## Step 5: Review
 
 Run `/code-review` until the PR review verdict is `APPROVED` or 9 cycles are exhausted.
 
@@ -167,9 +167,32 @@ ADV_REVIEW_COUNT=$(gh pr view "$PR_NUMBER" --comments --json comments -q '[.comm
 
 If `ADV_REVIEW_COUNT` is `0`, stop and return `BLOCKED`. If review returns `CHANGES_REQUESTED`, fix the findings directly, commit, push, and rerun `/code-review`. After 9 cycles, stop with `MAX_CYCLES_REACHED`.
 
+Record progress:
+
+```bash
+$CD run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review
+```
+
+## Step 6: Final Verification
+
+After review is approved, run every verification command from the plan. If no command was obvious, run the nearest project check from the manifest:
+
+- Go: `go test ./...`
+- Rust: `cargo test`
+- Node: `npm test` or package script closest to test
+- Python: `python -m pytest`
+
+If verification cannot run, record the blocker in the final report and continue only if the change can still be reviewed.
+
+Record progress:
+
+```bash
+$CD run advance --step qa --status completed --summary "verification attempted" --artifact .codedungeon/qa
+```
+
 ## Step 7: Report
 
-Always return this exact format. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, and the final verdict is `APPROVED`. Do not merge; the user performs final review and merge.
+Always return this exact format. `Status READY_FOR_USER_REVIEW` is valid only after `$CD run finalize` succeeds; GitHub readiness, review approval, branch push, QA, Project Rules, and final report gates are enforced there. Do not merge; the user performs final review and merge.
 
 ```text
 +------------------------------------------------+

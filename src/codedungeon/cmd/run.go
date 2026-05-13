@@ -34,6 +34,7 @@ func RunCmd() *cobra.Command {
 	addRunStartFlags(c)
 	c.AddCommand(runStartCmd())
 	c.AddCommand(runStatusCmd())
+	c.AddCommand(runAdvanceCmd())
 	c.AddCommand(runUnlockCmd())
 	c.AddCommand(runFinalizeCmd())
 	return c
@@ -65,19 +66,7 @@ func runStartE(c *cobra.Command, _ []string) error {
 	fmt.Printf("CODEDUNGEON_MODE_SELECTED: %s - %s\n", mode, modeReason(mode, prompt))
 
 	root := currentProjectRoot()
-	var rulesStatus projectRulesStatus
-	if mode != "rules" {
-		var err error
-		rulesStatus, err = enforceRunProjectRules(root, mode)
-		if err != nil {
-			return err
-		}
-	}
-	if mode != "rules" {
-		if err := verifyGitHubPREnvironment(root); err != nil {
-			return err
-		}
-	}
+	rulesStatus := softRunProjectRulesStatus(root)
 
 	s, err := OpenDB(c)
 	if err != nil {
@@ -87,11 +76,22 @@ func runStartE(c *cobra.Command, _ []string) error {
 	if err := s.Init(); err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	if active, err := s.ActiveAnyRunSession(); err != nil {
+	active, err := s.ActiveAnyRunSession()
+	if err != nil {
 		return EmitErr(err.Error(), "")
-	} else if active != nil {
-		return EmitErr("autonomous session already running",
-			fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+	}
+	if active != nil {
+		if dryRun {
+			return EmitErr("autonomous session already running",
+				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+		}
+		if canAttachRulesToActiveRun(s, active, rulesStatus, mode) {
+			return emitActiveAgentFirstContract(root, s, active, rulesStatus)
+		}
+		if !canResumeAgentFirstRun(s, active, prompt, mode) {
+			return EmitErr("autonomous session already running",
+				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+		}
 	}
 
 	branch := ""
@@ -107,68 +107,47 @@ func runStartE(c *cobra.Command, _ []string) error {
 			return EmitErr(err.Error(), "")
 		}
 	}
-	token, err := randomHex(32)
+	runRow, err := s.GetRun(runID)
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	sessionID, err := randomHex(16)
+	sess, err := reusableAgentFirstSession(s, runID, resumed)
 	if err != nil {
 		return EmitErr(err.Error(), "")
 	}
-	if err := s.InsertRunSession(db.RunSession{
-		ID:          sessionID,
-		RunID:       runID,
-		Provider:    provider.Detect().Name(),
-		Mode:        mode,
-		TokenSHA256: hashSessionToken(token),
-		Status:      "RUNNING",
-	}); err != nil {
-		return EmitErr(err.Error(), "")
-	}
-	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_started", Detail: mode})
-	runnerAgentID, _ := recordRunnerAgentStart(s, runID, sessionID, mode)
-
-	childPrompt := autonomousChildPrompt(mode, prompt, branch)
-	if mode != "rules" {
-		childPrompt += "\n\nProject Rules envelope:\n" + runProjectRulesEnvelope(rulesStatus)
-	}
-	if dryRun {
-		_ = s.UpdateRunSessionStatus(sessionID, "ABORTED", "dry-run")
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "ABORTED", "dry-run")
-		return EmitJSON(map[string]any{"ok": true, "dry_run": true, "run_id": runID, "session_id": sessionID, "mode": mode, "branch": branch, "resumed": resumed, "project_rules": rulesStatus, "prompt": childPrompt})
-	}
-
-	if err := providerChildExecutor(root, mode, childPrompt, runID, sessionID, token); err != nil {
-		report, recovered, recoverErr := recoverAfterProviderChildFailure(root, s, runID, sessionID, token, runnerAgentID, err)
-		if recoverErr != nil {
-			return EmitCustodyErr("codedungeon runner failed: "+err.Error()+"; recovery failed: "+recoverErr.Error(), runnerRecoveryCommands(recoverErr))
+	if sess == nil {
+		token, err := randomHex(32)
+		if err != nil {
+			return EmitErr(err.Error(), "")
 		}
-		if recovered {
-			fmt.Print(report)
-			return nil
+		sessionID, err := randomHex(16)
+		if err != nil {
+			return EmitErr(err.Error(), "")
 		}
-		return EmitCustodyErr("codedungeon runner failed: "+err.Error(), runnerRecoveryCommands(err))
+		sessionStatus := runSessionWaitingForAgent
+		sessionEvent := "session_started"
+		if dryRun {
+			sessionStatus = "DRY_RUN"
+			sessionEvent = "session_dry_run"
+		}
+		sess = &db.RunSession{
+			ID:          sessionID,
+			RunID:       runID,
+			Provider:    provider.Detect().Name(),
+			Mode:        mode,
+			TokenSHA256: hashSessionToken(token),
+			Status:      sessionStatus,
+		}
+		if err := s.InsertRunSession(*sess); err != nil {
+			return EmitErr(err.Error(), "")
+		}
+		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: sessionEvent, Detail: "agent-first:" + mode})
 	}
-	if mode == "rules" {
-		_ = s.UpdateRunSessionStatus(sessionID, "COMPLETED", "")
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "session_completed", Detail: mode})
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "rules workflow completed")
-		return EmitJSON(map[string]any{"ok": true, "run_id": runID, "session_id": sessionID, "status": "COMPLETED"})
-	}
-	runRow, _ := s.GetRun(runID)
-	report, err := finalizeRun(root, s, runRow, sessionID, token, runnerAgentID)
+	contract, err := buildAgentFirstContract(root, s, runRow, sess, rulesStatus, resumed, dryRun, nil)
 	if err != nil {
-		_ = s.UpdateRunSessionStatus(sessionID, "FAILED", err.Error())
-		_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "report_failed", Detail: err.Error()})
-		_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "FAILED", err.Error())
-		_ = abortOpenAgentRuns(s, runID, sessionID, 0, "runner failed before clean finalization", err.Error())
-		return EmitCustodyErr("codedungeon final report failed: "+err.Error(), runnerRecoveryCommands(err))
+		return EmitErr(err.Error(), "")
 	}
-	_ = recordRunnerAgentEnd(s, runID, runnerAgentID, sessionID, "COMPLETED", "final report rendered")
-	_ = s.UpdateRunSessionStatus(sessionID, "READY_FOR_USER_REVIEW", "")
-	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: sessionID, Event: "ready_for_user_review", Detail: branch})
-	fmt.Print(report)
-	return nil
+	return EmitJSON(contract)
 }
 
 func recoverAfterProviderChildFailure(root string, s *db.Store, runID int64, sessionID, token string, runnerAgentID int64, childErr error) (string, bool, error) {
@@ -254,6 +233,117 @@ func enforceRunProjectRules(root, mode string) (projectRulesStatus, error) {
 	return st, nil
 }
 
+func softRunProjectRulesStatus(root string) projectRulesStatus {
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		return projectRulesStatus{Status: "missing", RulesDigest: "none", StaleReason: err.Error()}
+	}
+	if strings.TrimSpace(st.Status) == "" {
+		st.Status = "missing"
+	}
+	if strings.TrimSpace(st.RulesDigest) == "" {
+		st.RulesDigest = "none"
+	}
+	return st
+}
+
+func reusableAgentFirstSession(s *db.Store, runID int64, resumed bool) (*db.RunSession, error) {
+	if !resumed {
+		return nil, nil
+	}
+	latest, err := s.LatestRunSession(runID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	if latest.Status == runSessionWaitingForAgent {
+		return latest, nil
+	}
+	return nil, nil
+}
+
+func canResumeAgentFirstRun(s *db.Store, sess *db.RunSession, prompt, mode string) bool {
+	if sess == nil || !strings.EqualFold(sess.Status, runSessionWaitingForAgent) || strings.EqualFold(mode, "rules") {
+		return false
+	}
+	run, err := s.GetRun(sess.RunID)
+	if err != nil || run == nil {
+		return false
+	}
+	return strings.TrimSpace(run.Feature) == strings.TrimSpace(prompt) &&
+		strings.EqualFold(strings.TrimSpace(run.Mode), strings.TrimSpace(mode))
+}
+
+func canAttachRulesToActiveRun(s *db.Store, sess *db.RunSession, rules projectRulesStatus, mode string) bool {
+	if sess == nil || !strings.EqualFold(sess.Status, runSessionWaitingForAgent) || !strings.EqualFold(mode, "rules") {
+		return false
+	}
+	run, err := s.GetRun(sess.RunID)
+	if err != nil || run == nil {
+		return false
+	}
+	events, err := s.RunEvents(run.ID)
+	if err != nil {
+		return false
+	}
+	return agentFirstCurrentStep(run.Mode, rules, events).ID == "project_rules"
+}
+
+func emitActiveAgentFirstContract(root string, s *db.Store, sess *db.RunSession, rules projectRulesStatus) error {
+	run, err := s.GetRun(sess.RunID)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	if run == nil {
+		return EmitErr("active run not found", "")
+	}
+	contract, err := buildAgentFirstContract(root, s, run, sess, rules, true, false, nil)
+	if err != nil {
+		return EmitErr(err.Error(), "")
+	}
+	return EmitJSON(contract)
+}
+
+func latestOrCreateAgentFirstSession(s *db.Store, run *db.Run) (*db.RunSession, error) {
+	latest, err := s.LatestRunSession(run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest != nil {
+		if strings.EqualFold(latest.Status, runSessionWaitingForAgent) {
+			return latest, nil
+		}
+		return nil, fmt.Errorf("cannot advance run while latest session %s is %s", latest.ID, latest.Status)
+	}
+	token, err := randomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	sessionID, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	mode := strings.ToLower(run.Mode)
+	if strings.TrimSpace(mode) == "" {
+		mode = "full"
+	}
+	latest = &db.RunSession{
+		ID:          sessionID,
+		RunID:       run.ID,
+		Provider:    provider.Detect().Name(),
+		Mode:        mode,
+		TokenSHA256: hashSessionToken(token),
+		Status:      runSessionWaitingForAgent,
+	}
+	if err := s.InsertRunSession(*latest); err != nil {
+		return nil, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sessionID, Event: "session_started", Detail: "agent-first:" + mode})
+	return latest, nil
+}
+
 func runProjectRulesEnvelope(st projectRulesStatus) string {
 	digest := st.RulesDigest
 	if digest == "" {
@@ -278,7 +368,7 @@ func resolveRunForStart(s *db.Store, prompt, mode, branch string) (int64, string
 				switch latest.Status {
 				case "RUNNING":
 					return 0, "", false, fmt.Errorf("autonomous session already running; run `codedungeon run unlock --reason \"...\"` before retrying session %s", latest.ID)
-				case "FAILED", "ABORTED":
+				case runSessionWaitingForAgent, "FAILED", "ABORTED":
 					if existing.Branch != "" {
 						branch = existing.Branch
 					}
@@ -316,6 +406,7 @@ func runStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show latest autonomous runner session",
 		RunE: func(c *cobra.Command, _ []string) error {
+			root := currentProjectRoot()
 			s, err := OpenDB(c)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -336,8 +427,235 @@ func runStatusCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess, "recovery": rec})
+			if sess == nil {
+				return EmitJSON(map[string]any{"ok": true, "run": run, "session": sess, "recovery": rec})
+			}
+			contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, rec)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			contract.Run = run
+			contract.Session = sess
+			return EmitJSON(contract)
 		},
+	}
+}
+
+func runAdvanceCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "advance",
+		Short: "Record an agent-completed workflow step and return the next agent-first contract",
+		RunE: func(c *cobra.Command, _ []string) error {
+			step, _ := c.Flags().GetString("step")
+			status, _ := c.Flags().GetString("status")
+			summary, _ := c.Flags().GetString("summary")
+			artifacts, _ := c.Flags().GetStringArray("artifact")
+			step = normalizeAgentFirstStepID(step)
+			status = strings.ToLower(strings.TrimSpace(status))
+			if step == "" {
+				return EmitErr("--step is required", "")
+			}
+			if status == "" {
+				status = "completed"
+			}
+			if !validAgentFirstStepStatus(status) {
+				return EmitErr("--status must be completed, blocked, or failed", "")
+			}
+			root := currentProjectRoot()
+			s, err := OpenDB(c)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			defer s.Close()
+			if err := s.Init(); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			run, err := s.CurrentRun()
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if run == nil {
+				return EmitErr("no active run", "")
+			}
+			sess, err := latestOrCreateAgentFirstSession(s, run)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			if err := validateAgentFirstAdvance(root, s, run, sess, step, status); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			detail := step
+			if strings.TrimSpace(summary) != "" {
+				detail += ": " + strings.TrimSpace(summary)
+			}
+			if err := advanceAgentFirstPhaseLedger(s, run, step, status, summary, artifacts); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			event := "step_" + status
+			if _, err := s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: event, Detail: detail}); err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			for _, artifact := range artifacts {
+				artifact = strings.TrimSpace(artifact)
+				if artifact == "" {
+					continue
+				}
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "step_artifact", Detail: step + ": " + artifact})
+			}
+			if completesAgentFirstRun(run, step, status) {
+				if err := s.UpdateRunSessionStatus(sess.ID, runStatusCompleted, ""); err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				sess.Status = runStatusCompleted
+				_, _ = s.InsertRunEvent(db.RunEvent{RunID: run.ID, SessionID: sess.ID, Event: "session_completed", Detail: step})
+			}
+			contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, nil)
+			if err != nil {
+				return EmitErr(err.Error(), "")
+			}
+			return EmitJSON(contract)
+		},
+	}
+	c.Flags().String("step", "", "workflow step id, such as planning, execution, qa, code_review, or finalization")
+	c.Flags().String("status", "completed", "completed, blocked, or failed")
+	c.Flags().String("summary", "", "short agent summary for the step")
+	c.Flags().StringArray("artifact", nil, "artifact path produced by the step; repeatable")
+	return c
+}
+
+func validateAgentFirstAdvance(root string, s *db.Store, run *db.Run, sess *db.RunSession, step, status string) error {
+	contract, err := buildAgentFirstContract(root, s, run, sess, softRunProjectRulesStatus(root), false, false, nil)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(contract.CurrentStep.ID, step) {
+		return fmt.Errorf("cannot record step %s with status %s while current step is %s", step, status, contract.CurrentStep.ID)
+	}
+	if !strings.EqualFold(status, "completed") {
+		return nil
+	}
+	for _, blocker := range contract.Blockers {
+		if blocker.Gate == "finalization" && !strings.EqualFold(step, "finalization") {
+			continue
+		}
+		return fmt.Errorf("cannot record step %s with status %s while blocker %s is active: %s", step, status, blocker.ID, blocker.Message)
+	}
+	if err := validateAgentFirstStepEvidence(s, run, step); err != nil {
+		return fmt.Errorf("cannot record step %s with status %s: %w", step, status, err)
+	}
+	return nil
+}
+
+func validateAgentFirstStepEvidence(s *db.Store, run *db.Run, step string) error {
+	if run == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "code_review":
+		reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+		if err != nil {
+			return err
+		}
+		return validateReviewEvidence(reviewEvidence)
+	case "qa":
+		reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+		if err != nil {
+			return err
+		}
+		if err := validateReviewEvidence(reviewEvidence); err != nil {
+			return err
+		}
+		records, err := s.VerificationRecords(run.ID, "6")
+		if err != nil {
+			return err
+		}
+		return validateVerificationRecordsAfterReview(records, reviewEvidence)
+	default:
+		return nil
+	}
+}
+
+func validAgentFirstStepStatus(status string) bool {
+	switch status {
+	case "completed", "blocked", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func completesAgentFirstRun(run *db.Run, step, status string) bool {
+	return run != nil &&
+		strings.EqualFold(run.Mode, "RULES") &&
+		strings.EqualFold(step, "project_rules") &&
+		strings.EqualFold(status, "completed")
+}
+
+func advanceAgentFirstPhaseLedger(s *db.Store, run *db.Run, step, status, summary string, artifacts []string) error {
+	if run == nil || !strings.EqualFold(run.Mode, "FULL") || !strings.EqualFold(status, "completed") {
+		return nil
+	}
+	cleanArtifacts := compactNonEmptyStrings(artifacts)
+	stepSummary := strings.TrimSpace(summary)
+	if stepSummary == "" {
+		stepSummary = step + " completed by agent-first run"
+	}
+	type phaseUpdate struct {
+		phase   string
+		summary string
+		promise string
+	}
+	var updates []phaseUpdate
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "planning":
+		for _, phase := range []string{"0", "1", "2'", "3.5", "4"} {
+			updates = append(updates, phaseUpdate{
+				phase:   phase,
+				summary: "Agent-first planning completed: " + stepSummary,
+				promise: "PHASE_" + phasePromiseID(phase) + "_COMPLETE: agent-first planning contract recorded.",
+			})
+		}
+	case "execution":
+		updates = append(updates, phaseUpdate{phase: "5", summary: "Agent-first execution completed: " + stepSummary, promise: "PHASE_5_COMPLETE: implementation evidence recorded."})
+	case "code_review":
+		updates = append(updates,
+			phaseUpdate{phase: "5.5", summary: "Agent-first review completed: " + stepSummary, promise: "PHASE_55_COMPLETE: review evidence recorded."},
+			phaseUpdate{phase: "5.6", summary: "Agent-first review fix loop completed: " + stepSummary, promise: "PHASE_56_COMPLETE: no blocking review findings remain."},
+		)
+	case "qa":
+		updates = append(updates, phaseUpdate{phase: "6", summary: "Agent-first QA completed: " + stepSummary, promise: "PHASE_6_COMPLETE: verification evidence recorded."})
+	}
+	for _, update := range updates {
+		if err := autoDonePhase(s, run.ID, update.phase, update.summary, cleanArtifacts, update.promise); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func compactNonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func phasePromiseID(phase string) string {
+	switch phase {
+	case "2'":
+		return "2PRIME"
+	case "3.5":
+		return "35"
+	case "5.5":
+		return "55"
+	case "5.6":
+		return "56"
+	default:
+		return strings.NewReplacer("'", "", ".", "").Replace(phase)
 	}
 }
 
@@ -373,6 +691,10 @@ func runFinalizeCmd() *cobra.Command {
 				}
 				sessionID = sess.ID
 				token = os.Getenv(envSessionToken)
+			} else if sess, err := s.LatestRunSession(run.ID); err != nil {
+				return EmitErr(err.Error(), "")
+			} else if sess != nil && sess.Status == runSessionWaitingForAgent {
+				sessionID = sess.ID
 			}
 			if dryRun {
 				plan, err := prepareFinalization(root, s, run, sessionID, token, 0)
@@ -563,6 +885,15 @@ func runUnlockCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
+			if rec.Status == "no_active_session" {
+				agentFirstRec, err := abortWaitingAgentFirstSession(s, run.ID, reason)
+				if err != nil {
+					return EmitErr(err.Error(), "")
+				}
+				if agentFirstRec != nil {
+					rec = agentFirstRec
+				}
+			}
 			return EmitJSON(map[string]any{
 				"ok":         true,
 				"session_id": rec.SessionID,
@@ -573,6 +904,29 @@ func runUnlockCmd() *cobra.Command {
 	}
 	c.Flags().String("reason", "", "why the session is being aborted")
 	return c
+}
+
+func abortWaitingAgentFirstSession(s *db.Store, runID int64, reason string) (*recovery.RunRecoveryReport, error) {
+	latest, err := s.LatestRunSession(runID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil || latest.Status != runSessionWaitingForAgent {
+		return nil, nil
+	}
+	if err := s.UpdateRunSessionStatus(latest.ID, "ABORTED", reason); err != nil {
+		return nil, err
+	}
+	_, _ = s.InsertRunEvent(db.RunEvent{RunID: runID, SessionID: latest.ID, Event: "session_aborted", Detail: reason})
+	return &recovery.RunRecoveryReport{
+		Status:    "ABORTED",
+		SessionID: latest.ID,
+		Active:    false,
+		NextCommands: []string{
+			"codedungeon run status",
+			"codedungeon run --full --prompt <prompt>",
+		},
+	}, nil
 }
 
 func selectedRunMode(c *cobra.Command) string {
@@ -730,6 +1084,9 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 	if run == nil {
 		return "", fmt.Errorf("no active run")
 	}
+	if err := validateFinalizationPreQAGates(root, s, run); err != nil {
+		return "", err
+	}
 	if err := ensureWorkflowQA(root, s, run); err != nil {
 		return "", err
 	}
@@ -743,14 +1100,46 @@ func finalizeRun(root string, s *db.Store, run *db.Run, sessionID, token string,
 	return plan.report, nil
 }
 
+func validateFinalizationPreQAGates(root string, s *db.Store, run *db.Run) error {
+	if err := validateFinalizationProjectRules(root); err != nil {
+		return err
+	}
+	phases, err := s.AllPhases(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := phasesBeforeFiveComplete(phases); err != nil {
+		return err
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return fmt.Errorf("phase-5-gate: %w", err)
+	}
+	if err := validateBranchPushed(run.Branch); err != nil {
+		return fmt.Errorf("phase-5-gate: %w", err)
+	}
+	return nil
+}
+
 func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateReviewEvidence(reviewEvidence); err != nil {
+		return fmt.Errorf("workflow-qa-review-gate: %w", err)
+	}
 	records, err := s.VerificationRecords(run.ID, "6")
 	if err != nil {
 		return err
 	}
-	if err := validateVerificationRecords(records); err == nil {
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
 		return nil
 	}
+	waitForPostReviewVerificationWindow(reviewEvidence.CreatedAt)
 	result, err := qamod.Run(context.Background(), qamod.Request{
 		Root:       root,
 		RunID:      run.ID,
@@ -769,7 +1158,31 @@ func ensureWorkflowQA(root string, s *db.Store, run *db.Run) error {
 	return nil
 }
 
+func waitForPostReviewVerificationWindow(reviewCreatedAt int64) {
+	for reviewCreatedAt > 0 && time.Now().Unix() <= reviewCreatedAt {
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func validateVerificationRecordsAfterReview(records []db.VerificationRecord, reviewEvidence *db.ReviewEvidence) error {
+	if err := validateVerificationRecords(records); err != nil {
+		return err
+	}
+	if reviewEvidence == nil || reviewEvidence.CreatedAt == 0 {
+		return fmt.Errorf("approved review evidence timestamp is required")
+	}
+	for _, record := range latestVerificationRecords(activeVerificationRecords(records)) {
+		if record.CreatedAt <= reviewEvidence.CreatedAt {
+			return fmt.Errorf("verification ledger does not postdate latest approved review evidence")
+		}
+	}
+	return nil
+}
+
 func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token string, excludeAgentID int64) (*finalizationPlan, error) {
+	if err := validateFinalizationProjectRules(root); err != nil {
+		return nil, err
+	}
 	var planned []finalizablePhase
 	var virtualPhases []db.Phase
 	if err := withFinalReportEnv(root, run.ID, sessionID, token, func() error {
@@ -806,6 +1219,21 @@ func prepareFinalization(root string, s *db.Store, run *db.Run, sessionID, token
 	}, nil
 }
 
+func validateFinalizationProjectRules(root string) error {
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		return fmt.Errorf("project-rules-gate: %w", err)
+	}
+	if !st.OK || !strings.EqualFold(st.Status, "approved") || len(st.Missing) > 0 || strings.TrimSpace(st.RulesDigest) == "" {
+		reason := fallback(st.StaleReason, strings.Join(st.Missing, ", "))
+		if reason != "" {
+			return fmt.Errorf("project-rules-gate: PROJECT_RULES_STATUS %s (%s)", fallback(st.Status, "missing"), reason)
+		}
+		return fmt.Errorf("project-rules-gate: PROJECT_RULES_STATUS %s", fallback(st.Status, "missing"))
+	}
+	return nil
+}
+
 func planFinalizablePhases(s *db.Store, run *db.Run) ([]finalizablePhase, []db.Phase, error) {
 	phases, err := s.AllPhases(run.ID)
 	if err != nil {
@@ -828,7 +1256,7 @@ func planFinalizablePhases(s *db.Store, run *db.Run) ([]finalizablePhase, []db.P
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateVerificationRecords(records); err != nil {
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
 		return nil, nil, err
 	}
 

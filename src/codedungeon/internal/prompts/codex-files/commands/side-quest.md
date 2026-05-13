@@ -2,7 +2,7 @@
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -20,7 +20,7 @@ Use for simple single-repo changes that should be split into a few explicit task
 - Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
 - Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
-- This workflow may execute steps only when `CODEDUNGEON_SESSION_TOKEN` is set. Otherwise run `./.codex/bin/codedungeon run --lite --prompt "<prompt>"`.
+- This workflow is agent-first. Start or resume durable state with `./.codex/bin/codedungeon run --lite --prompt "<prompt>"`, execute the returned `next_action`, and record progress with `codedungeon run advance`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Do not merge PRs. The user performs final review and merge.
 
@@ -33,12 +33,17 @@ Use for simple single-repo changes that should be split into a few explicit task
 Steps:
 - Resolve or write a short plan under `.codedungeon/plans/`.
 - Create `.codedungeon/tasks/side-quest/PLAN.md` plus focused `TASK-NNN.md` files.
+- Record planning with `./.codex/bin/codedungeon run advance --step planning --status completed --summary "side-quest tasks decomposed" --artifact .codedungeon/tasks/side-quest/PLAN.md`.
 - Create or switch to `feat/<slug>` and verify with `./.codex/bin/codedungeon git guard --repo .`.
 - Execute tasks in order with focused verification.
+- Record execution with `./.codex/bin/codedungeon run advance --step execution --status completed --summary "side-quest tasks complete" --artifact .codedungeon/tasks/side-quest`.
 - Commit, push, and create or reuse a GitHub PR.
 - Run `$code-review`; fix requested changes and rerun review for up to 9 cycles.
+- Record approved review with `./.codex/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review`.
+- Run QA through `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`, then record QA with `./.codex/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa`.
 - Use full review mode for cycles 1-3, then reduced mode for cycles 4-9: keep personas, use fast model/effort, and focus on fixes/new diff.
-- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` requires pushed branch, open PR URL, recorded adversarial review comment, and `APPROVED` verdict.
+- Run `./.codex/bin/codedungeon run finalize`.
+- Return the standard CodeDungeon PR Report. `READY_FOR_USER_REVIEW` is valid only after `codedungeon run finalize` succeeds.
 
 Return format:
 

@@ -96,6 +96,36 @@ func TestAbortActiveRunSessionClosesSessionAndAgents(t *testing.T) {
 	}
 }
 
+func TestWaitingAgentFirstSessionIsActiveForRecovery(t *testing.T) {
+	store, runID := newRecoveryTestStore(t)
+	defer store.Close()
+
+	if err := store.InsertRunSession(db.RunSession{
+		ID:       "agent-first-waiting",
+		RunID:    runID,
+		Provider: "codex",
+		Mode:     "full",
+		Status:   "WAITING_FOR_AGENT",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := InspectRunSession(store, runID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Active || report.Status != "WAITING_FOR_AGENT" || report.SessionID != "agent-first-waiting" {
+		t.Fatalf("report = %+v, want active WAITING_FOR_AGENT", report)
+	}
+	aborted, err := AbortActiveRunSession(store, runID, "agent-first stale", AbortOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aborted.Status != "ABORTED" || aborted.SessionID != "agent-first-waiting" {
+		t.Fatalf("abort report = %+v, want waiting session aborted", aborted)
+	}
+}
+
 func TestInspectExecutionSessionReportsExpiredRollbackAndCleanupHints(t *testing.T) {
 	store, runID := newRecoveryTestStore(t)
 	defer store.Close()

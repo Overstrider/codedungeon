@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/loldinis/codedungeon/internal/db"
 )
@@ -115,6 +116,171 @@ func TestQARunReadsCommandFromFile(t *testing.T) {
 	}
 	if strings.TrimSpace(records[0].Command) != "echo qa-cmd-file-ok" || records[0].Status != "PASS" {
 		t.Fatalf("unexpected record: %+v", records[0])
+	}
+}
+
+func TestQARunRecordsPhaseSixVerificationAfterLatestReview(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := store.CreateRun(&db.Run{Feature: "qa after review", Branch: "feat/qa-review", Mode: "FULL", ProjectMode: "SINGLE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "qa-post-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewResult := writeStandaloneReviewResultFixture(t, reviewDir)
+	reviewID, err := store.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            runID,
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewResult.ReviewJSONPath,
+		ManifestPath:     filepath.Join(reviewDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewCreatedAt := time.Now().Unix() + 1
+	if _, err := store.DB.Exec(`UPDATE review_evidence SET created_at=? WHERE id=?`, reviewCreatedAt, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"run", "--phase", "6", "--cmd", "printf qa-post-review-ok"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	reviewEvidence, err := store.LatestReviewEvidence(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.VerificationRecords(runID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQARecordAllowsWaitingAgentFirstSessionAndPostdatesReview(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	store, err := db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := store.CreateRun(&db.Run{Feature: "qa record after review", Branch: "feat/qa-record", Mode: "FULL", ProjectMode: "SINGLE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertRunSession(db.RunSession{
+		ID:          "waiting-agent",
+		RunID:       runID,
+		Provider:    "codex",
+		Mode:        "full",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      runSessionWaitingForAgent,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "qa-record-post-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewResult := writeStandaloneReviewResultFixture(t, reviewDir)
+	reviewID, err := store.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            runID,
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewResult.ReviewJSONPath,
+		ManifestPath:     filepath.Join(reviewDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewCreatedAt := time.Now().Unix() + 1
+	if _, err := store.DB.Exec(`UPDATE review_evidence SET created_at=? WHERE id=?`, reviewCreatedAt, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(root, ".codedungeon", "logs", "manual-qa.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := QACmd()
+	cmd.SetArgs([]string{"record", "--phase", "6", "--cmd", "go test ./...", "--status", "PASS", "--log", logPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = db.Open(filepath.Join(root, ".codedungeon", "codedungeon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	reviewEvidence, err := store.LatestReviewEvidence(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.VerificationRecords(runID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
+		t.Fatal(err)
 	}
 }
 

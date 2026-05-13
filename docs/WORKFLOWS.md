@@ -5,13 +5,18 @@ CodeDungeon installs agent-facing workflows for both providers. Claude Code invo
 - Claude Code: `/codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
 - Codex: `$codedungeon [--full|--lite|--oneshot|--auto|--rules] <prompt>`
 
-Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before following a workflow. Code-writing modes delegate to `codedungeon run --full|--lite|--oneshot --prompt "<prompt>"`; the runner creates an autonomous child session with custody tokens, and the parent agent must not manually execute phases, post review comments, or merge PRs.
+Without a mode flag, the router behaves as `--auto` and prints `CODEDUNGEON_MODE_SELECTED: <mode> - <reason>` before following a workflow. Code-writing modes delegate to `codedungeon run --full|--lite|--oneshot --prompt "<prompt>"`; the runner creates or resumes durable workflow state and returns an agent-first JSON contract with `current_step`, `blockers`, `timeline`, and `next_action`. The current agent executes the step with native tools, then records progress with `codedungeon run advance`.
 
 `codedungeon kernel` is the read-only capability manifest for agents. It emits
 JSON that names the Codex and Claude provider surfaces, workflow modes,
 deterministic modules, completion gates, SQLite/FTS5 state, project-local
 configuration scope, and license. Agents should use it when they need to inspect
 the workflow kernel contract instead of inferring capabilities from prose.
+
+Mid-flow gates are soft: missing Project Rules, GitHub PR readiness, failed QA,
+or review changes are returned as structured blockers and next actions. Final
+delivery is still hard-gated: `codedungeon run finalize` is the only command
+that can emit `READY_FOR_USER_REVIEW`.
 
 | Mode | Claude | Codex | Workflow | Use when |
 |------|--------|-------|----------|----------|
@@ -77,7 +82,11 @@ codedungeon rules compact
 codedungeon rules gate --event Stop --mode warn
 ```
 
-`--full` and `--lite` should block when approved rules are stale or still draft unless the user explicitly says to proceed with stale rules. `--oneshot` may continue with a warning for small direct fixes.
+`--full` and `--lite` return stale, draft, or missing rules as soft blockers in
+the agent-first run contract. Agents should refresh or approve rules before
+broad planning, but the hard stop is finalization: final reports must include
+the Project Rules envelope and cannot claim READY_FOR_USER_REVIEW with missing
+rules evidence.
 
 Optional hook enforcement:
 
@@ -90,7 +99,7 @@ Codex hooks gate prompt/tool/stop events. Claude hooks additionally describe tas
 
 ## Success Gate
 
-CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI. Any workflow that writes code must fail before editing if `git remote get-url origin` or `gh auth status` fails. There is no local-only completion path. A code-writing workflow succeeds only when:
+CodeDungeon is PR-centered and requires GitHub plus an authenticated GitHub CLI before completion. Agent-first runs may surface missing `git remote get-url origin` or `gh auth status` as structured finalization blockers while planning/execution continues, but there is no local-only READY_FOR_USER_REVIEW path. A code-writing workflow succeeds only when:
 
 1. Final build/check/test verification is produced by the QA module. Agents may run explicit checks with `codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"` and subsequent `codedungeon qa run --phase 6 --cmd "<cmd>"`; `codedungeon run finalize` also invokes `codedungeon qa run --auto` behavior automatically when the active Phase 6 ledger is missing or failing.
 2. The branch is pushed.
@@ -109,7 +118,7 @@ Runtime evidence is also indexed in the artifact registry. Use `codedungeon arti
 
 ## Agent Telemetry
 
-CodeDungeon records informational agent telemetry in the project DB. The autonomous runner records itself automatically. Workflows should record every phase agent, worker, review persona, validator, classifier, and stack-specialist delegation with `codedungeon trace agent-start` before spawning and `codedungeon trace agent-end` after return.
+CodeDungeon records informational agent telemetry in the project DB. Agent-first workflows should record every phase agent, worker, review persona, validator, classifier, and stack-specialist delegation with `codedungeon trace agent-start` before spawning and `codedungeon trace agent-end` after return.
 
 Telemetry is not a readiness gate. Missing or open telemetry appears as a warning in final reports and in `codedungeon observe report`, but it does not replace QA, review, PR, or report evidence. Use `codedungeon observe agents` for JSON and `codedungeon observe report` for an audit-friendly Markdown timeline.
 

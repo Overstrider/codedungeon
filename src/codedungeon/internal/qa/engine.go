@@ -434,6 +434,11 @@ func persistResult(req Request, result Result) error {
 			return err
 		}
 	}
+	if len(result.Checks) > 0 {
+		if err := waitForPostReviewVerificationWindow(req); err != nil {
+			return err
+		}
+	}
 	for _, check := range result.Checks {
 		if err := req.Store.InsertQACheck(db.QACheck{
 			ID:         result.SessionID + "-" + check.ID,
@@ -484,6 +489,23 @@ func persistResult(req Request, result Result) error {
 		}
 	}
 	return persistArtifacts(req, result)
+}
+
+func waitForPostReviewVerificationWindow(req Request) error {
+	if req.Store == nil || req.RunID <= 0 || strings.TrimSpace(req.Phase) != "6" {
+		return nil
+	}
+	reviewEvidence, err := req.Store.LatestReviewEvidence(req.RunID)
+	if err != nil {
+		return err
+	}
+	if reviewEvidence == nil || !strings.EqualFold(reviewEvidence.Verdict, "APPROVED") || reviewEvidence.CreatedAt <= 0 {
+		return nil
+	}
+	for time.Now().Unix() <= reviewEvidence.CreatedAt {
+		time.Sleep(25 * time.Millisecond)
+	}
+	return nil
 }
 
 func persistArtifacts(req Request, result Result) error {

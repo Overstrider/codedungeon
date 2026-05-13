@@ -81,6 +81,29 @@ func TestProjectRulesLifecycleApproveCompactStatusAndLint(t *testing.T) {
 	}
 }
 
+func TestProjectRulesStatusRejectsMissingCompactEvidence(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "README.md"), "# Demo\n")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, ".codedungeon", "project-rules.compact.md")); err != nil {
+		t.Fatal(err)
+	}
+	st, err := computeProjectRulesStatus(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.OK || st.Status != "stale" || !strings.Contains(st.StaleReason, "missing project rules evidence") {
+		t.Fatalf("status = %+v, want stale missing compact evidence", st)
+	}
+}
+
 func TestRulesStatusUsesLocalCodeDungeonRootOverOuterGitRoot(t *testing.T) {
 	outer := t.TempDir()
 	runGit(t, outer, "init")

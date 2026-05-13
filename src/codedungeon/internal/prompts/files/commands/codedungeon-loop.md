@@ -2,7 +2,7 @@
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -19,7 +19,7 @@ Deterministic completion gates:
 - Do not write review reports manually.
 - Do not write final reports manually.
 - Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context "$TASK_DIR/PLAN.md" --out .codedungeon/code-review --post`.
-- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --auto --fresh` or `./.claude/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`.
 - Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
 
 Automated task execution loop. Reads a PLAN.md, executes each task via language-specialized specialists (plan + exec + review), runs `/code-review` (adversarial fanout) and loops on CHANGES_REQUESTED.
@@ -171,11 +171,11 @@ Preflight before implementation:
 ```bash
 cd "$REPO_DIR"
 git rev-parse --is-inside-work-tree >/dev/null
-git remote get-url origin >/dev/null
-gh auth status
+git remote get-url origin >/dev/null || echo "origin missing; continue as finalization blocker"
+gh auth status || echo "gh auth missing; continue as finalization blocker"
 ```
 
-Any failure here is a hard stop before edits.
+Local git repo failure is a hard stop before edits. Missing `origin` or `gh` auth is a finalization blocker, not a local implementation blocker; continue through branchable local work and let PR/finalization steps return the structured blocker if GitHub readiness is still absent.
 
 ### Main Loop Step 1: Branch setup
 

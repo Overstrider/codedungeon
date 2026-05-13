@@ -5,7 +5,7 @@ description: Run the full codedungeon phase workflow for complex or multi-repo C
 
 ## Project Rules Gate
 
-Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. Missing, draft, or stale rules are soft blockers while the agent is shaping work, but finalization must not claim READY_FOR_USER_REVIEW without the required Project Rules envelope.
 
 Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
 
@@ -19,7 +19,7 @@ PROJECT_RULES_READ: yes|no
 
 Use for complex features, multi-repo changes, or work that needs the full phase lifecycle.
 
-This workflow may execute steps only inside an autonomous CodeDungeon child session. If `CODEDUNGEON_SESSION_TOKEN` is not set, stop and run:
+This workflow is agent-first. Start or resume durable state with:
 
 ```bash
 ./.codex/bin/codedungeon run --full --prompt "<prompt>"
@@ -27,20 +27,20 @@ This workflow may execute steps only inside an autonomous CodeDungeon child sess
 
 ## GitHub PR Prerequisites
 
-CodeDungeon code-writing workflows require GitHub and the GitHub CLI. Before initializing or editing, verify:
+CodeDungeon code-writing workflows require GitHub and the GitHub CLI before final delivery. Check early so blockers are visible:
 
 ```bash
 git remote get-url origin
 gh auth status
 ```
 
-If either command fails, stop before editing and report `Status BLOCKED`. There is no local-only completion path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
+If either command fails, record it as a finalization blocker and continue with safe planning or local execution when useful. There is no local-only READY_FOR_USER_REVIEW path; Phase 5 and Phase 7 require a pushed branch, a GitHub PR, and adversarial review evidence.
 
 ## Evidence Gates
 
 - Do not write review reports manually. Code review is a standalone module: for each repo/PR run `./.codex/bin/codedungeon code-review --out .codedungeon/code-review/<repo> --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context .codedungeon/tasks/<feature>/<repo>/PLAN.md --post`. Legacy `review run` cannot approve empty findings and is not final approval evidence.
 - Do not write final reports manually. READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`, which closes eligible final phases, cleans stale telemetry, and renders the report after phase, review, git, and QA gates pass.
-- Start final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; for multi-repo workflows run QA sequentially per repo with `./.codex/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
+- After approved review evidence is posted, run final verification with `./.codex/bin/codedungeon qa run --phase 6 --fresh --cmd "<first cmd>"`; for multi-repo workflows run QA sequentially per repo with `./.codex/bin/codedungeon qa run --cwd <repo> --phase 6 --fresh --cmd "<first cmd>"`, then execute subsequent concrete build/check/test commands with `./.codex/bin/codedungeon qa run --phase 6 --cmd "<cmd>"`.
 - Review is mandatory for code-writing workflows; do not treat `Review: APPROVED` as a substitute for `Verification: PASS`.
 
 ## Agent Telemetry
@@ -57,7 +57,11 @@ Steps:
 - If Codex rejects a custom `agent_type`, stop with a blocker; project `.codex/config.toml` and non-interactive Codex invocations already enable `multi_agent_v2`.
 - When spawning a Codex subagent, pass the emitted `agent_type`; record `model` and `reasoning_effort` in telemetry/prompt context, but do not force model overrides when Codex rejects that combination.
 - Use Codex subagents from `.codex/agents` only when delegation is explicitly useful; do not rely on agent TOML files to choose model or effort.
-- Close phases through `6` with `./.codex/bin/codedungeon phase done`.
+- Record planning with `./.codex/bin/codedungeon run advance --step planning --status completed --summary "<summary>" --artifact <plan-or-task-artifact>`.
+- Record execution with `./.codex/bin/codedungeon run advance --step execution --status completed --summary "<summary>" --artifact <implementation-artifact>`.
+- Record approved review with `./.codex/bin/codedungeon run advance --step code_review --status completed --summary "review approved" --artifact .codedungeon/code-review`.
+- Record QA with `./.codex/bin/codedungeon run advance --step qa --status completed --summary "verification recorded" --artifact .codedungeon/qa`.
+- Use `phase done` only for explicit skip/blocker states that cannot be represented by `run advance`.
 - Review posting is handled by `codedungeon code-review --post`; arbitrary marker comments do not satisfy `git verify`.
 - Do not merge the PR. The runner final status is `READY_FOR_USER_REVIEW`; the user performs final review and merge.
 

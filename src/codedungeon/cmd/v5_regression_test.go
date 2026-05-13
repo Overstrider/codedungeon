@@ -215,7 +215,7 @@ func TestQARunReturnsErrorWhenCommandFails(t *testing.T) {
 	}
 }
 
-func TestRunStartBlocksFullWhenProjectRulesMissingBeforeCreatingRun(t *testing.T) {
+func TestRunStartSoftBlocksFullWhenProjectRulesMissing(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
 	oldWD, err := os.Getwd()
@@ -229,15 +229,26 @@ func TestRunStartBlocksFullWhenProjectRulesMissingBeforeCreatingRun(t *testing.T
 
 	run := RunCmd()
 	run.SetArgs([]string{"--full", "--prompt", "ship feature", "--dry-run"})
-	err = run.Execute()
-	if err == nil {
-		t.Fatal("full run started without approved Project Rules")
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = run.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("full run with missing Project Rules should return a soft blocker: %v\n%s", execErr, out)
 	}
-	if !strings.Contains(err.Error(), "project-rules-gate") {
-		t.Fatalf("unexpected error: %v", err)
+	var payload map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal run output: %v\n%s", err, out)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, ".codedungeon", "codedungeon.db")); !os.IsNotExist(statErr) {
-		t.Fatalf("run DB should not be created when Project Rules block start: %v", statErr)
+	if payload["status"] != "ACTION_REQUIRED" {
+		t.Fatalf("status = %v, want ACTION_REQUIRED\n%s", payload["status"], out)
+	}
+	current, ok := payload["current_step"].(map[string]any)
+	if !ok || current["id"] != "project_rules" {
+		t.Fatalf("current_step = %#v, want project_rules\n%s", payload["current_step"], out)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".codedungeon", "codedungeon.db")); statErr != nil {
+		t.Fatalf("run DB should be created so the agent can recover state: %v", statErr)
 	}
 }
 
@@ -524,15 +535,17 @@ func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   run.ID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	markVerificationRecordAfterLatestReview(t, s, run.ID, verificationID)
 	if err := s.InsertRunSession(db.RunSession{
 		ID:          "session-1",
 		RunID:       run.ID,
@@ -580,11 +593,208 @@ func TestRunFinalizeDoesNotMarkFinalPhasesWhenFinalGatesFail(t *testing.T) {
 	}
 }
 
+func TestRunFinalizeDoesNotRunWorkflowQABeforeReviewEvidence(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "README.md"), "# workflow qa ordering\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/workflowqaorder\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "smoke_test.go"), "package workflowqaorder\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cmd := PhaseCmd()
+	cmd.SetArgs([]string{"init", "--feature", "gating", "--branch", "feature/gating", "--project-mode", "SINGLE"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"0", "1", "2'", "3.5", "4"} {
+		if err := s.SetPhaseStatus(run.ID, phase, "DONE", "pre-final gate complete", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = finalizeRun(root, s, run, "session-1", "", 0)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "review") {
+		t.Fatalf("finalizeRun error = %v, want review blocker", err)
+	}
+	qaSession, err := s.LatestQASession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qaSession != nil {
+		t.Fatalf("workflow QA ran before review evidence was approved: %+v", qaSession)
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("verification records written before review evidence was approved: %+v", records)
+	}
+}
+
+func TestWorkflowQARerunsWhenVerificationPredatesReview(t *testing.T) {
+	root := setupGatedRun(t)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/workflowqarerun\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "smoke_test.go"), "package workflowqarerun\n\nimport \"testing\"\n\nfunc TestSmoke(t *testing.T) {}\n")
+	s := openTestStore(t, root)
+	defer s.Close()
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldLog := filepath.Join(root, ".codedungeon", "logs", "old-go-test.log")
+	if err := os.MkdirAll(filepath.Dir(oldLog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldLog, []byte("old pass"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldRecordID, err := s.InsertVerificationRecord(db.VerificationRecord{
+		RunID:   run.ID,
+		Phase:   "6",
+		Command: "go test ./...",
+		Status:  "PASS",
+		LogPath: oldLog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewDir := filepath.Join(root, ".codedungeon", "reviews", "qa-after-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewResult := writeStandaloneReviewResultFixture(t, reviewDir)
+	if _, err := s.InsertReviewEvidence(db.ReviewEvidence{
+		RunID:            run.ID,
+		ReviewDir:        reviewDir,
+		ReviewJSONPath:   reviewResult.ReviewJSONPath,
+		ManifestPath:     filepath.Join(reviewDir, "review-manifest.json"),
+		Verdict:          "APPROVED",
+		PRNumber:         "123",
+		BaseSHA:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		HeadSHA:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		PersonasExpected: []string{"saboteur"},
+		PersonasRun:      []string{"saboteur"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reviewEvidence, err := s.LatestReviewEvidence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt, oldRecordID); err != nil {
+		t.Fatal(err)
+	}
+	records, err := s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err == nil {
+		t.Fatalf("same-second stale verification record was accepted before workflow QA reran: %+v", records)
+	}
+
+	if err := ensureWorkflowQA(root, s, run); err != nil {
+		t.Fatalf("ensureWorkflowQA failed: %v", err)
+	}
+	qaSession, err := s.LatestQASession(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qaSession == nil || qaSession.Status != "PASS" || qaSession.Entrypoint != "workflow" {
+		t.Fatalf("qa session = %+v, want workflow PASS", qaSession)
+	}
+	records, err = s.VerificationRecords(run.ID, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateVerificationRecordsAfterReview(records, reviewEvidence); err != nil {
+		t.Fatalf("fresh workflow QA was not accepted after review: %v\nrecords=%+v", err, records)
+	}
+	var oldRecord db.VerificationRecord
+	for _, record := range records {
+		if record.ID == oldRecordID {
+			oldRecord = record
+			break
+		}
+	}
+	if oldRecord.ID == 0 || oldRecord.SupersededAt == 0 {
+		t.Fatalf("old verification record was not superseded: %+v", records)
+	}
+}
+
+func TestRunFinalizeDryRunRejectsStaleProjectRules(t *testing.T) {
+	root := setupGatedRun(t)
+	writeFile(t, filepath.Join(root, "README.md"), "# changed after rules approval\n")
+	s := openTestStore(t, root)
+	run, err := s.CurrentRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertRunSession(db.RunSession{
+		ID:          "session-1",
+		RunID:       run.ID,
+		Provider:    "codex",
+		Mode:        "full",
+		TokenSHA256: hashSessionToken("secret"),
+		Status:      "RUNNING",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	t.Setenv(envSessionID, "session-1")
+	t.Setenv(envSessionToken, "secret")
+
+	finalize := RunCmd()
+	finalize.SetArgs([]string{"finalize", "--dry-run"})
+	var execErr error
+	out := captureStdout(t, func() {
+		execErr = finalize.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("dry-run should return structured project-rules blocker, got %v\n%s", execErr, out)
+	}
+	var payload map[string]any
+	if err := unmarshalSetupJSON([]byte(out), &payload); err != nil {
+		t.Fatalf("unmarshal dry-run: %v\n%s", err, out)
+	}
+	blocker, _ := payload["blocker"].(string)
+	if payload["ok"] != false || !strings.Contains(strings.ToLower(blocker), "project-rules-gate") {
+		t.Fatalf("payload = %+v, want project-rules blocker", payload)
+	}
+}
+
 func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	root := setupGatedRun(t)
 	writeFile(t, filepath.Join(root, "README.md"), "# gated\n")
 	runGit(t, root, "add", "README.md")
 	runGit(t, root, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, root, "checkout", "-b", "feature/gating")
 	remote := filepath.Join(t.TempDir(), "origin.git")
 	runGit(t, root, "init", "--bare", remote)
@@ -642,15 +852,17 @@ func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   run.ID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	markVerificationRecordAfterLatestReview(t, s, run.ID, verificationID)
 	if err := s.InsertRunSession(db.RunSession{
 		ID:          "session-1",
 		RunID:       run.ID,
@@ -704,6 +916,19 @@ func TestRunFinalizeSuccessMarksReadyAndCompletesRunner(t *testing.T) {
 	}
 	if sess == nil || sess.Status != "READY_FOR_USER_REVIEW" {
 		t.Fatalf("session not marked ready: %+v", sess)
+	}
+	status := RunCmd()
+	status.SetArgs([]string{"status"})
+	var statusErr error
+	statusOut := captureStdout(t, func() {
+		statusErr = status.Execute()
+	})
+	if statusErr != nil {
+		t.Fatalf("run status failed after finalization: %v\n%s", statusErr, statusOut)
+	}
+	statusPayload := decodeAgentFirstPayload(t, statusOut)
+	if statusPayload.Status != runStatusReadyUserReview || statusPayload.CurrentStep.ID != "ready_for_user_review" {
+		t.Fatalf("status payload = %+v, want READY_FOR_USER_REVIEW terminal state", statusPayload)
 	}
 	agents, err := s.AgentRuns(run.ID)
 	if err != nil {

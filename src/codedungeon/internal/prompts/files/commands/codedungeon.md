@@ -62,7 +62,7 @@ Validation:
    CODEDUNGEON_MODE_SELECTED: <mode> - <reason>
    ```
 
-6. For `full`, `lite`, and `oneshot`, do not execute workflow steps in the parent Claude session. Dispatch to the autonomous runner:
+6. For `full`, `lite`, and `oneshot`, start or resume the agent-first workflow state:
 
    ```bash
    ./.claude/bin/codedungeon run --full --prompt "<prompt>"
@@ -70,7 +70,7 @@ Validation:
    ./.claude/bin/codedungeon run --oneshot --prompt "<prompt>"
    ```
 
-   The runner verifies GitHub PR support, creates the run/session, launches the provider child, records custody evidence, and returns `READY_FOR_USER_REVIEW`.
+   The runner creates or resumes the run/session and returns JSON with `current_step`, `blockers`, `timeline`, and `next_action`. Execute the returned next action with native Claude tools, then record progress with `codedungeon run advance --step <step> --status completed --summary "<summary>" --artifact <path>`. Mid-flow blockers are soft; `run finalize` remains the hard gate for `READY_FOR_USER_REVIEW`.
 
 ## Auto Selection
 
@@ -84,7 +84,7 @@ Select `oneshot` for small direct changes where task splitting would be overhead
 
 ## Dispatch
 
-After selecting the mode, call the target autonomous runner exactly:
+After selecting the mode, call the target agent-first state runner exactly:
 
 - `full`: `./.claude/bin/codedungeon run --full --prompt "<prompt>"`.
 - `lite`: `./.claude/bin/codedungeon run --lite --prompt "<prompt>"`.

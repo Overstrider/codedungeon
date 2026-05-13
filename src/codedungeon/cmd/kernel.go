@@ -96,7 +96,7 @@ func buildKernelManifest() kernelManifest {
 		OK:              true,
 		Name:            "CodeDungeon Kernel",
 		Version:         versionString(),
-		Description:     "Machine-to-machine workflow kernel for Codex and Claude Code agents.",
+		Description:     "Agent-first machine-to-machine workflow kernel for Codex and Claude Code agents.",
 		CurrentProvider: provider.Detect().Name(),
 		ProviderSurfaces: []kernelProviderSurface{
 			{
@@ -156,9 +156,9 @@ func buildKernelManifest() kernelManifest {
 			{
 				ID:          "execution",
 				Name:        "Implementation Executor",
-				Commands:    []string{"codedungeon execute task", "codedungeon execute plan", "codedungeon run --full", "codedungeon run --lite", "codedungeon run --oneshot"},
+				Commands:    []string{"codedungeon execute task", "codedungeon execute plan", "codedungeon run --full", "codedungeon run --lite", "codedungeon run --oneshot", "codedungeon run advance", "codedungeon run status"},
 				State:       []string{".codedungeon/execute/sessions/<session>/", ".codedungeon/state/"},
-				Description: "Runs task contracts through custody-aware worker sessions with verification evidence.",
+				Description: "Tracks agent-first workflow state and runs task contracts through agent-owned worker sessions with verification evidence.",
 			},
 			{
 				ID:          "qa",
@@ -204,13 +204,13 @@ func buildKernelManifest() kernelManifest {
 			},
 		},
 		Gates: []kernelGate{
-			{ID: "project_rules", Name: "Approved Project Rules", Source: "codedungeon rules status", RequiredFor: "full and lite workflow planning"},
+			{ID: "project_rules", Name: "Approved Project Rules", Source: "codedungeon rules status", RequiredFor: "final READY_FOR_USER_REVIEW evidence; soft blocker during planning"},
 			{ID: "qa", Name: "QA Verification", Source: "codedungeon qa run", RequiredFor: "PR-producing workflow finalization"},
 			{ID: "code_review", Name: "Code Review Approval", Source: "codedungeon code-review --post", RequiredFor: "READY_FOR_USER_REVIEW"},
 			{ID: "github_pr", Name: "GitHub PR", Source: "codedungeon git verify", RequiredFor: "PR-producing workflow finalization"},
 			{ID: "artifact_integrity", Name: "Artifact Integrity", Source: "codedungeon artifacts verify --latest-run", RequiredFor: "trusted runtime evidence"},
 			{ID: "final_report", Name: "Final Report", Source: "codedungeon run finalize", RequiredFor: "READY_FOR_USER_REVIEW"},
-			{ID: "custody", Name: "Custody Delivery", Source: "codedungeon run", RequiredFor: "preventing manual continuation after runner failure"},
+			{ID: "agent_first_state", Name: "Agent-First State", Source: "codedungeon run", RequiredFor: "durable current_step, blockers, timeline, and next_action contracts"},
 		},
 		State: kernelState{
 			RuntimeRoot:      ".codedungeon",

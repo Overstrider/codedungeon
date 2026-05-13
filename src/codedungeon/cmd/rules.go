@@ -228,6 +228,7 @@ func computeProjectRulesStatus(root string) (projectRulesStatus, error) {
 	rulesTextStatus := parseRulesTextStatus(string(rulesBody))
 	if rulesTextStatus == "draft" {
 		status.Status = "draft"
+		status.OK = false
 		return status, nil
 	}
 
@@ -235,6 +236,9 @@ func computeProjectRulesStatus(root string) (projectRulesStatus, error) {
 	if err != nil {
 		if rulesTextStatus == "approved" && len(missing) == 0 {
 			status.Status = "approved"
+			status.OK = true
+		} else {
+			status.OK = false
 		}
 		return status, nil
 	}
@@ -246,6 +250,14 @@ func computeProjectRulesStatus(root string) (projectRulesStatus, error) {
 	if state.SourceDigest != sourceDigest {
 		status.Status = "stale"
 		status.StaleReason = "source digest changed"
+	}
+	if len(missing) > 0 {
+		if status.Status == "approved" {
+			status.Status = "stale"
+			status.StaleReason = "missing project rules evidence: " + strings.Join(missing, ", ")
+		}
+		status.OK = false
+		return status, nil
 	}
 	status.OK = status.Status == "approved"
 	if status.Status == "missing" || status.Status == "" {

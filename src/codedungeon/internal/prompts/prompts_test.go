@@ -899,7 +899,7 @@ func TestCodexReviewAgentsDeclareReviewpipeJSONFields(t *testing.T) {
 	}
 }
 
-func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T) {
+func TestCodexFullWorkflowDocumentsAgentFirstRunAndGitHubPrereqs(t *testing.T) {
 	for _, rel := range []string{
 		"commands/main-quest.md",
 		"skills/main-quest/SKILL.md",
@@ -916,14 +916,59 @@ func TestCodexFullWorkflowDocumentsAutonomousRunnerAndGitHubPrereqs(t *testing.T
 		}
 		required := []string{"GitHub PR"}
 		if strings.Contains(rel, "codedungeon") {
-			required = append(required, "codedungeon run --full", "autonomous runner")
+			required = append(required, "codedungeon run --full", "agent-first", "run advance")
 		} else {
 			required = append(required, "existing run created by `codedungeon run`", "gh auth status", "git remote get-url origin", "do not call `phase init`")
+			if strings.Contains(rel, "main-quest") {
+				required = append(required, "run advance --step", "phase done` only for explicit skip")
+			}
 		}
 		for _, required := range required {
 			if !strings.Contains(body, required) {
-				t.Fatalf("%s missing GitHub/autonomous-runner instruction %q:\n%s", rel, required, body)
+				t.Fatalf("%s missing GitHub/agent-first instruction %q:\n%s", rel, required, body)
 			}
+		}
+	}
+}
+
+func TestOneShotPromptsRecordReviewBeforeFinalQA(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		rel      string
+	}{
+		{"codex", "commands/one-shot.md"},
+		{"codex", "skills/one-shot/SKILL.md"},
+		{"claude", "commands/one-shot.md"},
+	} {
+		raw, err := GetRawFor(tc.provider, tc.rel)
+		if err != nil {
+			t.Fatalf("read %s:%s: %v", tc.provider, tc.rel, err)
+		}
+		body := string(raw)
+		reviewIdx := strings.Index(body, "run advance --step code_review")
+		qaIdx := strings.LastIndex(body, "run advance --step qa")
+		if reviewIdx < 0 || qaIdx < 0 || reviewIdx > qaIdx {
+			t.Fatalf("%s:%s must record code_review before final qa:\n%s", tc.provider, tc.rel, body)
+		}
+	}
+}
+
+func TestClaudeMainQuestDocumentsAgentFirstRunAdvance(t *testing.T) {
+	raw, err := GetRawFor("claude", "commands/main-quest.md")
+	if err != nil {
+		t.Fatalf("read claude main-quest: %v", err)
+	}
+	body := string(raw)
+	for _, required := range []string{
+		"run --full --prompt",
+		"run advance --step planning",
+		"run advance --step execution",
+		"run advance --step code_review",
+		"run advance --step qa",
+		"Use `phase done` for phase-level handoffs",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("claude main-quest missing agent-first instruction %q:\n%s", required, body)
 		}
 	}
 }

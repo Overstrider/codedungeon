@@ -88,6 +88,21 @@ func TestFinalizeCreatesPendingProjectContextProposal(t *testing.T) {
 	runGit(t, root, "remote", "add", "origin", remote)
 	runGit(t, root, "push", "-u", "origin", "feat/export-command")
 	writeFile(t, filepath.Join(root, ".codedungeon", "project-context.md"), "# Project Context\n\n- Project is a demo.\n")
+	writeProjectRulesDraft(t, root)
+	if _, err := approveProjectRules(root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compactProjectRules(root); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
 	store := openTestStore(t, root)
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
@@ -216,12 +231,30 @@ func prepareRunFinalizationEvidence(t *testing.T, root string, s *db.Store, runI
 	if err := os.WriteFile(logPath, []byte("ok"), 0o644); err != nil {
 		return err
 	}
-	_, err = s.InsertVerificationRecord(db.VerificationRecord{
+	verificationID, err := s.InsertVerificationRecord(db.VerificationRecord{
 		RunID:   runID,
 		Phase:   "6",
 		Command: "go test ./...",
 		Status:  "PASS",
 		LogPath: logPath,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	markVerificationRecordAfterLatestReview(t, s, runID, verificationID)
+	return nil
+}
+
+func markVerificationRecordAfterLatestReview(t *testing.T, s *db.Store, runID, recordID int64) {
+	t.Helper()
+	reviewEvidence, err := s.LatestReviewEvidence(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewEvidence == nil {
+		t.Fatal("latest review evidence missing")
+	}
+	if _, err := s.DB.Exec(`UPDATE verification_records SET created_at=? WHERE id=?`, reviewEvidence.CreatedAt+1, recordID); err != nil {
+		t.Fatal(err)
+	}
 }
