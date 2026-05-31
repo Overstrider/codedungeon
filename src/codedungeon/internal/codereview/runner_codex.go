@@ -35,23 +35,38 @@ func (r CodexRunner) runCodex(ctx context.Context, prompt string) error {
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
 	}
-	var stderr bytes.Buffer
+	var stderr, stdout bytes.Buffer
 	runner := r.Runner
 	if runner == nil {
 		runner = tooladapter.NewSystemRunner()
 	}
 	_, err := runner.Run(ctx, tooladapter.Command{
-		Dir:    workDir,
-		Name:   "codex",
-		Args:   []string{"exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-"},
-		Stdin:  prompt,
-		Stdout: os.Stdout,
+		Dir:  workDir,
+		Name: "codex",
+		Args: []string{"exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-"},
+		Stdin: prompt,
+		// Capture stdout (still echo) so a codex error printed on stdout surfaces in
+		// the failure instead of being lost to the terminal.
+		Stdout: io.MultiWriter(os.Stdout, &stdout),
 		Stderr: &stderr,
 	})
 	if err != nil {
-		return fmt.Errorf("codex reviewer failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = tailSnippet(stdout.String(), 800)
+		}
+		return fmt.Errorf("codex reviewer failed: %w: %s", err, detail)
 	}
 	return nil
+}
+
+// tailSnippet returns the last n bytes of s, trimmed, for diagnostic error messages.
+func tailSnippet(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }
 
 type ClaudeRunner struct {

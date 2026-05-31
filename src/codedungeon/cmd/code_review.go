@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -95,14 +96,16 @@ func CodeReviewCmd() *cobra.Command {
 			if err != nil {
 				return EmitErr(err.Error(), "")
 			}
-			result, err := codereview.Execute(context.Background(), req, runner)
+			reviewCtx, cancelReview := withExternalTimeout(context.Background(), "CODEDUNGEON_REVIEW_TIMEOUT_SECONDS", 45*time.Minute)
+			defer cancelReview()
+			result, err := codereview.Execute(reviewCtx, req, runner)
 			if err != nil && targetContextArg == "" && targetContextInfo.Mode != "compact" && isContextOverflowError(err) {
 				targetContext, targetContextInfo = collectTargetContextWithOptions(url, targetContextOptions{
 					Mode:     "compact",
 					MaxBytes: maxTargetContextBytes,
 				})
 				req.TargetContext = targetContext
-				result, err = codereview.Execute(context.Background(), req, runner)
+				result, err = codereview.Execute(reviewCtx, req, runner)
 			}
 			if err != nil {
 				return emitCodeReviewFailure(outDir, err)

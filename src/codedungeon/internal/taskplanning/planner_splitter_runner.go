@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,18 +168,32 @@ func (r PlannerSplitterRunner) selectedModel() string {
 }
 
 func defaultPlannerCommandRunner(ctx context.Context, inv PlannerCommandInvocation) error {
-	var stderr bytes.Buffer
+	var stderr, stdout bytes.Buffer
 	_, err := tooladapter.NewSystemRunner().Run(ctx, tooladapter.Command{
-		Name:   inv.Name,
-		Args:   inv.Args,
-		Stdin:  inv.Stdin,
-		Stdout: os.Stdout,
+		Name:  inv.Name,
+		Args:  inv.Args,
+		Stdin: inv.Stdin,
+		// Capture stdout (still echo) so provider errors on stdout surface on failure.
+		Stdout: io.MultiWriter(os.Stdout, &stdout),
 		Stderr: &stderr,
 	})
 	if err != nil {
-		return fmt.Errorf("%s %s failed: %w: %s", inv.Name, strings.Join(inv.Args, " "), err, strings.TrimSpace(stderr.String()))
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = plannerTailSnippet(stdout.String(), 800)
+		}
+		return fmt.Errorf("%s %s failed: %w: %s", inv.Name, strings.Join(inv.Args, " "), err, detail)
 	}
 	return nil
+}
+
+// plannerTailSnippet returns the last n bytes of s, trimmed, for diagnostics.
+func plannerTailSnippet(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }
 
 type PlannerSplitterFilesRunner struct {

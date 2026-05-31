@@ -70,10 +70,15 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
-	d, err := sql.Open("sqlite", path+"?_pragma=journal_mode(DELETE)&_pragma=foreign_keys(1)&_time_format=sqlite")
+	// busy_timeout(5000): wait up to 5s for a competing writer instead of failing
+	// immediately with "database is locked" when two codedungeon commands overlap
+	// (e.g. `phase`/`advance` while another writes). SetMaxOpenConns(1) serialises
+	// writes from this process so they queue rather than collide.
+	d, err := sql.Open("sqlite", path+"?_pragma=journal_mode(DELETE)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_time_format=sqlite")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
+	d.SetMaxOpenConns(1)
 	if err := d.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}

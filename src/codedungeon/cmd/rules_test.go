@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -418,13 +419,19 @@ func TestRulesGateBlocksCompletionInEnforceMode(t *testing.T) {
 }
 
 func TestHooksInstallWritesProviderSpecificHookFiles(t *testing.T) {
+	// Hooks are per-OS: PowerShell on Windows, POSIX sh elsewhere.
+	hookExt := ".sh"
+	if runtime.GOOS == "windows" {
+		hookExt = ".ps1"
+	}
+	hookName := "project-rules-gate" + hookExt
 	for _, tc := range []struct {
 		provider string
-		wantHook string
+		hookDir  string
 		wantCfg  string
 	}{
-		{"codex", filepath.Join(".codex", "hooks", "project-rules-gate.ps1"), filepath.Join(".codex", "config.toml")},
-		{"claude", filepath.Join(".claude", "hooks", "project-rules-gate.ps1"), filepath.Join(".claude", "settings.json")},
+		{"codex", ".codex", filepath.Join(".codex", "config.toml")},
+		{"claude", ".claude", filepath.Join(".claude", "settings.json")},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {
 			root := t.TempDir()
@@ -432,16 +439,25 @@ func TestHooksInstallWritesProviderSpecificHookFiles(t *testing.T) {
 			if err := installProjectRulesHooks(root, tc.provider, "warn"); err != nil {
 				t.Fatal(err)
 			}
-			assertFileExists(t, filepath.Join(root, tc.wantHook))
+			hookFile := filepath.Join(root, tc.hookDir, "hooks", hookName)
+			assertFileExists(t, hookFile)
+			// The hook script wires `codedungeon rules gate` and bakes in the mode.
+			hookBody, err := os.ReadFile(hookFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, required := range []string{"rules gate", "warn"} {
+				if !strings.Contains(string(hookBody), required) {
+					t.Fatalf("%s missing %q:\n%s", hookFile, required, hookBody)
+				}
+			}
+			// The provider config/settings must reference the per-OS hook file.
 			cfg, err := os.ReadFile(filepath.Join(root, tc.wantCfg))
 			if err != nil {
 				t.Fatal(err)
 			}
-			body := string(cfg)
-			for _, required := range []string{"codedungeon rules gate", "warn", "project-rules-gate.ps1"} {
-				if !strings.Contains(body, required) {
-					t.Fatalf("%s missing %q:\n%s", tc.wantCfg, required, body)
-				}
+			if !strings.Contains(string(cfg), hookName) {
+				t.Fatalf("%s missing reference to %q:\n%s", tc.wantCfg, hookName, cfg)
 			}
 		})
 	}

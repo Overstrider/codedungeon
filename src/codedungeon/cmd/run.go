@@ -83,14 +83,14 @@ func runStartE(c *cobra.Command, _ []string) error {
 	if active != nil {
 		if dryRun {
 			return EmitErr("autonomous session already running",
-				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+				activeSessionHint(active))
 		}
 		if canAttachRulesToActiveRun(s, active, rulesStatus, mode) {
 			return emitActiveAgentFirstContract(root, s, active, rulesStatus)
 		}
 		if !canResumeAgentFirstRun(s, active, prompt, mode) {
 			return EmitErr("autonomous session already running",
-				fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s)", active.ID))
+				activeSessionHint(active))
 		}
 	}
 
@@ -998,6 +998,21 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// activeSessionHint explains how to clear a blocking session and flags it as
+// likely-stale when it has been running far longer than a workflow should, so the
+// user knows to `run unlock` instead of waiting on a dead session.
+func activeSessionHint(active *db.RunSession) string {
+	base := fmt.Sprintf("run `codedungeon run unlock --reason \"...\"` before starting another workflow (session %s", active.ID)
+	if active.StartedAt > 0 {
+		age := time.Since(time.Unix(active.StartedAt, 0))
+		base += fmt.Sprintf(", started %s ago", age.Round(time.Minute))
+		if age > 2*time.Hour {
+			base += " — likely stale; unlock is safe"
+		}
+	}
+	return base + ")"
+}
+
 func slugifyFeature(prompt string) string {
 	lower := strings.ToLower(prompt)
 	re := regexp.MustCompile(`[^a-z0-9]+`)
@@ -1715,7 +1730,9 @@ func executeProviderChild(root, mode, prompt string, runID int64, sessionID, tok
 		envSessionID + "=" + sessionID,
 		envSessionToken + "=" + token,
 	}
-	return tooladapter.NewProviderRunner(nil).Run(context.Background(), tooladapter.ProviderRunRequest{
+	ctx, cancel := withExternalTimeout(context.Background(), "CODEDUNGEON_PROVIDER_TIMEOUT_SECONDS", 45*time.Minute)
+	defer cancel()
+	return tooladapter.NewProviderRunner(nil).Run(ctx, tooladapter.ProviderRunRequest{
 		Provider:          p.Name(),
 		Root:              root,
 		Model:             providerChildModel(root, mode, p),

@@ -2,18 +2,39 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/loldinis/codedungeon/internal/db"
 	"github.com/loldinis/codedungeon/internal/provider"
 )
+
+// externalTimeout returns a deadline for an external spawn / network call so a
+// hung CLI or unresponsive network can't pend the command forever. Override per
+// category via env (e.g. CODEDUNGEON_GIT_TIMEOUT_SECONDS), else fall back to def.
+func externalTimeout(envKey string, def time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return def
+}
+
+// withExternalTimeout wraps ctx with externalTimeout(envKey, def). Caller must
+// defer the returned cancel.
+func withExternalTimeout(ctx context.Context, envKey string, def time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, externalTimeout(envKey, def))
+}
 
 // ---- Preflight guards ----
 

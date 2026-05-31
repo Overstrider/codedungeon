@@ -692,7 +692,9 @@ func runCurl(method, url string, headers map[string]string, body any) curlResult
 		args = append(args, "-d", string(b))
 	}
 	start := time.Now()
-	result, err := tooladapter.NewSystemRunner().Run(context.Background(), tooladapter.Command{Name: "curl", Args: args})
+	curlCtx, cancelCurl := withExternalTimeout(context.Background(), "CODEDUNGEON_CURL_TIMEOUT_SECONDS", 30*time.Second)
+	defer cancelCurl()
+	result, err := tooladapter.NewSystemRunner().Run(curlCtx, tooladapter.Command{Name: "curl", Args: args})
 	elapsed := int(time.Since(start).Milliseconds())
 	if err != nil {
 		return curlResult{Err: fmt.Errorf("curl: %s (%w)", result.Stderr, err), TimeMs: elapsed}

@@ -276,25 +276,35 @@ func TestCodexRunnerFailsFastWhenNetworkSandboxIsActive(t *testing.T) {
 
 func TestClaudeRunnerPinsProjectLocalSonnetModel(t *testing.T) {
 	var captured tooladapter.Command
+	// Emit a minimal valid stream-json so the runner can extract the agent JSON
+	// and write the OutputPath (the new behaviour that no longer trusts the CLI
+	// to write the file itself).
 	runner := ClaudeRunner{
 		WorkDir: "repo",
 		Model:   "claude-sonnet-4-6",
 		Runner: commandRunnerFunc(func(_ context.Context, cmd tooladapter.Command) (tooladapter.CommandResult, error) {
 			captured = cmd
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"{\"role\":\"planner_architect\",\"agent_name\":\"dragon\",\"ok\":true}"}]}}` + "\n"))
+			}
 			return tooladapter.CommandResult{}, nil
 		}),
 	}
 
+	outputPath := filepath.Join(t.TempDir(), "planner_architect.json")
 	err := runner.RunPlanningAgent(context.Background(), AgentRequest{
 		Role:          "planner_architect",
 		SessionID:     "phase-4",
 		Round:         1,
 		ContextPacket: "project context",
-		OutputPath:    "out/planner_architect.json",
+		OutputPath:    outputPath,
 		ProjectRules:  ProjectRulesEnvelope{Status: "approved", Digest: "digest", Read: "yes"},
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(outputPath); statErr != nil {
+		t.Fatalf("runner should write OutputPath from the captured stream: %v", statErr)
 	}
 	if captured.Name != "claude" {
 		t.Fatalf("command name = %q, want claude", captured.Name)

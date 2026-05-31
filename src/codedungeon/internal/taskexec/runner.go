@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,21 +48,22 @@ func (r CodexRunner) RunTask(ctx context.Context, req AgentRequest) (AgentResult
 		return AgentResult{}, err
 	}
 	lastMessage := filepath.Join(req.OutputDir, fmt.Sprintf("attempt-%02d-last-message.txt", req.Attempt))
-	var stderr bytes.Buffer
+	var stderr, stdout bytes.Buffer
 	runner := r.Runner
 	if runner == nil {
 		runner = tooladapter.NewSystemRunner()
 	}
 	_, err := runner.Run(ctx, tooladapter.Command{
-		Dir:    workDir,
-		Name:   "codex",
-		Args:   []string{"exec", "--cd", workDir, "--sandbox", "workspace-write", "--enable", "multi_agent_v2", "--output-last-message", lastMessage, "-"},
-		Stdin:  ExecutionPrompt(req),
-		Stdout: os.Stdout,
+		Dir:  workDir,
+		Name: "codex",
+		Args: []string{"exec", "--cd", workDir, "--sandbox", "workspace-write", "--enable", "multi_agent_v2", "--output-last-message", lastMessage, "-"},
+		Stdin: ExecutionPrompt(req),
+		// Capture stdout (still echo it) so codex errors emitted on stdout aren't lost.
+		Stdout: io.MultiWriter(os.Stdout, &stdout),
 		Stderr: &stderr,
 	})
 	if err != nil {
-		return AgentResult{}, fmt.Errorf("codex task worker failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return AgentResult{}, fmt.Errorf("codex task worker failed: %w: %s", err, firstNonEmpty(strings.TrimSpace(stderr.String()), tailSnippet(stdout.String(), 800)))
 	}
 	result, err := readJSONFile[AgentResult](req.ResultPath)
 	if err == nil {
@@ -70,8 +72,27 @@ func (r CodexRunner) RunTask(ctx context.Context, req AgentRequest) (AgentResult
 		}
 		return result, nil
 	}
+	// No structured result file. Fall back to the provider's last message; if that
+	// is empty too, fail loudly with the captured output instead of reporting a
+	// hollow PASS that masks a silent failure.
 	body, _ := os.ReadFile(lastMessage)
-	return AgentResult{Status: WorkerPassed, Summary: strings.TrimSpace(string(body))}, nil
+	summary := strings.TrimSpace(string(body))
+	if summary == "" {
+		summary = tailSnippet(stdout.String(), 800)
+	}
+	if summary == "" {
+		return AgentResult{}, fmt.Errorf("codex task worker produced no result file (%s), no last message, and no stdout", filepath.Clean(req.ResultPath))
+	}
+	return AgentResult{Status: WorkerPassed, Summary: summary}, nil
+}
+
+// tailSnippet returns the last n bytes of s, trimmed, for diagnostic error messages.
+func tailSnippet(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }
 
 func ExecutionPrompt(req AgentRequest) string {

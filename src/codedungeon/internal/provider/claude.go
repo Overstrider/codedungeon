@@ -31,6 +31,8 @@ func (Claude) DefaultModels() ModelConfig {
 
 func (Claude) ModelAlternatives() []ModelConfig {
 	return []ModelConfig{
+		{Reasoning: "claude-opus-4-8", Fast: "claude-opus-4-8"},
+		{Reasoning: "claude-opus-4-8", Fast: "claude-sonnet-4-6"},
 		{Reasoning: "claude-opus-4-7", Fast: "claude-sonnet-4-6"},
 		{Reasoning: "claude-opus-4-7", Fast: "claude-haiku-4-5"},
 		{Reasoning: "claude-sonnet-4-6", Fast: "claude-haiku-4-5"},

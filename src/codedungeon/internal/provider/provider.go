@@ -76,3 +76,25 @@ func byName(name string) Provider {
 		return &Claude{}
 	}
 }
+
+// KnownModels returns the set of model IDs the provider ships as defaults or
+// documented alternatives (both reasoning and fast tiers). Used to catch typos
+// in `config set-models`. It is intentionally non-exhaustive — newer model IDs
+// may be valid without being listed here — so callers should warn (not hard-fail)
+// on an unknown model unless strict validation is requested.
+func KnownModels(p Provider) map[string]bool {
+	known := map[string]bool{}
+	add := func(c ModelConfig) {
+		if c.Reasoning != "" {
+			known[c.Reasoning] = true
+		}
+		if c.Fast != "" {
+			known[c.Fast] = true
+		}
+	}
+	add(p.DefaultModels())
+	for _, alt := range p.ModelAlternatives() {
+		add(alt)
+	}
+	return known
+}

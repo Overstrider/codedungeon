@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -187,6 +189,30 @@ func configSetModelsCmd() *cobra.Command {
 			if cfg.Reasoning == "" || cfg.Fast == "" {
 				return EmitErr("--reasoning and --fast required", "")
 			}
+			// Catch typo'd model IDs that would otherwise be saved and only blow up
+			// later at provider spawn with a cryptic error. The known set is
+			// non-exhaustive (newer IDs may be valid), so by default we WARN; pass
+			// --strict-models to make an unknown model a hard error.
+			strict, _ := c.Flags().GetBool("strict-models")
+			known := provider.KnownModels(provider.Detect())
+			var unknown []string
+			for _, m := range []string{cfg.Reasoning, cfg.Fast} {
+				if m != "" && !known[m] {
+					unknown = append(unknown, m)
+				}
+			}
+			if len(unknown) > 0 {
+				knownList := make([]string, 0, len(known))
+				for m := range known {
+					knownList = append(knownList, m)
+				}
+				sort.Strings(knownList)
+				msg := fmt.Sprintf("unknown model(s) %v for provider %q; known: %v", unknown, provider.Detect().Name(), knownList)
+				if strict {
+					return EmitErr(msg, "pass a known model, or drop --strict-models to allow newer IDs")
+				}
+				fmt.Fprintln(os.Stderr, "[warn] "+msg+" — proceeding (use --strict-models to enforce)")
+			}
 			s, err := OpenDB(c)
 			if err != nil {
 				return EmitErr(err.Error(), "")
@@ -220,6 +246,7 @@ func configSetModelsCmd() *cobra.Command {
 	c.Flags().String("reasoning-effort", "", "reasoning effort for deep thinking tier")
 	c.Flags().String("fast", "", "model ID for fast/cheap tier")
 	c.Flags().String("fast-effort", "", "reasoning effort for fast/cheap tier")
+	c.Flags().Bool("strict-models", false, "fail if a model is not in the provider's known set (default: warn only)")
 	return c
 }
 

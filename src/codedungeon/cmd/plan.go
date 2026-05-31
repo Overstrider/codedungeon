@@ -38,6 +38,18 @@ func PlanCmd() *cobra.Command {
 	return c
 }
 
+// planningSwarmTimeout bounds the whole planning swarm so a stuck/hanging agent
+// (e.g. a nested provider that never returns) can't pend the command forever.
+// Override with CODEDUNGEON_PLAN_TIMEOUT_SECONDS; defaults to 8 minutes.
+func planningSwarmTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("CODEDUNGEON_PLAN_TIMEOUT_SECONDS")); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return 8 * time.Minute
+}
+
 func planRunCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "run",
@@ -68,7 +80,9 @@ func planRunCmd() *cobra.Command {
 			if req.RunID != 0 {
 				_, _ = s.InsertRunEvent(db.RunEvent{RunID: req.RunID, Event: "planning_started", Detail: req.SessionID})
 			}
-			result, execErr := taskplanning.Execute(context.Background(), req, runner)
+			planCtx, cancelPlan := context.WithTimeout(context.Background(), planningSwarmTimeout())
+			defer cancelPlan()
+			result, execErr := taskplanning.Execute(planCtx, req, runner)
 			legacyPhase4, _ := c.Flags().GetBool("legacy-phase4")
 			if execErr == nil && legacyPhase4 && result.TaskGraph != nil {
 				feature := req.Prompt
@@ -190,7 +204,9 @@ func planResumeCmd() *cobra.Command {
 				return EmitErr(err.Error(), "")
 			}
 			_ = s.UpdatePlanningSessionStatus(session.ID, taskplanning.StatusRunning, "")
-			result, execErr := taskplanning.Execute(context.Background(), req, runner)
+			planCtx, cancelPlan := context.WithTimeout(context.Background(), planningSwarmTimeout())
+			defer cancelPlan()
+			result, execErr := taskplanning.Execute(planCtx, req, runner)
 			if persistErr := persistPlanningResult(s, req, result, execErr); persistErr != nil && execErr == nil {
 				execErr = persistErr
 			}

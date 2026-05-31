@@ -5,10 +5,78 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+// hookKind picks the hook implementation for the current OS: PowerShell on
+// Windows, POSIX sh elsewhere (Linux/macOS). The PowerShell-only hook would
+// fail with "command not found" on Linux/macOS, so this makes the Project Rules
+// gate actually work cross-platform.
+type hookKind struct {
+	ext     string // file extension incl. dot, e.g. ".sh" or ".ps1"
+	content string // hook script body
+	// command builds the settings/config command that invokes the hook, given
+	// the project-relative hook path (POSIX slashes) and the mode.
+	command func(hookRelPosix, mode string) string
+}
+
+func projectRulesHookKind(binaryRel, mode string) hookKind {
+	if runtime.GOOS == "windows" {
+		return hookKind{
+			ext:     ".ps1",
+			content: projectRulesHookScript(binaryRel, mode),
+			command: func(hookRelPosix, mode string) string {
+				return fmt.Sprintf(`powershell -NoProfile -ExecutionPolicy Bypass -File "$CLAUDE_PROJECT_DIR/%s" -Mode "%s"`, hookRelPosix, mode)
+			},
+		}
+	}
+	return hookKind{
+		ext:     ".sh",
+		content: projectRulesHookScriptPOSIX(binaryRel, mode),
+		command: func(hookRelPosix, mode string) string {
+			return fmt.Sprintf(`bash "$CLAUDE_PROJECT_DIR/%s"`, hookRelPosix)
+		},
+	}
+}
+
+// projectRulesHookScriptPOSIX is the bash equivalent of projectRulesHookScript:
+// it blocks direct merge/review/db-mutation commands while an autonomous session
+// is RUNNING, then delegates to `codedungeon rules gate`. Mode is baked in.
+func projectRulesHookScriptPOSIX(binaryRel, mode string) string {
+	return fmt.Sprintf(`#!/usr/bin/env bash
+# codedungeon Project Rules hook adapter (POSIX).
+set -euo pipefail
+MODE=%q
+payload="$(cat || true)"
+event="unknown"
+if command -v node >/dev/null 2>&1 && [ -n "$payload" ]; then
+  event="$(printf '%%s' "$payload" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(String(j.hook_event_name||j.hookEventName||"unknown"))}catch(e){process.stdout.write("unknown")}})' 2>/dev/null || echo unknown)"
+fi
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+bin="$root/%s"
+if [ ! -x "$bin" ] && [ -x "$bin.exe" ]; then bin="$bin.exe"; fi
+merge_re='gh[[:space:]]+pr[[:space:]]+merge|/merge|git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+merge'
+mainpush_re='git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push[^\n]*(origin[[:space:]]+(main|HEAD:main)|refs/heads/main)'
+if printf '%%s' "$payload" | grep -Eq "$merge_re|$mainpush_re|codedungeon\.db" \
+   || { printf '%%s' "$payload" | grep -Eq '\.codedungeon/reviews' \
+        && ! printf '%%s' "$payload" | grep -Eq 'codedungeon(\.exe)?[[:space:]]+review[[:space:]]+(run|post)'; }; then
+  status_raw="$("$bin" run status 2>/dev/null || true)"
+  if printf '%%s' "$status_raw" | grep -q '"status"[[:space:]]*:[[:space:]]*"RUNNING"'; then
+    echo "codedungeon autonomous session is active; direct merge/review/db mutation commands are blocked" >&2
+    exit 2
+  fi
+fi
+"$bin" rules gate --mode "$MODE" --event "$event" --message "$payload"
+gate=$?
+if [ "$gate" -ne 0 ] && [ "$MODE" = "enforce" ] && { [ "$event" = "Stop" ] || [ "$event" = "SubagentStop" ]; }; then
+  exit 2
+fi
+exit $gate
+`, mode, binaryRel)
+}
 
 func HooksCmd() *cobra.Command {
 	c := &cobra.Command{Use: "hooks", Short: "Install provider hook adapters"}
@@ -54,18 +122,24 @@ func installProjectRulesHooks(root, providerName, mode string) error {
 }
 
 func installCodexProjectRulesHooks(root, mode string) error {
-	hookRel := filepath.Join(".codex", "hooks", "project-rules-gate.ps1")
-	hookPath := filepath.Join(root, hookRel)
+	kind := projectRulesHookKind(".codex/bin/codedungeon", mode)
+	hookRelPosix := ".codex/hooks/project-rules-gate" + kind.ext
+	hookPath := filepath.Join(root, filepath.FromSlash(hookRelPosix))
 	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(hookPath, []byte(projectRulesHookScript(".codex/bin/codedungeon", mode)), 0o644); err != nil {
+	if err := os.WriteFile(hookPath, []byte(kind.content), 0o755); err != nil {
 		return err
 	}
 	cfgPath := filepath.Join(root, ".codex", "config.toml")
 	existing, _ := os.ReadFile(cfgPath)
 	content := ensureCodexHooksFeature(string(existing))
-	cmd := fmt.Sprintf(`powershell -NoProfile -ExecutionPolicy Bypass -File "$(git rev-parse --show-toplevel)/.codex/hooks/project-rules-gate.ps1" -Mode "%s"`, mode)
+	var cmd string
+	if runtime.GOOS == "windows" {
+		cmd = fmt.Sprintf(`powershell -NoProfile -ExecutionPolicy Bypass -File "$(git rev-parse --show-toplevel)/%s" -Mode "%s"`, hookRelPosix, mode)
+	} else {
+		cmd = fmt.Sprintf(`bash "$(git rev-parse --show-toplevel)/%s"`, hookRelPosix)
+	}
 	block := fmt.Sprintf(`
 # command delegates to codedungeon rules gate
 [[hooks.UserPromptSubmit]]
@@ -96,12 +170,13 @@ statusMessage = "Checking Project Rules completion gate"
 }
 
 func installClaudeProjectRulesHooks(root, mode string) error {
-	hookRel := filepath.Join(".claude", "hooks", "project-rules-gate.ps1")
-	hookPath := filepath.Join(root, hookRel)
+	kind := projectRulesHookKind(".claude/bin/codedungeon", mode)
+	hookRelPosix := ".claude/hooks/project-rules-gate" + kind.ext
+	hookPath := filepath.Join(root, filepath.FromSlash(hookRelPosix))
 	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(hookPath, []byte(projectRulesHookScript(".claude/bin/codedungeon", mode)), 0o644); err != nil {
+	if err := os.WriteFile(hookPath, []byte(kind.content), 0o755); err != nil {
 		return err
 	}
 	settingsPath := filepath.Join(root, ".claude", "settings.json")
@@ -109,7 +184,7 @@ func installClaudeProjectRulesHooks(root, mode string) error {
 	if body, err := os.ReadFile(settingsPath); err == nil && len(strings.TrimSpace(string(body))) > 0 {
 		_ = json.Unmarshal(body, &settings)
 	}
-	command := fmt.Sprintf(`powershell -NoProfile -ExecutionPolicy Bypass -File "$CLAUDE_PROJECT_DIR/.claude/hooks/project-rules-gate.ps1" -Mode "%s"`, mode)
+	command := kind.command(hookRelPosix, mode)
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
@@ -126,7 +201,7 @@ func installClaudeProjectRulesHooks(root, mode string) error {
 	settings["hooks"] = hooks
 	settings["codedungeon_project_rules_hooks"] = map[string]any{
 		"mode":    mode,
-		"script":  ".claude/hooks/project-rules-gate.ps1",
+		"script":  hookRelPosix,
 		"command": fmt.Sprintf(".claude/bin/codedungeon rules gate --mode %s", mode),
 	}
 	body, err := json.MarshalIndent(settings, "", "  ")

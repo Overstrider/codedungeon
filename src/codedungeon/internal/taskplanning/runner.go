@@ -3,7 +3,9 @@ package taskplanning
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,23 +50,34 @@ func (r CodexRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) err
 	if workDir == "" {
 		workDir = "."
 	}
-	var stderr bytes.Buffer
+	var stderr, stdout bytes.Buffer
 	runner := r.Runner
 	if runner == nil {
 		runner = tooladapter.NewSystemRunner()
 	}
 	_, err := runner.Run(ctx, tooladapter.Command{
-		Dir:    workDir,
-		Name:   "codex",
-		Args:   []string{"exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-"},
-		Stdin:  planningPrompt(req),
-		Stdout: os.Stdout,
+		Dir:  workDir,
+		Name: "codex",
+		Args: []string{"exec", "--cd", workDir, "--dangerously-bypass-approvals-and-sandbox", "--enable", "multi_agent_v2", "-"},
+		Stdin: planningPrompt(req),
+		// Capture stdout (still echo) so we can recover the agent JSON ourselves
+		// and surface codex errors emitted on stdout.
+		Stdout: io.MultiWriter(os.Stdout, &stdout),
 		Stderr: &stderr,
 	})
 	if err != nil {
 		return fmt.Errorf("codex planning agent %s failed: %w: %s", req.Role, err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+
+	// Don't trust that codex wrote OutputPath — extract the agent JSON from stdout
+	// and write it ourselves; fail loudly (not silently) if there's nothing usable.
+	if jsonFileLooksValid(req.OutputPath) {
+		return nil
+	}
+	if agentJSON, perr := extractAgentJSONFromStream(strings.TrimSpace(stdout.String())); perr == nil && agentJSON != "" {
+		return writeAgentOutput(req.OutputPath, agentJSON)
+	}
+	return fmt.Errorf("codex planning agent %s produced no usable output: no JSON in stdout and %s was not written", req.Role, req.OutputPath)
 }
 
 type ClaudeRunner struct {
@@ -83,6 +96,8 @@ func (r ClaudeRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) er
 		model = "claude-sonnet-4-6"
 	}
 	var stderr bytes.Buffer
+	// Capture stdout while still echoing it so the user sees streaming progress.
+	var stdout bytes.Buffer
 	runner := r.Runner
 	if runner == nil {
 		runner = tooladapter.NewSystemRunner()
@@ -101,13 +116,183 @@ func (r ClaudeRunner) RunPlanningAgent(ctx context.Context, req AgentRequest) er
 		},
 		Stdin:  planningPromptForProvider(req, "claude", model),
 		Env:    clauderuntime.ModelEnv(model),
-		Stdout: os.Stdout,
+		Stdout: io.MultiWriter(os.Stdout, &stdout),
 		Stderr: &stderr,
 	})
 	if err != nil {
 		return fmt.Errorf("claude planning agent %s failed: %w: %s", req.Role, err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+
+	// Caminho feliz: o `claude` escreveu o OutputPath direto. Em ambientes
+	// headless/nested isso frequentemente não acontece, então não dependemos disso —
+	// extraímos o JSON do agente do stream-json capturado e gravamos nós mesmos.
+	if jsonFileLooksValid(req.OutputPath) {
+		return nil
+	}
+
+	captured := strings.TrimSpace(stdout.String())
+	agentJSON, perr := extractAgentJSONFromStream(captured)
+	if perr == nil && agentJSON != "" {
+		if werr := writeAgentOutput(req.OutputPath, agentJSON); werr != nil {
+			return werr
+		}
+		return nil
+	}
+
+	// Falha alto, não mudo: explica exatamente o que aconteceu (esp. nested).
+	hint := ""
+	if runningInsideClaude() {
+		hint = " (detected nested Claude session via CLAUDECODE; nested planning agents may not emit output — run `codedungeon plan run` outside the Claude session, or use `--runner files` for deterministic E2E)"
+	}
+	return fmt.Errorf("claude planning agent %s produced no usable output: could not find the agent JSON in the stream-json and %s was not written%s", req.Role, req.OutputPath, hint)
+}
+
+// runningInsideClaude reports whether we're executing inside a Claude Code session,
+// where spawning a nested `claude` CLI may not return the expected stream output.
+// Mirrors the spirit of codexSandboxNetworkDisabled() for the Claude provider.
+func runningInsideClaude() bool {
+	for _, key := range []string{"CLAUDECODE", "CLAUDE_CODE", "CLAUDE_CODE_ENTRYPOINT"} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonFileLooksValid reports whether path exists with non-empty, valid JSON content.
+func jsonFileLooksValid(path string) bool {
+	body, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(body)) == 0 {
+		return false
+	}
+	return json.Valid(body)
+}
+
+// writeAgentOutput writes the extracted agent JSON to path (creating dirs).
+func writeAgentOutput(path, agentJSON string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(agentJSON), 0o644)
+}
+
+// extractAgentJSONFromStream parses the `claude --output-format stream-json` NDJSON
+// (one JSON event per line), reconstructs the assistant's final text, and isolates
+// the JSON object the planning agent was asked to emit. Tolerant of format
+// variations: it also accepts a final `type:"result"` event carrying the text, and
+// falls back to scanning the whole capture for a balanced JSON object.
+func extractAgentJSONFromStream(stream string) (string, error) {
+	stream = strings.TrimSpace(stream)
+	if stream == "" {
+		return "", fmt.Errorf("empty stream")
+	}
+
+	var assistantText strings.Builder
+	var resultText string
+
+	for _, line := range strings.Split(stream, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line[0] != '{' {
+			continue
+		}
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue // not a JSON event line; ignore
+		}
+		switch ev["type"] {
+		case "assistant":
+			// {"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}
+			if msg, ok := ev["message"].(map[string]any); ok {
+				assistantText.WriteString(textFromContent(msg["content"]))
+			}
+		case "content_block_delta":
+			// {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+			if delta, ok := ev["delta"].(map[string]any); ok {
+				if t, ok := delta["text"].(string); ok {
+					assistantText.WriteString(t)
+				}
+			}
+		case "result":
+			// {"type":"result","result":"..."} — final aggregated text on some versions.
+			if t, ok := ev["result"].(string); ok {
+				resultText = t
+			}
+		}
+	}
+
+	for _, candidate := range []string{assistantText.String(), resultText, stream} {
+		if obj := firstBalancedJSONObject(candidate); obj != "" {
+			return obj, nil
+		}
+	}
+	return "", fmt.Errorf("no valid JSON object found in stream")
+}
+
+// textFromContent concatenates the "text" fields from a message content array.
+func textFromContent(content any) string {
+	arr, ok := content.([]any)
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, item := range arr {
+		if m, ok := item.(map[string]any); ok {
+			if t, ok := m["text"].(string); ok {
+				b.WriteString(t)
+			}
+		}
+	}
+	return b.String()
+}
+
+// firstBalancedJSONObject returns the first top-level balanced `{...}` substring of s
+// that is valid JSON, or "" if none. Respects strings/escapes so braces inside
+// string literals don't break the balance count.
+func firstBalancedJSONObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return ""
+	}
+	for start >= 0 {
+		depth := 0
+		inStr := false
+		esc := false
+		for i := start; i < len(s); i++ {
+			c := s[i]
+			if inStr {
+				switch {
+				case esc:
+					esc = false
+				case c == '\\':
+					esc = true
+				case c == '"':
+					inStr = false
+				}
+				continue
+			}
+			switch c {
+			case '"':
+				inStr = true
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					candidate := s[start : i+1]
+					if json.Valid([]byte(candidate)) {
+						return candidate
+					}
+					break // try next '{'
+				}
+			}
+		}
+		next := strings.IndexByte(s[start+1:], '{')
+		if next < 0 {
+			return ""
+		}
+		start = start + 1 + next
+	}
+	return ""
 }
 
 func codexSandboxNetworkDisabled() bool {

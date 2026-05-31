@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -233,13 +234,25 @@ func installEmbeddedArtifactsAt(s *db.Store, root string) error {
 		if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(disk, a.Content, 0o644); err != nil {
+		// `provider-config` JSON artifacts (e.g. .claude/settings.json) carry the
+		// user's own permissions/hooks. The embedded copy is intentionally minimal
+		// (often just `{}`), so overwriting it blindly would wipe the user's config.
+		// Merge the embedded keys over the existing file instead of clobbering it.
+		written := a.Content
+		if isJSONProviderConfig(a) {
+			merged, err := mergeJSONOverExisting(disk, a.Content)
+			if err != nil {
+				return err
+			}
+			written = merged
+		}
+		if err := os.WriteFile(disk, written, 0o644); err != nil {
 			return err
 		}
 		_ = s.UpsertArtifact(db.InstalledArtifact{
 			RelPath:       a.RelPath,
 			InstallPath:   a.InstallPath,
-			SHA256:        sha256Hex(a.Content),
+			SHA256:        sha256Hex(written),
 			BinaryVersion: versionString(),
 			Provider:      a.Provider,
 			PackID:        a.PackID,
@@ -250,6 +263,65 @@ func installEmbeddedArtifactsAt(s *db.Store, root string) error {
 		})
 	}
 	return nil
+}
+
+// isJSONProviderConfig reports whether an artifact is a JSON provider-config file
+// (e.g. .claude/settings.json) that must be merged rather than overwritten.
+// Codex's config.toml is also provider-config but is TOML, so it's excluded.
+func isJSONProviderConfig(a prompts.Artifact) bool {
+	return a.Kind == "provider-config" && strings.HasSuffix(strings.ToLower(a.RelPath), ".json")
+}
+
+// mergeJSONOverExisting deep-merges `embedded` JSON on top of whatever JSON already
+// lives at `disk`, preserving the user's keys. Existing values win on scalar
+// conflicts; nested objects merge recursively. If `disk` is absent/empty/invalid,
+// the embedded content is returned as-is. Returns indented JSON with a trailing
+// newline (mirrors cmd/hooks.go).
+func mergeJSONOverExisting(disk string, embedded []byte) ([]byte, error) {
+	existingBody, readErr := os.ReadFile(disk)
+	haveExisting := readErr == nil && len(strings.TrimSpace(string(existingBody))) > 0
+	if !haveExisting {
+		return embedded, nil
+	}
+
+	var existing map[string]any
+	if err := json.Unmarshal(existingBody, &existing); err != nil {
+		// Disk file isn't a JSON object we understand — don't risk destroying it.
+		// Keep it as-is.
+		return existingBody, nil
+	}
+
+	var incoming map[string]any
+	if err := json.Unmarshal(embedded, &incoming); err != nil {
+		// Embedded isn't a JSON object (shouldn't happen) — keep existing untouched.
+		return existingBody, nil
+	}
+
+	merged := mergeJSONMaps(existing, incoming)
+	out, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
+}
+
+// mergeJSONMaps merges `incoming` into `base`. Existing keys in `base` are kept;
+// new keys from `incoming` are added; objects present in both merge recursively.
+func mergeJSONMaps(base, incoming map[string]any) map[string]any {
+	for k, iv := range incoming {
+		if bv, ok := base[k]; ok {
+			bm, bok := bv.(map[string]any)
+			im, iok := iv.(map[string]any)
+			if bok && iok {
+				base[k] = mergeJSONMaps(bm, im)
+				continue
+			}
+			// scalar/array conflict: keep the user's existing value
+			continue
+		}
+		base[k] = iv
+	}
+	return base
 }
 
 // copyFile copies src → dst with perm.

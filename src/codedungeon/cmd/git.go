@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -30,7 +31,9 @@ func run(repo string, args ...string) (string, string, error) {
 	if len(args) == 0 {
 		return "", "", fmt.Errorf("missing command")
 	}
-	result, err := tooladapter.NewSystemRunner().Run(context.Background(), tooladapter.Command{Dir: repo, Name: args[0], Args: args[1:]})
+	ctx, cancel := withExternalTimeout(context.Background(), "CODEDUNGEON_GIT_TIMEOUT_SECONDS", 60*time.Second)
+	defer cancel()
+	result, err := tooladapter.NewSystemRunner().Run(ctx, tooladapter.Command{Dir: repo, Name: args[0], Args: args[1:]})
 	return strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr), err
 }
 
